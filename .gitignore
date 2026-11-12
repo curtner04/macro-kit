@@ -1,0 +1,9 @@
+build/
+/_shared/
+/test-results/
+*.exe
+!tools/*.exe
+*.exe.previous*
+*.pdb
+*.tmp
+/.claude/
