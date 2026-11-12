@@ -10,6 +10,13 @@ Macro Kit is one small Windows app that replaces three tools without their extra
 
 It is a normal Windows program (.NET Framework 4.8, nothing to install first). Run `Macro Kit.exe`, or use the Start menu shortcut once it is installed.
 
+## Download
+
+[**Download Macro Kit for Windows**](https://github.com/curtner04/macro-kit-downloads/releases/latest/download/MK-Setup.exe)
+(64-bit Windows 10/11) · [release history](https://github.com/curtner04/macro-kit-downloads/releases)
+
+The installer puts Macro Kit in your user profile without asking for administrator rights. If the link says "Not Found", the first installer has not been published yet.
+
 ## Getting started
 
 1. Open **Macros**. A first example ("Copy, switch, paste, next row") is already there. Click **Run**.
