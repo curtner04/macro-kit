@@ -203,6 +203,47 @@ namespace MacroKit.App
                     && !shell.Deck.ShowActivated && !shell.Pill.ShowActivated && shell.Deck.Topmost && shell.Pill.Topmost;
             });
 
+            Step("the status popup goes where it was dragged and back to the corner on reset", () =>
+            {
+                RunPill pill = shell.Pill;
+                System.Drawing.Rectangle work = System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(main).EnsureHandle()).WorkingArea;
+                pill.ShowForMoving(main);
+                Settle(pill);
+                Rect r;
+                if (!pill.IsShownForMoving || !NativeUi.TryGetRect(pill, out r)) throw new Exception("the popup did not show for moving");
+                if (Math.Abs(r.Right - (work.Right - 18)) > 1 || Math.Abs(r.Bottom - (work.Bottom - 18)) > 1) throw new Exception("default place " + r + " in " + work);
+                double w = r.Width, h = r.Height;
+                // Dropped near the top-left: the top-left corner stays put.
+                controller.Settings.PillLeft = work.Left + 40; controller.Settings.PillTop = work.Top + 30; controller.Settings.PillRight = work.Left + 40 + w + 60; controller.Settings.PillBottom = work.Top + 30 + h;
+                pill.ShowForMoving(main);
+                Settle(pill);
+                NativeUi.TryGetRect(pill, out r);
+                if (Math.Abs(r.Left - (work.Left + 40)) > 1 || Math.Abs(r.Top - (work.Top + 30)) > 1) throw new Exception("top-left place gave " + r);
+                // Dropped near the bottom-right and narrower than now: the right and bottom edges stay put, so it grows to the left.
+                controller.Settings.PillLeft = work.Right - 300; controller.Settings.PillTop = work.Bottom - 120; controller.Settings.PillRight = work.Right - 100; controller.Settings.PillBottom = work.Bottom - 80;
+                pill.ShowForMoving(main);
+                Settle(pill);
+                NativeUi.TryGetRect(pill, out r);
+                if (Math.Abs(r.Right - (work.Right - 100)) > 1 || Math.Abs(r.Bottom - (work.Bottom - 80)) > 1) throw new Exception("bottom-right place gave " + r);
+                // Saved hanging past the screen edge (its middle still on this screen): it is kept fully on this screen.
+                controller.Settings.PillLeft = work.Right - 200; controller.Settings.PillTop = work.Top + 10; controller.Settings.PillRight = work.Right + 100; controller.Settings.PillBottom = work.Top + 10 + h;
+                pill.ShowForMoving(main);
+                Settle(pill);
+                NativeUi.TryGetRect(pill, out r);
+                if (r.Right > work.Right + 1 || r.Left < work.Left - 1) throw new Exception("off-screen place gave " + r);
+                controller.MarkDirty(SaveParts.Settings);
+                if (!controller.Flush()) throw new Exception("saving failed: " + controller.LastStatus);
+                AppSettings saved = new Storage(data).LoadSettings();
+                if (saved.PillLeft != controller.Settings.PillLeft || saved.PillBottom != controller.Settings.PillBottom) throw new Exception("the popup place did not round-trip");
+                pill.ResetPlace();
+                Settle(pill);
+                NativeUi.TryGetRect(pill, out r);
+                if (!double.IsNaN(controller.Settings.PillLeft) || Math.Abs(r.Right - (work.Right - 18)) > 1 || Math.Abs(r.Bottom - (work.Bottom - 18)) > 1) throw new Exception("reset gave " + r);
+                controller.Flush();
+                if (!double.IsNaN(new Storage(data).LoadSettings().PillLeft)) throw new Exception("the reset place did not round-trip");
+                pill.EndMoving();
+                if (pill.IsVisible) throw new Exception("Done did not hide the popup");
+            });
             Step("the main window returns quietly after a run (minimized stays minimized)", () =>
             {
                 main.Hide();
@@ -415,6 +456,12 @@ namespace MacroKit.App
             {
                 shell.Pill.Render(new ActivityInfo(), "Can't find the window to run in (Chrome.exe, title contains “Orders”). Open it and try again.", true);
                 RenderFloating(shell.Pill, Path.Combine(folder, "7-pill-error-" + suffix + ".png"));
+            });
+            Step("render pill shown for moving (" + suffix + ")", () =>
+            {
+                shell.Pill.ShowForMoving(shell.Main);
+                RenderFloating(shell.Pill, Path.Combine(folder, "7-pill-moving-" + suffix + ".png"));
+                shell.Pill.EndMoving();
             });
         }
 

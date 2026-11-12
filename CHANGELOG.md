@@ -1,5 +1,10 @@
 # Macro Kit changelog
 
+## 1.0.2 - 2026-11-12
+
+- Status popup: drag it anywhere and it stays there for every recording, playback and macro run. Dropped on the right or bottom half of a screen it keeps its right or bottom edge, so it grows away from the screen edge, and it never ends up off screen.
+- Settings has a Status popup card: Show popup puts it on screen while nothing runs so you can drag it into place (press Done when it is there), and Reset position puts it back in the bottom-right corner of the screen you are working on.
+
 ## 1.0.1 - 2026-11-12
 
 - Macros: the Keys part of the command palette is grouped into labelled rows, each in its own colour: Clipboard (Copy, Cut, Paste, Select all), Switch (Alt+Tab, Ctrl+Tab), Edit (Enter, Tab, Esc, Backspace, Delete), Arrows, Jump (Home, End, PgUp, PgDn) and F keys. The Undo and Save buttons are gone; type {{CTRL}{Z}} or {{CTRL}{S}}, or use Your own shortcut.

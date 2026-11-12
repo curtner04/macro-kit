@@ -19,12 +19,16 @@ namespace MacroKit.App
         readonly CheckBox startWithWindows;
         readonly ComboBox theme = new ComboBox { Width = 180 };
         readonly TextBox excluded;
+        readonly Func<RunPill> pill;
+        readonly TextBlock pillPlace = Ui.Text("", "Muted", false, 12, true);
+        readonly Button pillReset;
         bool loading;
 
-        public SettingsTab(AppController controller, Action themeChanged, Action showChangelog, Action openDataFolder)
+        public SettingsTab(AppController controller, Action themeChanged, Action showChangelog, Action openDataFolder, Func<RunPill> pill)
         {
             c = controller;
             this.themeChanged = themeChanged;
+            this.pill = pill;
 
             // ---- hotkeys
             var hotkeys = new StackPanel();
@@ -67,6 +71,15 @@ namespace MacroKit.App
                 Ui.Row(10, Ui.Text("Deck columns", "Muted", false, 12), deckColumns),
                 Ui.Row(10, Ui.Text("Theme", "Muted", false, 12), theme)));
 
+            // ---- status popup
+            var pillShow = Ui.Button("Show popup", ShowPill, "Small", "Show the status popup now, so you can drag it where you want it. Press Done on it when it is in place.");
+            pillReset = Ui.Button("Reset position", ResetPill, "Small", "Put the popup back in the bottom-right corner of the screen you are working on.");
+            var popupCard = Ui.Card(Ui.Stack(8,
+                Ui.Heading("Status popup"),
+                Ui.Para("The popup shows what is running and has a Stop button. Drag it to move it; it stays where you leave it.", "Muted", 12),
+                pillPlace,
+                Ui.Row(8, pillShow, pillReset)));
+
             // ---- excluded programs
             excluded = new TextBox
             {
@@ -105,7 +118,7 @@ namespace MacroKit.App
                 links,
                 Ui.Para("Windows stops programs from typing into, or watching, programs that run as administrator. To use Macro Kit with those, run Macro Kit as administrator too. Macro Kit warns you when the window it works in runs as administrator.", "Muted", 12)));
 
-            var left = Ui.Stack(0, hotkeyCard, excludedCard);
+            var left = Ui.Stack(0, hotkeyCard, excludedCard, popupCard);
             var right = Ui.Stack(0, behavior, about);
             var grid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 380 });
@@ -117,6 +130,8 @@ namespace MacroKit.App
             Root = new ScrollViewer { Content = grid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
             c.HotkeysChanged += ShowHotkeyErrors;
+            c.Edited += parts => { if ((parts & SaveParts.Settings) != 0) ShowPillPlace(); };
+            ShowPillPlace();
             RefreshStartup();
             ShowHotkeyErrors();
         }
@@ -145,6 +160,28 @@ namespace MacroKit.App
             error.Visibility = Visibility.Collapsed;
             hotkeyErrors[key] = error;
             panel.Children.Add(error);
+        }
+
+        void ShowPill()
+        {
+            RunPill p = pill();
+            if (p == null) return;
+            if (c.Activity.Kind != ActivityKind.None) { c.SetStatus("The popup is already showing for what is running. Drag it from there.", false); return; }
+            p.ShowForMoving(Window.GetWindow(Root));
+        }
+
+        void ResetPill()
+        {
+            RunPill p = pill();
+            if (p != null) p.ResetPlace();
+            ShowPillPlace();
+        }
+
+        void ShowPillPlace()
+        {
+            bool custom = !double.IsNaN(c.Settings.PillLeft);
+            pillPlace.Text = custom ? "Position: where you dragged it." : "Position: bottom-right corner of the screen you are working on.";
+            pillReset.IsEnabled = custom;
         }
 
         void ShowHotkeyErrors()

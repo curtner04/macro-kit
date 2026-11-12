@@ -47,7 +47,8 @@ namespace MacroKit.App
 
     /// <summary>
     /// The small status bar at the bottom-right of the screen while something runs: what is happening, how far along it is, and a
-    /// Stop button that works without stealing focus from the program the macro is running in.
+    /// Stop button that works without stealing focus from the program the macro is running in. Dragging it moves it there for good
+    /// (Settings can show it while nothing runs, and reset it to the corner).
     /// </summary>
     public sealed class RunPill : FloatingWindow
     {
@@ -61,6 +62,10 @@ namespace MacroKit.App
         readonly DispatcherTimer hideTimer;
         Rect anchorPixels = Rect.Empty;
         bool anchored;
+        bool dragging;
+        // Shown from Settings so it can be dragged into place while nothing runs; ends with Done or when something starts.
+        bool moving;
+        Window movingNear;
 
         public RunPill(AppController controller)
         {
@@ -81,6 +86,8 @@ namespace MacroKit.App
             var frame = new Border { Child = row, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10) };
             Ui.Ref(frame, Border.BackgroundProperty, "Card");
             Ui.Ref(frame, Border.BorderBrushProperty, "Border");
+            // Buttons handle their own clicks, so only the background and the text start a drag.
+            frame.MouseLeftButtonDown += (s, e) => DragToNewPlace();
             Content = frame;
 
             tick = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(500) };
@@ -96,6 +103,7 @@ namespace MacroKit.App
             hideTimer.Stop();
             if (c.Activity.Kind != ActivityKind.None)
             {
+                moving = false;
                 anchored = false;
                 Render(c.Activity, null, false);
                 tick.Start();
@@ -111,8 +119,77 @@ namespace MacroKit.App
                     hideTimer.Interval = TimeSpan.FromSeconds(8);
                     hideTimer.Start();
                 }
+                else if (moving) RenderMoving();
                 else Hide();
             }
+        }
+
+        /// <summary>
+        /// Shows the popup with nothing running so it can be dragged into place (Settings → Show popup). Without a dragged place it
+        /// appears in the bottom-right corner of the screen <paramref name="near"/> is on. Does nothing while something runs, because
+        /// the popup is already on screen then and can be dragged as it is.
+        /// </summary>
+        public void ShowForMoving(Window near)
+        {
+            if (c.Activity.Kind != ActivityKind.None) return;
+            hideTimer.Stop();
+            moving = true;
+            movingNear = near;
+            anchored = false;
+            RenderMoving();
+            Reveal();
+        }
+
+        /// <summary>True while the popup is shown from Settings for moving.</summary>
+        public bool IsShownForMoving { get { return moving && IsVisible; } }
+
+        /// <summary>Forgets the dragged place, so the popup goes back to the bottom-right corner of the screen being worked on.</summary>
+        public void ResetPlace()
+        {
+            bool had = !double.IsNaN(c.Settings.PillLeft);
+            c.Settings.PillLeft = c.Settings.PillTop = c.Settings.PillRight = c.Settings.PillBottom = double.NaN;
+            if (had) c.MarkDirty(SaveParts.Settings);
+            anchored = false;
+            Reposition();
+        }
+
+        /// <summary>Hides the popup shown from Settings (its Done button).</summary>
+        public void EndMoving()
+        {
+            moving = false;
+            movingNear = null;
+            Hide();
+        }
+
+        void RenderMoving()
+        {
+            Render(new ActivityInfo(), null, false);
+            Ui.Ref(dot, Shape.FillProperty, "Accent");
+            title.Text = "Status popup";
+            detail.Text = "Drag it to where it should show during runs";
+            buttons.Children.Add(NoFocus(Ui.Button("Done", EndMoving, "Primary")));
+        }
+
+        void DragToNewPlace()
+        {
+            Rect before, after;
+            if (!NativeUi.TryGetRect(this, out before)) return;
+            dragging = true;
+            try { DragMove(); }
+            catch (InvalidOperationException) { }
+            finally { dragging = false; }
+            // A plain click (no real move) keeps the place it had, so clicking the text never pins the default corner.
+            if (!NativeUi.TryGetRect(this, out after) || (Math.Abs(after.X - before.X) < 3 && Math.Abs(after.Y - before.Y) < 3))
+            {
+                Reposition();
+                return;
+            }
+            c.Settings.PillLeft = after.Left;
+            c.Settings.PillTop = after.Top;
+            c.Settings.PillRight = after.Right;
+            c.Settings.PillBottom = after.Bottom;
+            c.MarkDirty(SaveParts.Settings);
+            Reposition();
         }
 
         /// <summary>
@@ -123,6 +200,7 @@ namespace MacroKit.App
         {
             if (c.Activity.Kind != ActivityKind.None) return;
             hideTimer.Stop();
+            moving = false;
             anchored = false;
             Render(new ActivityInfo(), message, dotKey == "Bad", heading, dotKey);
             Reveal();
@@ -145,24 +223,69 @@ namespace MacroKit.App
 
         void Reposition()
         {
-            if (!IsVisible) return;
+            // While the user drags, the text still updates (and the size with it); moving the window then would fight the drag.
+            if (!IsVisible || dragging) return;
+            Rect self;
+            if (!NativeUi.TryGetRect(this, out self)) return;
+            Rect saved;
+            if (TrySavedPlace(out saved))
+            {
+                Point at = PlaceFromSaved(saved, self.Size);
+                NativeUi.MoveTo(this, (int)at.X, (int)at.Y);
+                return;
+            }
             if (!anchored)
             {
                 anchorPixels = WorkAreaOfTarget();
                 anchored = true;
             }
-            Rect self;
-            if (anchorPixels.IsEmpty || !NativeUi.TryGetRect(this, out self)) return;
+            if (anchorPixels.IsEmpty) return;
             const int margin = 18;
             NativeUi.MoveTo(this, (int)(anchorPixels.Right - self.Width - margin), (int)(anchorPixels.Bottom - self.Height - margin));
+        }
+
+        /// <summary>The dragged place, when there is one and it is still on a connected screen.</summary>
+        bool TrySavedPlace(out Rect saved)
+        {
+            saved = Rect.Empty;
+            AppSettings s = c.Settings;
+            if (double.IsNaN(s.PillLeft) || double.IsNaN(s.PillTop) || double.IsNaN(s.PillRight) || double.IsNaN(s.PillBottom)) return false;
+            if (s.PillRight <= s.PillLeft || s.PillBottom <= s.PillTop) return false;
+            saved = new Rect(s.PillLeft, s.PillTop, s.PillRight - s.PillLeft, s.PillBottom - s.PillTop);
+            return NativeUi.IsOnScreen(saved.X, saved.Y, saved.Width, saved.Height);
+        }
+
+        /// <summary>
+        /// Where the popup goes for a dragged place. Its size changes with the text, so it keeps the edges nearest the screen's edges
+        /// where it was dropped (dropped on the right half: the right edge stays put and it grows to the left), and stays on that screen.
+        /// </summary>
+        static Point PlaceFromSaved(Rect saved, Size size)
+        {
+            Rect area;
+            try
+            {
+                var center = new System.Drawing.Point((int)(saved.X + saved.Width / 2), (int)(saved.Y + saved.Height / 2));
+                System.Drawing.Rectangle work = System.Windows.Forms.Screen.FromPoint(center).WorkingArea;
+                area = new Rect(work.X, work.Y, work.Width, work.Height);
+            }
+            catch (Exception) { return new Point(saved.X, saved.Y); }
+            bool right = saved.X + saved.Width / 2 > area.X + area.Width / 2;
+            bool bottom = saved.Y + saved.Height / 2 > area.Y + area.Height / 2;
+            double x = right ? saved.Right - size.Width : saved.Left;
+            double y = bottom ? saved.Bottom - size.Height : saved.Top;
+            x = Math.Max(area.Left, Math.Min(x, area.Right - size.Width));
+            y = Math.Max(area.Top, Math.Min(y, area.Bottom - size.Height));
+            return new Point(x, y);
         }
 
         Rect WorkAreaOfTarget()
         {
             try
             {
-                IntPtr target = c.Windows.LastExternalForeground;
-                System.Windows.Forms.Screen screen = target != IntPtr.Zero ? System.Windows.Forms.Screen.FromHandle(target) : System.Windows.Forms.Screen.PrimaryScreen;
+                System.Windows.Forms.Screen screen;
+                IntPtr near = movingNear != null && moving ? new WindowInteropHelper(movingNear).Handle : IntPtr.Zero;
+                IntPtr target = near != IntPtr.Zero ? near : c.Windows.LastExternalForeground;
+                screen = target != IntPtr.Zero ? System.Windows.Forms.Screen.FromHandle(target) : System.Windows.Forms.Screen.PrimaryScreen;
                 System.Drawing.Rectangle area = screen.WorkingArea;
                 return new Rect(area.X, area.Y, area.Width, area.Height);
             }

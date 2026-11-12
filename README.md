@@ -20,7 +20,7 @@ The installer puts Macro Kit in your user profile without asking for administrat
 ## Getting started
 
 1. Open **Macros**. A first example ("Copy, switch, paste, next row") is already there. Click **Run**.
-2. Macro Kit steps aside, switches to the window you used before it, and runs the macro there. A small status bar at the bottom-right of the screen shows progress and has a **Stop** button.
+2. Macro Kit steps aside, switches to the window you used before it, and runs the macro there. A small status bar at the bottom-right of the screen shows progress and has a **Stop** button. Drag it anywhere and it stays there; **Settings → Status popup** can show it while nothing runs so you can place it, and **Reset position** puts it back in the corner.
 3. When the macro finishes, Macro Kit comes back without taking focus.
 
 Closing the window keeps Macro Kit running in the notification area (tray), because phrases and hotkeys only work while it runs. Use the tray menu or **⋯ > Exit Macro Kit** to quit. This can be turned off in Settings.

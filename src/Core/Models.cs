@@ -114,6 +114,11 @@ namespace MacroKit.Core
         public double DeckLeft { get; set; }
         public double DeckTop { get; set; }
         public int DeckColumns { get; set; }
+        // Where the status popup was dragged to (its outer edges, physical pixels); NaN = bottom-right of the screen being worked on.
+        public double PillLeft { get; set; }
+        public double PillTop { get; set; }
+        public double PillRight { get; set; }
+        public double PillBottom { get; set; }
         public double WindowLeft { get; set; }
         public double WindowTop { get; set; }
         public double WindowWidth { get; set; }
@@ -142,6 +147,10 @@ namespace MacroKit.Core
             DeckLeft = double.NaN;
             DeckTop = double.NaN;
             DeckColumns = 3;
+            PillLeft = double.NaN;
+            PillTop = double.NaN;
+            PillRight = double.NaN;
+            PillBottom = double.NaN;
             WindowLeft = double.NaN;
             WindowTop = double.NaN;
             WindowWidth = 1040;

@@ -88,7 +88,7 @@ namespace MacroKit.App
             Recorder = new RecorderTab(c, this);
             Phrases = new PhrasesTab(c, this);
             Macros = new MacrosTab(c, this);
-            Settings = new SettingsTab(c, () => { Theme.Apply(c.Settings.Theme); }, shell.ShowChangelog, shell.OpenDataFolder);
+            Settings = new SettingsTab(c, () => { Theme.Apply(c.Settings.Theme); }, shell.ShowChangelog, shell.OpenDataFolder, () => shell.Pill);
             string[] names = { "Recorder", "Phrases", "Macros", "Settings" };
             FrameworkElement[] roots = { Recorder.Root, Phrases.Root, Macros.Root, Settings.Root };
             var tabRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(22, 8, 22, 0) };
