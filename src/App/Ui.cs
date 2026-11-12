@@ -11,7 +11,7 @@ namespace MacroKit.App
     /// <summary>
     /// Small factory helpers for code-built pages. Colours are theme resource keys (see Theme.cs and Styles.xaml):
     /// Bg, Card, Card2, Input, Border, Text, Muted, Accent, AccentFg, AccentText, BtnBg, Good, GoodBg, Warn, WarnBg, Bad, BadBg,
-    /// Info, InfoBg, Selected, Rec. Style keys: Primary, Danger, Ghost, Small, Chip, Transport, Link, MenuBtn (buttons),
+    /// Info, InfoBg, Selected, Rec, and the palette key groups KeyClip, KeySwitch, KeyEdit, KeyArrow, KeyJump (+ "Bg"). Style keys: Primary, Danger, Ghost, Small, Chip, Transport, Link, MenuBtn (buttons),
     /// Switch (check box), H1, H2, Cap, MutedText (text), CardBorder (border).
     /// </summary>
     public static class Ui

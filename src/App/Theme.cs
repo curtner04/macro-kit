@@ -26,7 +26,11 @@ namespace MacroKit.App
             { "Text", "#E8EAED" }, { "Muted", "#A0A7B4" }, { "Accent", "#4CA8FF" }, { "AccentFg", "#0B1220" }, { "AccentText", "#6CB8FF" },
             { "BtnBg", "#2A2F3A" }, { "Good", "#6CCB8A" }, { "GoodBg", "#1B3326" }, { "Warn", "#F0B44C" }, { "WarnBg", "#3A2E14" },
             { "Bad", "#FF8A80" }, { "BadBg", "#45201E" }, { "Info", "#7FB7FF" }, { "InfoBg", "#1B2A40" }, { "Selected", "#243246" },
-            { "Rec", "#FF5A52" }
+            { "Rec", "#FF5A52" },
+            // Key groups in the Macros command palette (label colour, chip fill)
+            { "KeyClip", "#7FB7FF" }, { "KeyClipBg", "#213752" }, { "KeySwitch", "#C3A6FF" }, { "KeySwitchBg", "#33294D" },
+            { "KeyEdit", "#F0B44C" }, { "KeyEditBg", "#41331A" }, { "KeyArrow", "#6CCB8A" }, { "KeyArrowBg", "#1F3A2A" },
+            { "KeyJump", "#5FD3C6" }, { "KeyJumpBg", "#183A38" }
         };
 
         static readonly Dictionary<string, string> Light = new Dictionary<string, string>
@@ -35,7 +39,10 @@ namespace MacroKit.App
             { "Text", "#1B1F27" }, { "Muted", "#5B6575" }, { "Accent", "#0A64C8" }, { "AccentFg", "#FFFFFF" }, { "AccentText", "#0A5BB5" },
             { "BtnBg", "#E8ECF2" }, { "Good", "#1E7D3C" }, { "GoodBg", "#E2F3E7" }, { "Warn", "#8A5A00" }, { "WarnBg", "#FFF2D6" },
             { "Bad", "#B3261E" }, { "BadBg", "#FBE4E1" }, { "Info", "#0A5BB5" }, { "InfoBg", "#E4EEFB" }, { "Selected", "#E3ECF8" },
-            { "Rec", "#D92D20" }
+            { "Rec", "#D92D20" },
+            { "KeyClip", "#0A5BB5" }, { "KeyClipBg", "#E1ECFB" }, { "KeySwitch", "#6A3FC4" }, { "KeySwitchBg", "#ECE5FB" },
+            { "KeyEdit", "#8A5A00" }, { "KeyEditBg", "#FBEFD5" }, { "KeyArrow", "#1E7D3C" }, { "KeyArrowBg", "#DFF2E5" },
+            { "KeyJump", "#0B7369" }, { "KeyJumpBg", "#D9F1EE" }
         };
 
         static ResourceDictionary resources;

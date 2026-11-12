@@ -10,6 +10,6 @@ namespace MacroKit.App
     /// <summary>The single authoritative version. Keep it equal to the newest heading in CHANGELOG.md.</summary>
     public static class Release
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
     }
 }

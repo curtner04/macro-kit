@@ -21,6 +21,16 @@
   <SolidColorBrush x:Key="InfoBg" Color="#1B2A40"/>
   <SolidColorBrush x:Key="Selected" Color="#243246"/>
   <SolidColorBrush x:Key="Rec" Color="#FF5A52"/>
+  <SolidColorBrush x:Key="KeyClip" Color="#7FB7FF"/>
+  <SolidColorBrush x:Key="KeyClipBg" Color="#213752"/>
+  <SolidColorBrush x:Key="KeySwitch" Color="#C3A6FF"/>
+  <SolidColorBrush x:Key="KeySwitchBg" Color="#33294D"/>
+  <SolidColorBrush x:Key="KeyEdit" Color="#F0B44C"/>
+  <SolidColorBrush x:Key="KeyEditBg" Color="#41331A"/>
+  <SolidColorBrush x:Key="KeyArrow" Color="#6CCB8A"/>
+  <SolidColorBrush x:Key="KeyArrowBg" Color="#1F3A2A"/>
+  <SolidColorBrush x:Key="KeyJump" Color="#5FD3C6"/>
+  <SolidColorBrush x:Key="KeyJumpBg" Color="#183A38"/>
 
   <!-- Text -->
   <Style x:Key="H1" TargetType="TextBlock"><Setter Property="FontSize" Value="20"/><Setter Property="FontWeight" Value="SemiBold"/></Style>

@@ -222,15 +222,25 @@ namespace MacroKit.App
             for (char ch = 'A'; ch <= 'Z'; ch++) holdKey.Items.Add(ch.ToString());
             holdKey.SelectedIndex = 0;
 
-            var shortcuts = Ui.Wrap(
-                Chip("Copy", () => Keys("CTRL", "C")), Chip("Paste", () => Keys("CTRL", "V")), Chip("Cut", () => Keys("CTRL", "X")),
-                Chip("Select all", () => Keys("CTRL", "A")), Chip("Undo", () => Keys("CTRL", "Z")), Chip("Save", () => Keys("CTRL", "S")),
-                Chip("Alt+Tab", () => Keys("ALT", "TAB")), Chip("Ctrl+Tab", () => Keys("CTRL", "TAB")),
+            // One labelled row per kind of key, each in its own colour, so a key is quick to find.
+            var keys = new Grid();
+            keys.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            keys.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            KeyGroup(keys, "Clipboard", "KeyClip",
+                Chip("Copy", () => Keys("CTRL", "C")), Chip("Cut", () => Keys("CTRL", "X")), Chip("Paste", () => Keys("CTRL", "V")), Chip("Select all", () => Keys("CTRL", "A")));
+            KeyGroup(keys, "Switch", "KeySwitch",
+                Chip("Alt+Tab", () => Keys("ALT", "TAB")), Chip("Ctrl+Tab", () => Keys("CTRL", "TAB")));
+            KeyGroup(keys, "Edit", "KeyEdit",
                 Chip("Enter", () => Keys("ENTER")), Chip("Tab", () => Keys("TAB")), Chip("Esc", () => Keys("ESC")),
-                Chip("Backspace", () => Keys("BACK")), Chip("Delete", () => Keys("DELETE")),
-                Chip("↑", () => Keys("UP"), "Up arrow"), Chip("↓", () => Keys("DOWN"), "Down arrow"), Chip("←", () => Keys("LEFT"), "Left arrow"), Chip("→", () => Keys("RIGHT"), "Right arrow"),
+                Chip("Backspace", () => Keys("BACK")), Chip("Delete", () => Keys("DELETE")));
+            KeyGroup(keys, "Arrows", "KeyArrow",
+                Chip("↑", () => Keys("UP"), "Up arrow"), Chip("↓", () => Keys("DOWN"), "Down arrow"), Chip("←", () => Keys("LEFT"), "Left arrow"), Chip("→", () => Keys("RIGHT"), "Right arrow"));
+            KeyGroup(keys, "Jump", "KeyJump",
                 Chip("Home", () => Keys("HOME")), Chip("End", () => Keys("END")), Chip("PgUp", () => Keys("PGUP"), "Page Up"), Chip("PgDn", () => Keys("PGDN"), "Page Down"));
-            var fRow = Ui.WrapRow(6, functionKey, AddButton(() => Keys((string)functionKey.SelectedItem), "Insert the function key."));
+            var fLabel = Ui.Text("F keys", "Muted", true, 11);
+            AddKeyRow(keys, fLabel, Ui.WrapRow(6, functionKey, AddButton(() => Keys((string)functionKey.SelectedItem), "Insert the function key.")));
+            fLabel.VerticalAlignment = VerticalAlignment.Center;
+            fLabel.Margin = new Thickness(0, 0, 12, 5);
 
             var pauseRow = Ui.WrapRow(6, pauseMs, Ui.Text("ms", "Muted", false, 12), AddButton(() => MacroScript.Pause(pauseMs.Value), "Wait this long before the next command."));
             var pauseChips = Ui.Wrap(Chip("50", () => MacroScript.Pause(50), "Wait 50 ms"), Chip("100", () => MacroScript.Pause(100), "Wait 100 ms"),
@@ -265,7 +275,7 @@ namespace MacroKit.App
             commentText.ToolTip = "A note to yourself on its own line.";
 
             var left = Ui.Stack(10,
-                Ui.Stack(0, Ui.Caption("KEYS"), shortcuts, fRow),
+                Ui.Stack(0, Ui.Caption("KEYS"), keys),
                 Ui.Stack(4, Ui.Caption("PAUSE"), pauseRow, pauseChips),
                 Ui.Stack(4, Ui.Caption("TYPE TEXT"), typeRow));
             var right = Ui.Stack(10,
@@ -298,6 +308,32 @@ namespace MacroKit.App
             };
             frame.Child = Ui.Stack(0, title, grid);
             return frame;
+        }
+
+        /// <summary>Adds a row of key chips tinted with a key-group colour (tint = theme key; tint + "Bg" is the chip fill).</summary>
+        static void KeyGroup(Grid grid, string label, string tint, params Button[] chips)
+        {
+            foreach (Button chip in chips)
+            {
+                Ui.Ref(chip, Control.BackgroundProperty, tint + "Bg");
+                Ui.Ref(chip, Control.BorderBrushProperty, tint + "Bg");
+            }
+            var wrap = Ui.Wrap(chips);
+            wrap.Margin = new Thickness(0, 0, 0, 2);
+            AddKeyRow(grid, Ui.Text(label, tint, true, 11), wrap);
+        }
+
+        static void AddKeyRow(Grid grid, TextBlock label, FrameworkElement content)
+        {
+            int row = grid.RowDefinitions.Count;
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            label.VerticalAlignment = VerticalAlignment.Top;
+            label.Margin = new Thickness(0, 4, 12, 0);
+            Grid.SetRow(label, row);
+            grid.Children.Add(label);
+            Grid.SetRow(content, row);
+            Grid.SetColumn(content, 1);
+            grid.Children.Add(content);
         }
 
         Button Chip(string label, Func<string> token, string tooltip = null)

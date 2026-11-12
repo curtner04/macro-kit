@@ -1,5 +1,9 @@
 # Macro Kit changelog
 
+## 1.0.1 - 2026-11-12
+
+- Macros: the Keys part of the command palette is grouped into labelled rows, each in its own colour: Clipboard (Copy, Cut, Paste, Select all), Switch (Alt+Tab, Ctrl+Tab), Edit (Enter, Tab, Esc, Backspace, Delete), Arrows, Jump (Home, End, PgUp, PgDn) and F keys. The Undo and Save buttons are gone; type {{CTRL}{Z}} or {{CTRL}{S}}, or use Your own shortcut.
+
 ## 1.0.0 - 2026-11-12
 
 First release.
