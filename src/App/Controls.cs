@@ -76,6 +76,8 @@ namespace MacroKit.App
         bool capturing;
 
         public bool RequireGlobal { get; set; }
+        /// <summary>Releases Macro Kit's own hotkeys while the box has the keyboard, so pressing one shows it instead of running it. On for global-hotkey boxes.</summary>
+        public bool ReleasesHotkeys { get; set; }
         /// <summary>Accepts one key on its own (no Ctrl, Alt, Shift or Win), for example the key a macro should press several times.</summary>
         public bool SingleKeyOnly { get; set; }
         public string Placeholder { get; set; }
@@ -85,6 +87,7 @@ namespace MacroKit.App
         {
             SetResourceReference(StyleProperty, typeof(TextBox));
             RequireGlobal = requireGlobal;
+            ReleasesHotkeys = requireGlobal;
             Placeholder = requireGlobal ? "Not set" : "Click, then press keys";
             Width = width;
             IsReadOnly = true;
@@ -104,7 +107,7 @@ namespace MacroKit.App
         // every hotkey is released; otherwise pressing a combination that is already assigned would run it instead of showing it here.
         void StartCapture()
         {
-            if (!RequireGlobal || capturing) return;
+            if (!ReleasesHotkeys || capturing) return;
             capturing = true;
             CaptureStarted();
         }

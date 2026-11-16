@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using AppShared;
 using MacroKit.Core;
+using MacroKit.Keybinds;
 using Rec = MacroKit.Core.Recording;
 
 namespace MacroKit.App
@@ -116,6 +117,7 @@ namespace MacroKit.App
             Theme.Initialize(app, "Light");
             var shell = new AppShell(controller, false);
             MainWindow main = shell.Main;
+            UseKeybindFixtures(main.Keybinds, controller);
             controller.Pending = new Rec { Name = "Recording 2026-11-12 09:30", Created = "2026-11-12T09:30:00-05:00", DurationMs = 5600 };
             for (int i = 0; i < 120; i++) controller.Pending.Events.Add(new RecEvent(i * 40, RecKind.Move, 50 + i, 80));
             controller.Pending.DurationMs = 4760;
@@ -137,10 +139,11 @@ namespace MacroKit.App
                 Settle(main);
                 PhrasesTab.PhraseExpressRunning = () => theme == "Light";
                 main.Phrases.RefreshWarning();
-                string[] tabs = { "recorder", "phrases", "macros", "settings" };
+                string[] tabs = { "recorder", "phrases", "macros", "settings", "keybinds" };
                 for (int i = 0; i < tabs.Length; i++)
                 {
                     int tab = i;
+                    if (tab == 4) main.Keybinds.SetSearch("");
                     Step("render " + tabs[i] + " (" + suffix + ")", () =>
                     {
                         if (tab == 2) main.Macros.SelectMacro(0);
@@ -181,6 +184,21 @@ namespace MacroKit.App
                     Settle(main);
                 });
 
+                Step("render keybinds checking keys (" + suffix + ")", () =>
+                {
+                    main.SelectTab(4);
+                    main.Keybinds.SetSearch("ctrl+shift+c");
+                    Settle(main);
+                    Capture(main, Path.Combine(folder, "5-keybinds-check-" + suffix + ".png"));
+                    main.Keybinds.SetSearch("");
+                    main.Width = MainWindow.MinimumWidth;
+                    main.Height = MainWindow.MinimumHeight;
+                    Settle(main);
+                    Capture(main, Path.Combine(folder, "5-keybinds-min-" + suffix + ".png"));
+                    main.Width = 1040;
+                    main.Height = 720;
+                    Settle(main);
+                });
                 Step("render deck (" + suffix + ")", () => RenderFloating(shell.Deck, Path.Combine(folder, "5-deck-" + suffix + ".png")));
                 RenderPills(shell, controller, folder, suffix);
                 Step("render changelog (" + suffix + ")", () =>
@@ -266,8 +284,49 @@ namespace MacroKit.App
             controller.Dispose();
         }
 
+        /// <summary>The Global Keybinds tab reads synthetic files, never the PC's real apps, and asks Windows nothing.</summary>
+        static void UseKeybindFixtures(KeybindsTab tab, AppController c)
+        {
+            var files = new Dictionary<string, string>
+            {
+                { "snipline", "{\"Schema\":1,\"HotkeyKey\":44,\"HotkeyModifiers\":0,\"WindowShortcutModifier\":2}" },
+                { "notekeeper", "{\"Schema\":1,\"RecordKey\":119,\"CaptureKey\":120,\"MarkKey\":118,\"Modifiers\":0}" },
+                { "studio", "{\"Workflows\":[{\"Name\":\"Morning\",\"Hotkey\":\"Ctrl+Alt+L\"}]}" },
+                { "jancy", string.Join("\n",
+                    "id:user-copy-url-list; keybind:ctrl-alt-shift-u; context:tab window",
+                    "id:copy-title-to-the-clipboard; keybind:ctrl-shift-c; context:tab window",
+                    "id:reload-all-tabs; keybind:ctrl-alt-shift-p; context:tab window",
+                    "id:new-tab; keybind:ctrl-t; context:tab window",
+                    "id:close-current-tab; keybind:ctrl-w; context:tab window") },
+            };
+            var where = new KeybindLocations { Snipline = "snipline", NoteKeeper = "notekeeper", JancyDefault = "jancy" };
+            where.StudioCandidates.Add("studio");
+            tab.Load = () => KeybindCatalog.Read(where, c.Settings, c.Macros, path => { string text; return files.TryGetValue(path, out text) ? text : null; });
+            tab.IsRunning = app => app == KeybindReaders.MacroKitName || app == KeybindReaders.SniplineName || app == KeybindReaders.JancyName;
+            tab.Probe = null;
+        }
+
         static void RunLogicChecks(AppController c, AppShell shell, MainWindow main, string data)
         {
+            Check("keybinds tab lists every app and says where keys work", () =>
+            {
+                main.SelectTab(4);
+                Settle(main);
+                KeybindCatalog catalog = main.Keybinds.Catalog;
+                main.Keybinds.SetSearch("prtsc");
+                Settle(main);
+                bool prtsc = main.Keybinds.VerdictText.Contains("taken everywhere by Snipline");
+                main.Keybinds.SetSearch("ctrl+shift+c");
+                Settle(main);
+                bool jancy = main.Keybinds.VerdictText.Contains("only works inside Jancy");
+                main.Keybinds.SetSearch("ctrl+alt+shift+k");
+                Settle(main);
+                bool free = main.Keybinds.VerdictText.Contains("is free");
+                main.Keybinds.SetSearch("");
+                return catalog != null && catalog.Apps.Count >= 5 && prtsc && jancy && free
+                    && catalog.Clashes().Any(x => x.A.App == KeybindReaders.MacroKitName && x.B.App == KeybindReaders.JancyName);
+            });
+
             Check("no hook, hotkeys or input in a self test", () => !c.InputEnabled && !c.HookRunning && c.HotkeyErrors.Count == 0);
             Check("starting a macro is refused without input", () =>
             {

@@ -1,10 +1,10 @@
 # Compiles one module with its tests into a private temp folder and runs it, so parallel module work never breaks another module's build.
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Module.ps1 -Module Core|Macros|Phrases|Recording|Win32 [-Filter name-part]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Module.ps1 -Module Core|Macros|Phrases|Recording|Win32|Keybinds [-Filter name-part]
 # Sources: src\Core\*.cs (always) + src\<Module>\*.cs (not for Core) + tests\TestKit.cs + tests\Fakes.cs + tests\<Module>Tests.cs.
 # The test exe is a console app that opens no windows, sends no input, installs no hooks and never touches the real clipboard.
 # Exit code = number of failed tests (1 when the build fails).
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('Core', 'Macros', 'Phrases', 'Recording', 'Win32')][string]$Module,
+    [Parameter(Mandatory = $true)][ValidateSet('Core', 'Macros', 'Phrases', 'Recording', 'Win32', 'Keybinds')][string]$Module,
     [string]$Filter
 )
 $ErrorActionPreference = 'Stop'

@@ -1,5 +1,13 @@
 # Macro Kit changelog
 
+## 1.1.0 - 2026-11-16
+
+- New Global Keybinds tab: every keyboard shortcut saved in your apps in one list (Macro Kit, Snipline, Note Keeper, Jancy Macro Studio, Jancy, Record Keeper, Little Buttons, Storage Lens and Tweak Bench), read straight from each app's own settings each time you open the tab.
+- Each shortcut says where it works: *Any window* (the app reacts whichever window is active, like Snipline's PrtSc) or *Only when active* (only while that app is the active window, like Jancy's keybinds).
+- Shortcuts that get in each other's way are marked, for example a global shortcut that stops another app's in-app shortcut from ever reaching it.
+- **Is it free?**: press keys (or type them in the search box, such as ctrl+shift+c) to see which apps use them. Macro Kit also asks Windows whether some other running program has already claimed them.
+- Search, filter by app or by where shortcuts work, sort by keys to line up identical shortcuts, hide built-in shortcuts, and see which apps are running.
+
 ## 1.0.2 - 2026-11-12
 
 - Status popup: drag it anywhere and it stays there for every recording, playback and macro run. Dropped on the right or bottom half of a screen it keeps its right or bottom edge, so it grows away from the screen edge, and it never ends up off screen.

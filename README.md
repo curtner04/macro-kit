@@ -58,6 +58,27 @@ A macro is a Super Macro script (see the reference below) plus where and how it 
 - **Start it with** gives the macro its own global hotkey (pressing it while that macro runs stops it) and chooses whether it appears on the Deck.
 - **New macro**, **Duplicate** and **Delete** manage the list.
 
+### Global Keybinds
+
+One list of the keyboard shortcuts in your apps, so you can see which keys are still free before you give something a new shortcut.
+
+- **Works in** says whether a shortcut works in **Any window** (the app reacts whichever window is active, as long as it runs, like Snipline's PrtSc or Macro Kit's own hotkeys) or **Only when active** (only while that app is the active window, like Jancy's keybinds). Keys used only inside an app are still free everywhere else.
+- Saved shortcuts are read from each app's own files every time you open the tab (or press **Refresh**). Macro Kit only reads them; to change one, change it in that app.
+
+  | App | Read from |
+  | --- | --- |
+  | Macro Kit | its own Settings and macro hotkeys |
+  | Snipline | `%LOCALAPPDATA%\Snipline\data\settings.json` (Capture shortcut, Active window shortcut) |
+  | Note Keeper | `%LOCALAPPDATA%\Note Keeper\data\settings.json` (Listen / stop, screenshot, mark moment) |
+  | Jancy Macro Studio | `data\studio.json` beside its exe (workflow hotkeys), plus Ctrl+Alt+F11 / F12 |
+  | Jancy | the keybinds file Jancy Macro Studio points at, normally `%APPDATA%\Jancy\keybinds.txt` |
+  | Record Keeper, Little Buttons, Storage Lens, Tweak Bench | built-in shortcuts only (nothing to save) |
+
+- Built-in shortcuts (such as Ctrl+S in an app) are listed too; untick **Built-in shortcuts** to see only saved ones.
+- A warning under a shortcut means it gets in another app's way: two apps with the same any-window shortcut, or an any-window shortcut that takes the keys before another app's in-app shortcut can see them.
+- **Is it free?**: click the box and press keys, or type them in **Search** (for example `ctrl+shift+c`). It says which apps use them and where. For keys no listed app uses, Macro Kit also asks Windows whether another running program has registered them. Programs that watch the keyboard another way (a keyboard hook, like Snipline's PrtSc) do not show up in that Windows check, and keys such a program grabs may run it instead of appearing in the box; type those keys instead.
+- Each app card shows how many shortcuts it has, whether it is running (any-window shortcuts only work while it runs), the file it was read from and any problem reading it. Click a card to show only that app.
+
 ### Settings
 
 The four global hotkeys, whether Esc stops playback and macros, whether Macro Kit comes back after a run, whether closing the window keeps it in the tray, *Start Macro Kit when I sign in to Windows*, Deck columns, theme (follow Windows, light or dark) and the programs where phrases never expand. If another program already uses a hotkey, the reason is shown under it.

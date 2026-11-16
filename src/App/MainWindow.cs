@@ -10,15 +10,15 @@ using MacroKit.Core;
 
 namespace MacroKit.App
 {
-    /// <summary>The main window: header, four tabs and a status line.</summary>
+    /// <summary>The main window: header, five tabs and a status line.</summary>
     public sealed class MainWindow : Window
     {
         public const double MinimumWidth = 900, MinimumHeight = 620;
 
         readonly AppController c;
         readonly AppShell shell;
-        readonly RadioButton[] tabButtons = new RadioButton[4];
-        readonly FrameworkElement[] pages = new FrameworkElement[4];
+        readonly RadioButton[] tabButtons = new RadioButton[5];
+        readonly FrameworkElement[] pages = new FrameworkElement[5];
         readonly TextBlock status = Ui.Text("", "Muted", false, 12.5);
         readonly TextBlock inputState = Ui.Text("", "Muted", false, 12);
         readonly Border unsavedBadge;
@@ -32,6 +32,7 @@ namespace MacroKit.App
         public readonly PhrasesTab Phrases;
         public readonly MacrosTab Macros;
         public readonly SettingsTab Settings;
+        public readonly KeybindsTab Keybinds;
 
         public MainWindow(AppController controller, AppShell shell)
         {
@@ -89,11 +90,14 @@ namespace MacroKit.App
             Phrases = new PhrasesTab(c, this);
             Macros = new MacrosTab(c, this);
             Settings = new SettingsTab(c, () => { Theme.Apply(c.Settings.Theme); }, shell.ShowChangelog, shell.OpenDataFolder, () => shell.Pill);
-            string[] names = { "Recorder", "Phrases", "Macros", "Settings" };
-            FrameworkElement[] roots = { Recorder.Root, Phrases.Root, Macros.Root, Settings.Root };
+            Keybinds = new KeybindsTab(c);
+            // Page indexes are what Settings.SelectedTab remembers, so Global Keybinds is page 4 although it is shown before Settings.
+            string[] names = { "Recorder", "Phrases", "Macros", "Settings", "Global Keybinds" };
+            FrameworkElement[] roots = { Recorder.Root, Phrases.Root, Macros.Root, Settings.Root, Keybinds.Root };
+            int[] shownOrder = { 0, 1, 2, 4, 3 };
             var tabRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(22, 8, 22, 0) };
             var content = new Grid { Margin = new Thickness(22, 0, 22, 0) };
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < names.Length; i++)
             {
                 int index = i;
                 var tab = new RadioButton { Content = names[i], GroupName = "tabs" };
@@ -102,9 +106,9 @@ namespace MacroKit.App
                 tabButtons[i] = tab;
                 pages[i] = roots[i];
                 roots[i].Visibility = Visibility.Collapsed;
-                tabRow.Children.Add(tab);
                 content.Children.Add(roots[i]);
             }
+            foreach (int index in shownOrder) tabRow.Children.Add(tabButtons[index]);
             var rule = new Border { Height = 1, Margin = new Thickness(22, 0, 22, 0) };
             Ui.Ref(rule, Border.BackgroundProperty, "Border");
 
@@ -136,7 +140,7 @@ namespace MacroKit.App
             c.ActivityChanged += UpdateActivity;
             c.Edited += parts => { if ((parts & SaveParts.Settings) != 0) UpdateInputState(); };
 
-            int selected = Math.Max(0, Math.Min(3, c.Settings.SelectedTab));
+            int selected = Math.Max(0, Math.Min(pages.Length - 1, c.Settings.SelectedTab));
             tabButtons[selected].IsChecked = true;
             UpdateDeckButton();
             UpdateInputState();
@@ -196,6 +200,7 @@ namespace MacroKit.App
         void ShowPage(int index)
         {
             for (int i = 0; i < pages.Length; i++) pages[i].Visibility = i == index ? Visibility.Visible : Visibility.Collapsed;
+            if (pages[index] == Keybinds.Root) Keybinds.Refresh();   // other apps may have changed their shortcuts meanwhile
             if (c.Settings.SelectedTab != index) { c.Settings.SelectedTab = index; c.MarkDirty(SaveParts.Settings); }
         }
 
