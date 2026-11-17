@@ -15,7 +15,7 @@ namespace MacroKit.App
     public enum ActivityKind { None, Recording, Playing, Macro, Picking }
 
     [Flags]
-    public enum SaveParts { None = 0, Settings = 1, Phrases = 2, Macros = 4, All = 7 }
+    public enum SaveParts { None = 0, Settings = 1, Phrases = 2, Macros = 4, Keybinds = 8, All = 15 }
 
     /// <summary>What is running right now. Written by background threads, read by the UI (plain fields; a stale value is harmless).</summary>
     public sealed class ActivityInfo
@@ -53,6 +53,7 @@ namespace MacroKit.App
         readonly Recorder recorder;
         readonly DispatcherTimer saveTimer;
         readonly DispatcherTimer pickTimer;
+        readonly DispatcherTimer scheduleTimer;
         readonly Dictionary<int, string> macroByHotkeyId = new Dictionary<int, string>();
         readonly List<int> registeredHotkeys = new List<int>();
         readonly Dictionary<string, string> hotkeyErrors = new Dictionary<string, string>();
@@ -82,6 +83,8 @@ namespace MacroKit.App
         public readonly AppSettings Settings;
         public readonly List<PhraseDef> Phrases;
         public readonly List<MacroDef> Macros;
+        /// <summary>Apps added by hand on the Global Keybinds tab.</summary>
+        public readonly List<KeybindAppDef> KeybindApps;
         public List<RecordingInfo> Recordings { get; private set; }
         /// <summary>The recording that was just made and not saved yet (null when there is none).</summary>
         public Rec Pending { get; internal set; }
@@ -131,7 +134,9 @@ namespace MacroKit.App
             Settings = storage.LoadSettings();
             Phrases = storage.LoadPhrases();
             Macros = storage.LoadMacros();
+            KeybindApps = storage.LoadKeybindApps();
             Recordings = storage.LoadRecordingIndex();
+            LoadLicense();
             Activity = new ActivityInfo();
             LastStatus = "";
             LastOutcome = "";
@@ -158,6 +163,8 @@ namespace MacroKit.App
             saveTimer.Tick += (s, e) => { saveTimer.Stop(); Flush(); };
             pickTimer = new DispatcherTimer(DispatcherPriority.Normal, dispatcher) { Interval = TimeSpan.FromMilliseconds(120) };
             pickTimer.Tick += (s, e) => PickTick();
+            scheduleTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = TimeSpan.FromSeconds(5) };
+            scheduleTimer.Tick += (s, e) => ScheduleTick();
         }
 
         // ------------------------------------------------------------------ start and stop
@@ -181,6 +188,7 @@ namespace MacroKit.App
                 return;
             }
             ApplyHotkeys();
+            scheduleTimer.Start();
         }
 
         public void Dispose()
@@ -189,6 +197,7 @@ namespace MacroKit.App
             disposed = true;
             saveTimer.Stop();
             pickTimer.Stop();
+            scheduleTimer.Stop();
             CancelWork();
             Thread t = worker;
             if (t != null && t.IsAlive) t.Join(3000);
@@ -257,6 +266,7 @@ namespace MacroKit.App
                 if ((todo & SaveParts.Settings) != 0) Storage.SaveSettings(Settings);
                 if ((todo & SaveParts.Phrases) != 0) Storage.SavePhrases(Phrases);
                 if ((todo & SaveParts.Macros) != 0) Storage.SaveMacros(Macros);
+                if ((todo & SaveParts.Keybinds) != 0) Storage.SaveKeybindApps(KeybindApps);
                 dirty = SaveParts.None;
             }
             catch (Exception ex)
@@ -557,6 +567,178 @@ namespace MacroKit.App
             mainHiddenByActivity = false;
             if (IsMainWindowVisible()) return;   // the person opened it again in the meantime
             if (Settings.ShowWindowAfterRun || !TrayAvailable) RestoreMainWindow(mainWasMinimized, origin == RunOrigin.MainWindow);
+        }
+
+        // ------------------------------------------------------------------ Macro Kit Pro
+
+        void LoadLicense()
+        {
+            string key = Storage.LoadLicenseKey();
+            if (string.IsNullOrEmpty(key)) return;
+            LicenseInfo info;
+            string problem;
+            if (License.TryRead(key, out info, out problem)) Edition.Set(info);
+            else Log.Warn("The saved license key was not accepted: " + problem);
+        }
+
+        /// <summary>Checks and saves a key. Returns null once Pro is unlocked, or what is wrong with the key.</summary>
+        public string EnterLicense(string text)
+        {
+            LicenseInfo info;
+            string problem;
+            if (!License.TryRead(text, out info, out problem)) return problem;
+            try { Storage.SaveLicenseKey(info.Key); }
+            catch (Exception ex)
+            {
+                Log.Error("Saving license.key failed", ex);
+                return "The key is valid, but it couldn't be saved: " + ex.Message;
+            }
+            Edition.Set(info);
+            ResetSchedules();
+            SetStatus("Macro Kit Pro is unlocked. Thank you for supporting Macro Kit!");
+            return null;
+        }
+
+        public void RemoveLicense()
+        {
+            try { Storage.SaveLicenseKey(null); }
+            catch (Exception ex) { Log.Warn("Removing license.key failed: " + ex.Message); }
+            Edition.Set(null);
+            ResetSchedules();
+            SetStatus("The license key was removed. Macro Kit is the free edition again.");
+        }
+
+        // ---- scheduled macros (Pro). Times are worked out in memory, so a run missed while Macro Kit was closed is not made up.
+
+        static readonly TimeSpan ScheduleGrace = TimeSpan.FromMinutes(5);
+        readonly Dictionary<string, DateTime> scheduleDue = new Dictionary<string, DateTime>();
+        readonly Dictionary<string, string> scheduleSeen = new Dictionary<string, string>();
+
+        /// <summary>Forgets the worked-out run times (the edition changed); the next tick works them out again.</summary>
+        public void ResetSchedules()
+        {
+            scheduleDue.Clear();
+            scheduleSeen.Clear();
+            ScheduleTick();
+        }
+
+        /// <summary>When the macro next runs by itself, or null.</summary>
+        public DateTime? NextScheduledRun(MacroDef macro)
+        {
+            if (macro == null || macro.Schedule == null || macro.Schedule.Kind == ScheduleKind.Off || !Edition.IsPro) return null;
+            DateTime due;
+            string seen;
+            bool current = scheduleSeen.TryGetValue(macro.Id, out seen) && seen == Signature(macro.Schedule);
+            if (current) return scheduleDue.TryGetValue(macro.Id, out due) ? due : (DateTime?)null;
+            return macro.Schedule.NextRun(DateTime.Now);   // just changed: the next tick picks this same time
+        }
+
+        static string Signature(MacroSchedule s)
+        {
+            return s.Kind + "|" + s.Time + "|" + s.Days + "|" + s.EveryMinutes + "|" + s.At;
+        }
+
+        void ScheduleTick()
+        {
+            if (disposed || !InputEnabled) return;
+            DateTime now = DateTime.Now;
+            var live = new HashSet<string>();
+            foreach (MacroDef macro in Macros.ToArray())
+            {
+                MacroSchedule schedule = macro.Schedule;
+                if (!Edition.IsPro || schedule == null || schedule.Kind == ScheduleKind.Off) continue;
+                live.Add(macro.Id);
+                string signature = Signature(schedule);
+                string seen;
+                if (!scheduleSeen.TryGetValue(macro.Id, out seen) || seen != signature)
+                {
+                    // New or changed: the first run is the next one from now.
+                    scheduleSeen[macro.Id] = signature;
+                    DateTime? first = schedule.NextRun(now);
+                    if (first.HasValue) scheduleDue[macro.Id] = first.Value; else scheduleDue.Remove(macro.Id);
+                    continue;
+                }
+                DateTime due;
+                if (!scheduleDue.TryGetValue(macro.Id, out due) || now < due) continue;
+                if (IsBusy)
+                {
+                    if (now - due < ScheduleGrace) continue;   // try again on the next tick
+                    SetStatus("Skipped the scheduled run of \u201C" + macro.Name + "\u201D because Macro Kit was busy for 5 minutes.", true);
+                    Log.Info("Skipped the scheduled run of a macro: busy past the grace time.");
+                }
+                else
+                {
+                    Log.Info("Starting a scheduled macro (" + schedule.Describe() + ").");
+                    StartMacro(macro, RunOrigin.Schedule);
+                }
+                DateTime? next = schedule.NextRun(due);
+                if (next.HasValue && next.Value <= now) next = schedule.NextRun(now);
+                if (next.HasValue) scheduleDue[macro.Id] = next.Value; else scheduleDue.Remove(macro.Id);
+            }
+            foreach (string id in scheduleSeen.Keys.ToArray())
+            {
+                if (live.Contains(id)) continue;
+                scheduleSeen.Remove(id);
+                scheduleDue.Remove(id);
+            }
+        }
+
+        // ---- the input check (Settings): real keys into Macro Kit's own window, and one temporary phrase
+
+        /// <summary>True when keys can be sent and typing watched in this session.</summary>
+        public bool CanCheckInput { get { return InputEnabled && hook != null && hook.IsRunning; } }
+
+        public void TypeForCheck(Action<IInputSink> type)
+        {
+            type(input);
+        }
+
+        string savedOwnProcess;
+        bool phraseCheckOn;
+
+        /// <summary>Lets one extra phrase expand inside Macro Kit's own window until EndPhraseCheck.</summary>
+        public void BeginPhraseCheck(PhraseDef temporary)
+        {
+            if (!phraseCheckOn) savedOwnProcess = engine.OwnProcessName;
+            phraseCheckOn = true;
+            engine.OwnProcessName = null;
+            engine.SetPhrases(Phrases.Concat(new[] { temporary }).ToList());
+        }
+
+        public void EndPhraseCheck()
+        {
+            if (!phraseCheckOn) return;
+            phraseCheckOn = false;
+            engine.OwnProcessName = savedOwnProcess;
+            engine.SetPhrases(Phrases);
+        }
+
+        // ---- the macro library
+
+        /// <summary>Raised after the library added a macro or a phrase, so its tab can show and select it.</summary>
+        public event Action<MacroDef, PhraseDef> LibraryAdded = (macro, phrase) => { };
+
+        /// <summary>Adds a copy of a library item. Returns null, or why it was not added.</summary>
+        public string AddFromLibrary(LibraryItem item)
+        {
+            if (item == null) return "Nothing to add.";
+            if (item.IsPhrase)
+            {
+                if (Phrases.Any(p => string.Equals(p.Trigger, item.Trigger, StringComparison.Ordinal)))
+                    return "You already have a phrase for " + item.Trigger + ".";
+                PhraseDef phrase = item.ToPhrase();
+                Phrases.Add(phrase);
+                MarkDirty(SaveParts.Phrases);
+                LibraryAdded(null, phrase);
+            }
+            else
+            {
+                MacroDef macro = item.ToMacro();
+                Macros.Add(macro);
+                MarkDirty(SaveParts.Macros);
+                LibraryAdded(macro, null);
+            }
+            return null;
         }
 
         // ---- macros

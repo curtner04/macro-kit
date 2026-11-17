@@ -17,23 +17,10 @@ namespace MacroKit.App
     /// </summary>
     public sealed class KeybindsTab
     {
-        /// <summary>Process names per app, for the "Running" label. Global shortcuts only work while their app runs.</summary>
-        static readonly Dictionary<string, string[]> processNames = new Dictionary<string, string[]>
-        {
-            { KeybindReaders.SniplineName, new[] { "Snipline" } },
-            { KeybindReaders.NoteKeeperName, new[] { "Note Keeper" } },
-            { KeybindReaders.StudioName, new[] { "Jancy Macro Studio" } },
-            { KeybindReaders.JancyName, new[] { "Jancy" } },
-            { KeybindReaders.RecordKeeperName, new[] { "Record Keeper" } },
-            { KeybindReaders.LittleButtonsName, new[] { "Little Buttons" } },
-            { KeybindReaders.StorageLensName, new[] { "Storage Lens" } },
-            { KeybindReaders.TweakBenchName, new[] { "Tweak Bench" } },
-        };
-
         /// <summary>Reads the catalog. The self test swaps in fixture files.</summary>
         public Func<KeybindCatalog> Load;
         /// <summary>Whether an app is running. The self test fixes this so pictures do not depend on the PC.</summary>
-        public Func<string, bool?> IsRunning = DefaultIsRunning;
+        public Func<AppKeybinds, bool?> IsRunning = DefaultIsRunning;
         /// <summary>Asks Windows whether keys are free; null = not asked.</summary>
         public Func<Hotkey, bool?> Probe;
 
@@ -58,7 +45,7 @@ namespace MacroKit.App
         public KeybindsTab(AppController controller)
         {
             c = controller;
-            Load = () => KeybindCatalog.Read(KeybindLocations.Default(), c.Settings, c.Macros, KeybindCatalog.ReadFile);
+            Load = () => KeybindCatalog.Read(KeybindLocations.Default(), c.Settings, c.Macros, c.KeybindApps, KeybindCatalog.ReadFile);
             if (c.InputEnabled) Probe = HotkeyProbe.IsFree;
 
             // ---- "Is it free?"
@@ -79,13 +66,19 @@ namespace MacroKit.App
 
             // ---- apps
             var refresh = Ui.IconButton(Ui.GlyphRefresh, "Refresh", Refresh, "Small", "Read every app's shortcuts again.");
+            var add = Ui.IconButton(Ui.GlyphAdd, "Add app", () => EditApp(null), "Small", "Add another program and type in its shortcuts, so they count when you check whether keys are free.");
+            add.Margin = new Thickness(0, 0, 6, 0);
             var appsHeader = new Grid();
             appsHeader.ColumnDefinitions.Add(new ColumnDefinition());
             appsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            appsHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             appsHeader.Children.Add(Ui.Heading("Apps"));
-            Grid.SetColumn(refresh, 1);
+            Grid.SetColumn(add, 1);
+            appsHeader.Children.Add(add);
+            Grid.SetColumn(refresh, 2);
             appsHeader.Children.Add(refresh);
-            var appsCard = Ui.Card(Ui.Stack(8, appsHeader, apps));
+            var appsHint = Ui.Para("Missing a program? Add app lets you type in its shortcuts.", "Muted", 11.5);
+            var appsCard = Ui.Card(Ui.Stack(8, appsHeader, apps, appsHint));
 
             var left = Ui.Stack(0, checkCard, appsCard);
             var leftScroll = new ScrollViewer { Content = left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, 10, 0) };
@@ -153,7 +146,7 @@ namespace MacroKit.App
 
             c.Edited += parts =>
             {
-                if ((parts & (SaveParts.Settings | SaveParts.Macros)) != 0 && Root.IsVisible && catalog != null) Refresh();
+                if ((parts & (SaveParts.Settings | SaveParts.Macros | SaveParts.Keybinds)) != 0 && Root.IsVisible && catalog != null) Refresh();
             };
         }
 
@@ -192,14 +185,13 @@ namespace MacroKit.App
 
         public KeybindCatalog Catalog { get { return catalog; } }
 
-        static bool? DefaultIsRunning(string app)
+        static bool? DefaultIsRunning(AppKeybinds app)
         {
-            if (app == KeybindReaders.MacroKitName) return true;
-            string[] names;
-            if (!processNames.TryGetValue(app, out names)) return null;
+            if (app.App == KeybindReaders.MacroKitName && app.CustomId == null) return true;
+            if (app.Processes == null || app.Processes.Length == 0) return null;
             try
             {
-                foreach (string name in names)
+                foreach (string name in app.Processes)
                 {
                     Process[] found = Process.GetProcessesByName(name);
                     bool any = found.Length > 0;
@@ -223,7 +215,7 @@ namespace MacroKit.App
                 top.ColumnDefinitions.Add(new ColumnDefinition());
                 top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 top.Children.Add(name);
-                bool? running = IsRunning(app.App);
+                bool? running = IsRunning(app);
                 if (running.HasValue)
                 {
                     var pill = running.Value ? Ui.Pill("Running", "Good", "GoodBg", 10.5) : Ui.Pill("Not running", "Muted", "Card2", 10.5);
@@ -241,6 +233,10 @@ namespace MacroKit.App
                     source.TextTrimming = TextTrimming.CharacterEllipsis;
                     stack.Children.Add(source);
                 }
+                else if (app.CustomId != null)
+                {
+                    stack.Children.Add(Ui.Text("Added by you", "Muted", false, 11));
+                }
                 if (app.Problem != null)
                 {
                     var problem = Ui.Text(app.Problem, "Warn", false, 11.5, true);
@@ -250,8 +246,61 @@ namespace MacroKit.App
                 button.SetResourceReference(FrameworkElement.StyleProperty, "Ghost");
                 string appName = app.App;
                 button.Click += (s, e) => appFilter.SelectedItem = (appFilter.SelectedItem as string) == appName ? "All apps" : appName;
-                apps.Children.Add(button);
+                if (app.CustomId == null) { apps.Children.Add(button); continue; }
+
+                // An app added by hand: the card filters like the others, and the pencil next to it opens the editor.
+                string id = app.CustomId;
+                var edit = Ui.GlyphButton(Ui.GlyphEdit, "Edit " + app.App + " (change or delete its shortcuts)", () => EditApp(c.KeybindApps.FirstOrDefault(a => a.Id == id)));
+                edit.VerticalAlignment = VerticalAlignment.Top;
+                edit.Margin = new Thickness(4, 4, 0, 0);
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.Children.Add(button);
+                Grid.SetColumn(edit, 1);
+                row.Children.Add(edit);
+                apps.Children.Add(row);
             }
+        }
+
+        /// <summary>Opens the editor for an added app (null = a new one) and saves what the person keeps.</summary>
+        void EditApp(KeybindAppDef existing)
+        {
+            Window owner = Window.GetWindow(Root);
+            var editor = new KeybindAppEditor(existing, TakenNames(existing));
+            KeybindAppEditor.Outcome outcome = editor.ShowDialog(owner);
+            if (outcome == KeybindAppEditor.Outcome.Cancelled) return;
+            Apply(existing, editor, outcome);
+        }
+
+        /// <summary>Saves the editor's result: adds, replaces or deletes the app. Public for the self test, which cannot show a dialog.</summary>
+        public void Apply(KeybindAppDef existing, KeybindAppEditor editor, KeybindAppEditor.Outcome outcome)
+        {
+            if (outcome == KeybindAppEditor.Outcome.Deleted)
+            {
+                if (existing != null) c.KeybindApps.Remove(existing);
+                c.SetStatus("Removed " + existing.Name + " from Global Keybinds.", false);
+            }
+            else if (outcome == KeybindAppEditor.Outcome.Saved)
+            {
+                KeybindAppDef result = editor.Result;
+                int at = existing == null ? -1 : c.KeybindApps.IndexOf(existing);
+                if (at >= 0) c.KeybindApps[at] = result; else c.KeybindApps.Add(result);
+                c.SetStatus((existing == null ? "Added " : "Saved ") + result.Name + " to Global Keybinds.", false);
+            }
+            else return;
+            c.MarkDirty(SaveParts.Keybinds);
+            if (catalog == null || !Root.IsVisible) Refresh();   // MarkDirty refreshes a visible tab
+        }
+
+        /// <summary>The other apps' names, which an added app may not reuse.</summary>
+        public List<string> TakenNames(KeybindAppDef except)
+        {
+            var names = new List<string>();
+            if (catalog != null) names.AddRange(catalog.Apps.Where(a => a.CustomId == null).Select(a => a.App));
+            else names.Add(KeybindReaders.MacroKitName);
+            names.AddRange(c.KeybindApps.Where(a => a != except).Select(a => a.Name));
+            return names;
         }
 
         static string Count(int n, string what) { return n + " " + what; }

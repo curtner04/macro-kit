@@ -1,8 +1,30 @@
 # Macro Kit changelog
 
+## 1.3.0 - 2026-11-17
+
+- Macro Kit stays free, and everything it did before still works without paying. The new **Macro Kit Pro** adds four things, unlocked with a license key in Settings, About. Keys are checked on your PC and never sent anywhere.
+- Pro: loops and conditions in macros. `{{LOOP:5}}…{{ENDLOOP}}` repeats steps (or `{{LOOP:$count}}`), `{{IF:$name=Sam}}…{{ELSE}}…{{ENDIF}}` compares text or numbers (=, !=, <, >, <=, >=, ~ for contains), and `{{IFWINDOW:Notepad}}` checks the window in front. Blocks can nest, and the steps list explains any mistake.
+- Pro: scheduled macros. A macro can run every day at a time (on the days you tick), every few minutes, or once at a date and time, while Macro Kit is running. A run that finds Macro Kit busy waits up to 5 minutes, then skips.
+- Macro library: the **Library** button on the Macros tab adds ready-made macros and phrases with one click. The Starter pack is free; the Spreadsheets and forms, Browser, Clicker, Loops and conditions, and Symbols packs come with Pro.
+- Settings, About shows Free or Pro, and has **Check input**: Macro Kit types a short line into its own box and expands a test phrase, to confirm Windows lets it send keys and see typing on this PC.
+- Global Keybinds lists a sister app only when it is installed or running on this PC.
+
+## 1.2.0 - 2026-11-16
+
+- Global Keybinds lists PowerToys (every switched-on tool's shortcuts, Command Palette and Keyboard Manager's shortcut remaps) and OBS Studio (the current profile's and scene collection's hotkeys) when they are installed.
+- **Add app** on the Apps card: type in the shortcuts of any other program. Press or type the keys, say what each one does and whether it works in any window or only in that app. Added apps count in the list, the warnings and Is it free?, can be edited or deleted from their card, and move with Export / import.
+
+## 1.1.2 - 2026-11-16
+
+- The launcher checks for signed updates on a fresh start and activates a build after it starts successfully. Restart still relaunches the current build. Sign-in startup still opens in the tray.
+
+## 1.1.1 - 2026-11-16
+
+- Removed the retired macro editor from Global Keybinds. Jancy shortcuts are read from Jancy’s own keybinds file.
+
 ## 1.1.0 - 2026-11-16
 
-- New Global Keybinds tab: every keyboard shortcut saved in your apps in one list (Macro Kit, Snipline, Note Keeper, Jancy Macro Studio, Jancy, Record Keeper, Little Buttons, Storage Lens and Tweak Bench), read straight from each app's own settings each time you open the tab.
+- New Global Keybinds tab: every keyboard shortcut saved in your apps in one list (Macro Kit, Snipline, Note Keeper, Jancy, Record Keeper, Little Buttons, Storage Lens and Tweak Bench), read straight from each app's own settings each time you open the tab.
 - Each shortcut says where it works: *Any window* (the app reacts whichever window is active, like Snipline's PrtSc) or *Only when active* (only while that app is the active window, like Jancy's keybinds).
 - Shortcuts that get in each other's way are marked, for example a global shortcut that stops another app's in-app shortcut from ever reaching it.
 - **Is it free?**: press keys (or type them in the search box, such as ctrl+shift+c) to see which apps use them. Macro Kit also asks Windows whether some other running program has already claimed them.

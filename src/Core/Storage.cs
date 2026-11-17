@@ -21,6 +21,13 @@ namespace MacroKit.Core
         public MacrosFile() { Schema = 1; Macros = new List<MacroDef>(); }
     }
 
+    internal sealed class KeybindAppsFile
+    {
+        public int Schema { get; set; }
+        public List<KeybindAppDef> Apps { get; set; }
+        public KeybindAppsFile() { Schema = 1; Apps = new List<KeybindAppDef>(); }
+    }
+
     internal sealed class RecordingIndexFile
     {
         public int Schema { get; set; }
@@ -57,6 +64,7 @@ namespace MacroKit.Core
         string SettingsFile { get { return Path.Combine(root, "settings.json"); } }
         string PhrasesPath { get { return Path.Combine(root, "phrases.json"); } }
         string MacrosPath { get { return Path.Combine(root, "macros.json"); } }
+        string KeybindAppsPath { get { return Path.Combine(root, "keybinds.json"); } }
         string IndexPath { get { return Path.Combine(root, "recordings.json"); } }
         string RecordingsDir { get { return Path.Combine(root, "recordings"); } }
         string RecordingPath(string id) { return Path.Combine(RecordingsDir, id + ".json"); }
@@ -154,6 +162,9 @@ namespace MacroKit.Core
                     if (macro.Hotkey == null) macro.Hotkey = "";
                     if (macro.TargetWindow == null) macro.TargetWindow = new WindowMatch();
                     if (macro.AltTabPartner == null) macro.AltTabPartner = new WindowMatch();
+                    if (macro.Schedule == null) macro.Schedule = new MacroSchedule();
+                    if (macro.Schedule.Time == null) macro.Schedule.Time = "09:00";
+                    if (macro.Schedule.At == null) macro.Schedule.At = "";
                 }
                 return file.Macros;
             }
@@ -163,6 +174,38 @@ namespace MacroKit.Core
         {
             if (macros == null) throw new ArgumentNullException("macros");
             lock (gate) WriteGuarded(MacrosPath, Json.Serialize(new MacrosFile { Macros = new List<MacroDef>(macros) }));
+        }
+
+        /// <summary>The apps added by hand on the Global Keybinds tab. A missing file is an empty list and is not created until something is added.</summary>
+        public List<KeybindAppDef> LoadKeybindApps()
+        {
+            lock (gate)
+            {
+                KeybindAppsFile file = ReadFile<KeybindAppsFile>(KeybindAppsPath) ?? new KeybindAppsFile();
+                if (file.Apps == null) file.Apps = new List<KeybindAppDef>();
+                var ids = new HashSet<string>();
+                file.Apps.RemoveAll(a => a == null);
+                foreach (KeybindAppDef app in file.Apps)
+                {
+                    if (string.IsNullOrEmpty(app.Id) || !ids.Add(app.Id)) { app.Id = Guid.NewGuid().ToString("N"); ids.Add(app.Id); }
+                    if (app.Name == null) app.Name = "";
+                    if (app.Program == null) app.Program = "";
+                    if (app.Shortcuts == null) app.Shortcuts = new List<KeybindDef>();
+                    app.Shortcuts.RemoveAll(s => s == null);
+                    foreach (KeybindDef shortcut in app.Shortcuts)
+                    {
+                        if (shortcut.Keys == null) shortcut.Keys = "";
+                        if (shortcut.Action == null) shortcut.Action = "";
+                    }
+                }
+                return file.Apps;
+            }
+        }
+
+        public void SaveKeybindApps(IEnumerable<KeybindAppDef> apps)
+        {
+            if (apps == null) throw new ArgumentNullException("apps");
+            lock (gate) WriteGuarded(KeybindAppsPath, Json.Serialize(new KeybindAppsFile { Apps = new List<KeybindAppDef>(apps) }));
         }
 
         /// <summary>First-start phrase: /shrug becomes the shrug emoticon.</summary>
@@ -358,6 +401,29 @@ namespace MacroKit.Core
             if (string.IsNullOrEmpty(id) || id.Length > 64) return false;
             foreach (char c in id) if (!(char.IsLetterOrDigit(c) && c < 128) && c != '-') return false;
             return true;
+        }
+
+        // ---- license -----------------------------------------------------------------------------
+
+        string LicensePath { get { return Path.Combine(root, "license.key"); } }
+
+        /// <summary>The saved Macro Kit Pro key text, or null when there is none (or it can't be read).</summary>
+        public string LoadLicenseKey()
+        {
+            lock (gate)
+            {
+                try { return File.Exists(LicensePath) ? File.ReadAllText(LicensePath, Utf8).Trim() : null; }
+                catch (Exception ex) { Log.Warn("Could not read license.key: " + ex.Message); return null; }
+            }
+        }
+
+        public void SaveLicenseKey(string key)
+        {
+            lock (gate)
+            {
+                if (string.IsNullOrEmpty(key)) { if (File.Exists(LicensePath)) File.Delete(LicensePath); return; }
+                WriteAtomic(LicensePath, key.Trim() + "\n");
+            }
         }
 
         // ---- files --------------------------------------------------------------------------------

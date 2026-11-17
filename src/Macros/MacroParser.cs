@@ -30,8 +30,55 @@ namespace MacroKit.Macros
         static readonly HashSet<string> Unsupported = new HashSet<string>
         {
             "INPUT", "OUTPUTTOFILE", "APPENDTOFILE", "VARSETFROMFILE", "VARSETFROMENV", "SETICONFROMFILE", "SETKEYTITLE", "RUN", "PLAYSOUND",
-            "FUNCTION", "ENDFUNCTION", "CALL", "LOOP", "ENDLOOP", "FOR", "ENDFOR", "WHILE", "ENDWHILE", "IF", "ENDIF"
+            "FUNCTION", "ENDFUNCTION", "CALL", "FOR", "ENDFOR", "WHILE", "ENDWHILE"
         };
+
+        // Macro Kit Pro's loops and conditions. They parse into flow steps whose Jump links each block's start and end.
+        static readonly HashSet<string> Flow = new HashSet<string> { "LOOP", "ENDLOOP", "IF", "IFWINDOW", "ELSE", "ENDIF" };
+
+        /// <summary>The comparisons {{IF}} understands, two-character ones first so "&lt;=" wins over "&lt;".</summary>
+        public static readonly string[] Comparisons = { "!=", ">=", "<=", "=", ">", "<", "~" };
+
+        /// <summary>"$count>=3" gives "$count", ">=", "3". The first comparison sign splits; the left side can't be empty.</summary>
+        public static bool SplitComparison(string condition, out string left, out string op, out string right)
+        {
+            left = op = right = null;
+            condition = condition ?? "";
+            for (int i = 0; i < condition.Length; i++)
+            {
+                foreach (string candidate in Comparisons)
+                {
+                    if (string.CompareOrdinal(condition, i, candidate, 0, candidate.Length) != 0) continue;
+                    left = condition.Substring(0, i).Trim();
+                    op = candidate;
+                    right = condition.Substring(i + candidate.Length).Trim();
+                    return left.Length > 0;
+                }
+            }
+            return false;
+        }
+
+        // Numbers compare as numbers when both sides are numbers; otherwise text compares, ignoring case.
+        public static bool Compare(string left, string op, string right)
+        {
+            left = (left ?? "").Trim();
+            right = (right ?? "").Trim();
+            if (op == "~") return left.IndexOf(right, StringComparison.OrdinalIgnoreCase) >= 0;
+            double a, b;
+            int order = double.TryParse(left, NumberStyles.Float, CultureInfo.InvariantCulture, out a) && double.TryParse(right, NumberStyles.Float, CultureInfo.InvariantCulture, out b)
+                ? a.CompareTo(b)
+                : string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+            switch (op)
+            {
+                case "=": return order == 0;
+                case "!=": return order != 0;
+                case "<": return order < 0;
+                case ">": return order > 0;
+                case "<=": return order <= 0;
+                case ">=": return order >= 0;
+                default: return false;
+            }
+        }
 
         public static ParseResult Parse(string script, bool newLineIsEnter)
         {
@@ -230,6 +277,7 @@ namespace MacroKit.Macros
             readonly ParseResult result = new ParseResult();
             readonly List<int> lineStarts = new List<int> { 0 };
             readonly StringBuilder literal = new StringBuilder();
+            readonly List<int> open = new List<int>();   // indexes of the LOOP, IF and ELSE steps still waiting for their end
             int literalStart = -1;
 
             public Parser(string script, bool newLineIsEnter)
@@ -273,6 +321,11 @@ namespace MacroKit.Macros
                     i++;
                 }
                 FlushLiteral(n);
+                foreach (int start in open)
+                {
+                    MacroStep step = result.Steps[start];
+                    AddError(step.Index, step.Length, step.Kind == StepKind.LoopStart ? "This {{LOOP}} has no {{ENDLOOP}} after it." : "This {{IF}} has no {{ENDIF}} after it.");
+                }
                 return result;
             }
 
@@ -346,6 +399,11 @@ namespace MacroKit.Macros
                     args = exact;
                 }
 
+                if (Flow.Contains(name))
+                {
+                    ParseFlow(name, colon < 0 ? null : content.Substring(content.IndexOf(':') + 1), index, length);
+                    return;
+                }
                 if (Commands.Contains(name))
                 {
                     BuildCommand(name, args, index, length);
@@ -414,6 +472,102 @@ namespace MacroKit.Macros
                 string error = Build(name, args, null, out step);
                 if (error != null) AddError(index, length, error);
                 else AddStep(step, index, length);
+            }
+
+            // {{LOOP:n}} ... {{ENDLOOP}}, {{IF:a=b}} or {{IFWINDOW:text}} ... {{ELSE}} ... {{ENDIF}}. Blocks nest.
+            void ParseFlow(string name, string arg, int index, int length)
+            {
+                if (!Edition.IsPro)
+                {
+                    AddError(index, length, "{{" + name + "}}: loops and conditions come with Macro Kit Pro. Enter your license key in Settings.");
+                    return;
+                }
+                string value = (arg ?? "").Trim();
+                int top = open.Count == 0 ? -1 : open[open.Count - 1];
+                StepKind topKind = top < 0 ? StepKind.Text : result.Steps[top].Kind;
+                var step = new MacroStep();
+                switch (name)
+                {
+                    case "LOOP":
+                        if (value.Length == 0) { AddError(index, length, "Say how many times, for example {{LOOP:5}}."); return; }
+                        if (value[0] == '$')
+                        {
+                            string variable = value.Substring(1).Trim();
+                            if (!VariableName.IsMatch(variable)) { AddError(index, length, "\u201C" + value + "\u201D isn't a variable name. Use letters, digits and _."); return; }
+                            step.Var = variable;
+                            step.Count = 0;
+                        }
+                        else
+                        {
+                            int count;
+                            if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out count) || count < 1 || count > MaxRepeat)
+                            {
+                                AddError(index, length, "{{LOOP}} repeats 1 to " + MaxRepeat.ToString("N0", CultureInfo.InvariantCulture) + " times, or as many times as a $variable says.");
+                                return;
+                            }
+                            step.Count = count;
+                        }
+                        step.Kind = StepKind.LoopStart;
+                        open.Add(AddFlowStep(step, index, length));
+                        return;
+                    case "ENDLOOP":
+                        if (topKind != StepKind.LoopStart)
+                        {
+                            AddError(index, length, top < 0 ? "{{ENDLOOP}} has no {{LOOP}} before it." : "Close the {{IF}} with {{ENDIF}} before this {{ENDLOOP}}.");
+                            return;
+                        }
+                        step.Kind = StepKind.LoopEnd;
+                        step.Jump = top;
+                        result.Steps[top].Jump = AddFlowStep(step, index, length);
+                        open.RemoveAt(open.Count - 1);
+                        return;
+                    case "IF":
+                        string left, op, right;
+                        if (!SplitComparison(value, out left, out op, out right))
+                        {
+                            AddError(index, length, "{{IF}} needs a comparison, for example {{IF:$name=Sam}}. Use =, !=, <, >, <=, >= or ~ (contains).");
+                            return;
+                        }
+                        step.Kind = StepKind.If;
+                        step.Left = left;
+                        step.Op = op;
+                        step.Right = right;
+                        open.Add(AddFlowStep(step, index, length));
+                        return;
+                    case "IFWINDOW":
+                        if (value.Length == 0) { AddError(index, length, "Say which window, for example {{IFWINDOW:Notepad}} (part of its title or its program name)."); return; }
+                        step.Kind = StepKind.IfWindow;
+                        step.Value = value;
+                        open.Add(AddFlowStep(step, index, length));
+                        return;
+                    case "ELSE":
+                        if (topKind != StepKind.If && topKind != StepKind.IfWindow)
+                        {
+                            AddError(index, length, topKind == StepKind.Else ? "This {{IF}} already has an {{ELSE}}." : top < 0 ? "{{ELSE}} has no {{IF}} before it." : "Close the {{LOOP}} with {{ENDLOOP}} before this {{ELSE}}.");
+                            return;
+                        }
+                        step.Kind = StepKind.Else;
+                        int elseIndex = AddFlowStep(step, index, length);
+                        result.Steps[top].Jump = elseIndex;
+                        open[open.Count - 1] = elseIndex;
+                        return;
+                    case "ENDIF":
+                        if (topKind != StepKind.If && topKind != StepKind.IfWindow && topKind != StepKind.Else)
+                        {
+                            AddError(index, length, top < 0 ? "{{ENDIF}} has no {{IF}} before it." : "Close the {{LOOP}} with {{ENDLOOP}} before this {{ENDIF}}.");
+                            return;
+                        }
+                        step.Kind = StepKind.EndIf;
+                        result.Steps[top].Jump = AddFlowStep(step, index, length);
+                        open.RemoveAt(open.Count - 1);
+                        return;
+                }
+            }
+
+            int AddFlowStep(MacroStep step, int index, int length)
+            {
+                AddStep(step, index, length);
+                return result.Steps.Count - 1;
             }
 
             void AddStep(MacroStep step, int index, int length)

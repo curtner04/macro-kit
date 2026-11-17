@@ -34,6 +34,7 @@ namespace MacroKit.App
         readonly WindowMatchEditor targetEditor, partnerEditor;
         readonly DispatcherTimer parseTimer;
         MacroDef current;
+        ScheduleEditor schedule;
         ParseResult parsed;
         bool loading;
         bool stepsLoading;
@@ -66,7 +67,9 @@ namespace MacroKit.App
             var newButton = Ui.Button("New macro", NewMacro, "Small", "Add an empty macro.");
             duplicateButton = Ui.Button("Duplicate", Duplicate, "Small", "Copy the selected macro.");
             deleteButton = Ui.Button("Delete", Delete, "Small", "Delete the selected macro.");
-            var listButtons = Ui.Wrap(newButton, duplicateButton, deleteButton);
+            var libraryButton = Ui.Button("Library", () => new LibraryWindow(owner, c).ShowDialog(), "Small", "Ready-made macros and phrases to add with one click.");
+            c.LibraryAdded += (macro, phrase) => { if (macro != null) Reload(macro); };
+            var listButtons = Ui.Wrap(newButton, duplicateButton, deleteButton, libraryButton);
             foreach (UIElement b in listButtons.Children) ((FrameworkElement)b).Margin = new Thickness(0, 0, 6, 6);
             var listGrid = new Grid();
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -193,6 +196,8 @@ namespace MacroKit.App
             editorStack.Children.Add(repeatCard);
             editorStack.Children.Add(whereCard);
             editorStack.Children.Add(launchCard);
+            schedule = new ScheduleEditor(c, () => owner);
+            editorStack.Children.Add(schedule.Root);
             var scroll = new ScrollViewer { Content = editorStack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             editorPanel = scroll;
 
@@ -563,6 +568,7 @@ namespace MacroKit.App
                 altWindows.IsChecked = m.AltTabPartner.IsEmpty;
                 hotkey.SetText(m.Hotkey);
                 showOnDeck.IsChecked = m.ShowOnDeck;
+                schedule.Bind(m, () => Edit(x => { }, false));
                 UpdateEditorEnabled();
             }
             else
@@ -596,6 +602,7 @@ namespace MacroKit.App
         {
             Edit(m => m.Target = kind, false);
             UpdateEditorEnabled();
+            if (schedule != null) schedule.Refresh();
         }
 
         void AltKindChanged(bool specific)

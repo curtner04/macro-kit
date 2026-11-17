@@ -70,10 +70,12 @@ One list of the keyboard shortcuts in your apps, so you can see which keys are s
   | Macro Kit | its own Settings and macro hotkeys |
   | Snipline | `%LOCALAPPDATA%\Snipline\data\settings.json` (Capture shortcut, Active window shortcut) |
   | Note Keeper | `%LOCALAPPDATA%\Note Keeper\data\settings.json` (Listen / stop, screenshot, mark moment) |
-  | Jancy Macro Studio | `data\studio.json` beside its exe (workflow hotkeys), plus Ctrl+Alt+F11 / F12 |
-  | Jancy | the keybinds file Jancy Macro Studio points at, normally `%APPDATA%\Jancy\keybinds.txt` |
+  | Jancy | `%APPDATA%\Jancy\keybinds.txt` |
   | Record Keeper, Little Buttons, Storage Lens, Tweak Bench | built-in shortcuts only (nothing to save) |
+  | PowerToys | `%LOCALAPPDATA%\Microsoft\PowerToys` (the shortcuts of every switched-on tool, Keyboard Manager's shortcut remaps) and Command Palette's own `settings.json`. Listed only when PowerToys is installed |
+  | OBS Studio | `%APPDATA%\obs-studio`: the current profile's `basic.ini` hotkeys and the current scene collection's scene and source hotkeys. Listed only when OBS is installed |
 
+- **Add app** (on the Apps card) is for any other program: type its name, optionally the program it runs as (so the card can say whether it is running), and its shortcuts. For each one, click the Keys box and press the keys, or type them (`ctrl+shift+m`, `F9`, `prtsc`), say what it does, and choose **Any window** or **That app only**. Apps you add are marked *Added by you* and count everywhere on the tab: in the list, the warnings and **Is it free?**. The pencil button on their card edits or deletes them. They are saved in `keybinds.json` in the data folder and move with Export / import. Macro Kit never changes the program itself.
 - Built-in shortcuts (such as Ctrl+S in an app) are listed too; untick **Built-in shortcuts** to see only saved ones.
 - A warning under a shortcut means it gets in another app's way: two apps with the same any-window shortcut, or an any-window shortcut that takes the keys before another app's in-app shortcut can see them.
 - **Is it free?**: click the box and press keys, or type them in **Search** (for example `ctrl+shift+c`). It says which apps use them and where. For keys no listed app uses, Macro Kit also asks Windows whether another running program has registered them. Programs that watch the keyboard another way (a keyboard hook, like Snipline's PrtSc) do not show up in that Windows check, and keys such a program grabs may run it instead of appearing in the box; type those keys instead.
@@ -81,7 +83,7 @@ One list of the keyboard shortcuts in your apps, so you can see which keys are s
 
 ### Settings
 
-The four global hotkeys, whether Esc stops playback and macros, whether Macro Kit comes back after a run, whether closing the window keeps it in the tray, *Start Macro Kit when I sign in to Windows*, Deck columns, theme (follow Windows, light or dark) and the programs where phrases never expand. If another program already uses a hotkey, the reason is shown under it.
+The four global hotkeys, whether Esc stops playback and macros, whether Macro Kit comes back after a run, whether closing the window keeps it in the tray, *Start Macro Kit when I sign in to Windows*, Deck columns, theme (follow Windows, light or dark) and the programs where phrases never expand. If another program already uses a hotkey, the reason is shown under it. **About** shows the version, Free or Pro, and **Check input**: Macro Kit types a short line into its own box and expands a test phrase, which confirms that Windows (and any security software) lets it send keys and see your typing on this PC.
 
 ## The Deck
 
@@ -122,7 +124,25 @@ Macro Kit reads the same text as the Stream Deck Super Macro plugin by BarRaider
 - **Mouse**: `{{MOUSEXY:x,y}}` (screen pixels, 0,0 is the top-left of the main screen, negatives allowed), `{{MOUSEMOVE:dx,dy}}`, `{{MOUSEPOS:x,y}}` (0 to 65535), `{{MLEFTDOWN}}` `{{MLEFTUP}}` `{{MLEFTDBLCLICK}}`, `{{MRIGHTDOWN}}` `{{MRIGHTUP}}` `{{MRIGHTDBLCLICK}}`, `{{MMIDDLEDOWN}}` `{{MMIDDLEUP}}`, `{{MSCROLLUP[:n]}}` `{{MSCROLLDOWN[:n]}}` `{{MSCROLLLEFT[:n]}}` `{{MSCROLLRIGHT[:n]}}`, `{{MSAVEPOS}}` and `{{MLOADPOS}}` (save and return to a pointer position, also available as `$MOUSE_X` and `$MOUSE_Y`).
 - **Variables** (live for one run, across its repeats): `{{VARSET:name:value}}`, `{{OUTPUT:name}}` (types it; `{{$name}}` also works), `{{VARUNSET:name}}`, `{{VARUNSETALL}}`, `{{SETCLIPBOARD:value}}`, `{{VARSETFROMCLIPBOARD:name}}`. In command arguments `$Name` is replaced by the value. Built in: `$SMCOLON`, `$SMDOLLAR`, `$SMLCB` (`{`), `$SMRCB` (`}`), `$SMSPACE`, `$SMENTER`.
 - **Key names**: letters and digits; `ENTER`, `TAB`, `ESC`, `SPACE`, `BACK`, `DELETE`, `INSERT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`, `UP`, `DOWN`, `LEFT`, `RIGHT`, `CAPITAL`, `NUMLOCK`, `SCROLL`, `SNAPSHOT`, `APPS`; modifiers `SHIFT`, `CTRL`, `ALT`, `WIN` (and `LSHIFT`, `RCTRL` and so on); `F1` to `F24`; `NUMPAD0` to `NUMPAD9`, `MULTIPLY`, `ADD`, `SUBTRACT`, `DECIMAL`, `DIVIDE`; `OEM_1` to `OEM_8`, `OEM_PLUS`, `OEM_MINUS`, `OEM_COMMA`, `OEM_PERIOD`; media, volume and browser keys such as `VOLUME_UP` and `BROWSER_BACK`. `BREAK` is the Pause/Break key (the word `PAUSE` is always the wait).
-- Not supported (Macro Kit says so instead of ignoring them): `INPUT`, `OUTPUTTOFILE`, `APPENDTOFILE`, `VARSETFROMFILE`, `VARSETFROMENV`, `SETICONFROMFILE`, `SETKEYTITLE`, `RUN`, `PLAYSOUND`, functions and loops.
+- **Loops and conditions** (Macro Kit Pro): `{{LOOP:n}}…{{ENDLOOP}}` repeats the steps between (1 to 100,000 times, or `{{LOOP:$count}}`). `{{IF:left op right}}…{{ELSE}}…{{ENDIF}}` compares after filling in `$names`: `=`, `!=`, `<`, `>`, `<=`, `>=` (numbers compare as numbers, text ignores case) and `~` (contains). `{{IFWINDOW:text}}` is true when the window in front has that text in its title or program name. Blocks nest; `{{ELSE}}` is optional.
+- Not supported (Macro Kit says so instead of ignoring them): `INPUT`, `OUTPUTTOFILE`, `APPENDTOFILE`, `VARSETFROMFILE`, `VARSETFROMENV`, `SETICONFROMFILE`, `SETKEYTITLE`, `RUN`, `PLAYSOUND`, functions, `FOR` and `WHILE`.
+
+## Macro Kit Pro
+
+Macro Kit is free and stays free: everything above works without paying. **Macro Kit Pro** is a one-time purchase that supports the work and adds:
+
+| Pro adds | Where |
+| --- | --- |
+| Loops and conditions in macros (`{{LOOP}}`, `{{IF}}`, `{{IFWINDOW}}`, `{{ELSE}}`) | Macros, script |
+| Scheduled macros: every day at a time (on chosen days), every few minutes, or once at a date and time | Macros, **Run on a schedule** card |
+| The macro library's Pro packs: Spreadsheets and forms, Browser, Clicker, Loops and conditions, Symbols | Macros, **Library** |
+
+The library's Starter pack is free. Get Pro on the [Macro Kit website](https://curtner04.github.io/macro-kit/#pro), then paste the key from your email in **Settings → About → Enter license key**.
+
+- License keys start with `MK1-` and are checked on your PC with a public key built into Macro Kit (Ed25519 signatures). The key is never sent anywhere. Macro Kit's only network request is the launcher's update check against the public `macro-kit-downloads` releases on GitHub, which carries nothing about you or your key. The key is saved as `license.key` in the data folder and moves with Export / import.
+- Scheduled macros run only while Macro Kit is running (in the tray is fine). A time missed while it was closed is not made up. A run that finds Macro Kit busy waits up to 5 minutes, then is skipped. A scheduled macro types into the window in front at that moment unless **Where it runs** names a specific window, so pick one.
+- Removing the key (**Settings → About → Remove license key**) turns the Pro features off again; macros that use loops or conditions then show an error until a key is entered.
+- The source is open. The key generator and the signing key are not in this repository.
 
 ## Hotkeys
 
@@ -141,7 +161,7 @@ Only one activity runs at a time. Starting another is refused with a message.
 
 ## Your data
 
-Everything is kept in `%LOCALAPPDATA%\Macro Kit\data` (**⋯ > Open data folder**): `settings.json`, `phrases.json`, `macros.json`, `recordings.json` and a `recordings` folder. Edits save automatically about half a second after you make them; if a save fails, **Unsaved** appears in the header and Restart waits until it works. A file that is damaged is set aside (never overwritten) and Macro Kit starts with defaults. A file that exists but cannot be read at the moment (another program has it open) is left alone: Macro Kit uses defaults in memory, never saves over it, and says so (**Data file in use** in the header and in Settings) until you restart it. The log, which never contains typed text or phrase contents, is `%LOCALAPPDATA%\Macro Kit\logs\macrokit.log`.
+Everything is kept in `%LOCALAPPDATA%\Macro Kit\data` (**⋯ > Open data folder**): `settings.json`, `phrases.json`, `macros.json`, `recordings.json`, `keybinds.json` (apps added on the Global Keybinds tab, once you add one), `license.key` (Macro Kit Pro, once you enter a key) and a `recordings` folder. Edits save automatically about half a second after you make them; if a save fails, **Unsaved** appears in the header and Restart waits until it works. A file that is damaged is set aside (never overwritten) and Macro Kit starts with defaults. A file that exists but cannot be read at the moment (another program has it open) is left alone: Macro Kit uses defaults in memory, never saves over it, and says so (**Data file in use** in the header and in Settings) until you restart it. The log, which never contains typed text or phrase contents, is `%LOCALAPPDATA%\Macro Kit\logs\macrokit.log`.
 
 ## Restart, export and import
 
@@ -169,9 +189,22 @@ Everything is kept in `%LOCALAPPDATA%\Macro Kit\data` (**⋯ > Open data folder*
 powershell -NoProfile -ExecutionPolicy Bypass -File Build.ps1                 builds Macro Kit.exe into this folder
 powershell -NoProfile -ExecutionPolicy Bypass -File Build.ps1 -Test           also builds build\MacroKit.Tests.exe
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test.ps1            builds into a temp folder, runs the logic tests and the UI self test
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Module.ps1 -Module Macros   one module's tests (Core, Macros, Phrases, Recording, Win32)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Module.ps1 -Module Macros   one module's tests (Core, Keybinds, Macros, Phrases, Recording, Win32)
 ```
 
-The build also compiles a few shared sources (restart handoff, single-instance guard, configuration-transfer launcher, changelog reader, version attributes) from a `_shared` folder next to `Build.ps1`, or from `C:devApp Maintenanceshared`; they live in a separate repository.
+### Adding a keybinds reader
+
+To list another program's shortcuts without anyone typing them in, add a reader in `src\Keybinds` (see `OtherAppReaders.cs` for PowerToys and OBS):
+
+1. Write a static method that takes the program's settings path and a `Func<string, string> readText` (returns the file's text, or null when it does not exist) and returns an `AppKeybinds`. Return null when the program is not installed, so it is left off the list. Put a reading error in `Problem` instead of throwing, and keep what could be read.
+2. Add one `Keybind` per shortcut: `Keys` as a `Hotkey` (use `KeyText.TryParse` for text), a plain-words `Action`, `Scope` (`Global` for any window, `AppActive` for only while the program is active), `Saved = true` for shortcuts the user set, and a `Note` when it helps. Set `Processes` to the program's process names (without `.exe`) so the card can say whether it runs.
+3. Add the path to `KeybindLocations` (with its default under `%LOCALAPPDATA%` or `%APPDATA%`) and call the reader in `KeybindCatalog.Read`.
+4. Add tests to `tests\KeybindsTests.cs` that feed the reader made-up files through `readText`: switched-off features, missing files, a damaged file.
+
+The build also compiles a few shared sources (restart handoff, single-instance guard, configuration-transfer launcher, changelog reader, version attributes) from a `_shared` folder next to `Build.ps1`, or from `C:\dev\App Maintenance\shared`; they live in a separate repository.
 
 Tests never send real input, install hooks, register hotkeys, touch the clipboard or change focus. Anything that opens a window runs on a hidden desktop (`C:\dev\Toolchains\HiddenDesktop\Invoke-OnHiddenDesktop.ps1`). Installers are only built by the 4:00 AM Daily App Installer Queue. See `DESIGN.md` for the full specification.
+
+### Launcher
+
+Open the app from App Management or your usual shortcut to check for signed updates at startup. The launcher stages new binaries separately and switches versions after the new app starts. Running sessions are left open. Restart inside the app relaunches the current build. The 4 AM installer queue publishes the signed update alongside the installer.

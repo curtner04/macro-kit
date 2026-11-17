@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,6 +23,7 @@ namespace MacroKit.App
         readonly Func<RunPill> pill;
         readonly TextBlock pillPlace = Ui.Text("", "Muted", false, 12, true);
         readonly Button pillReset;
+        readonly StackPanel edition = new StackPanel();
         bool loading;
 
         public SettingsTab(AppController controller, Action themeChanged, Action showChangelog, Action openDataFolder, Func<RunPill> pill)
@@ -100,20 +102,20 @@ namespace MacroKit.App
                 excluded));
 
             // ---- about
-            string version = "Macro Kit " + Release.Version;
             var data = Ui.Text(c.Storage.DataRoot, "Text", false, 12);
             data.FontFamily = Ui.MonoFont;
             data.TextWrapping = TextWrapping.Wrap;
             data.TextTrimming = TextTrimming.None;
             var links = Ui.Row(8, Ui.Button("Open data folder", openDataFolder, "Small", "Show the folder where your settings, phrases, macros and recordings are kept."),
-                Ui.Button("Changelog", showChangelog, "Small", "What changed in each version."));
+                Ui.Button("Changelog", showChangelog, "Small", "What changed in each version."),
+                Ui.Button("Check input", () => new InputCheckWindow(Window.GetWindow(Root), c).ShowDialog(), "Small", "Checks that Windows lets Macro Kit send keys and see your typing on this PC."));
             string readOnly = c.ReadOnlyNotice();
             var readOnlyNote = Ui.Text(readOnly ?? "", "Bad", false, 12, true);
             readOnlyNote.Visibility = readOnly == null ? Visibility.Collapsed : Visibility.Visible;
             var about = Ui.Card(Ui.Stack(8,
                 Ui.Heading("About"),
                 readOnlyNote,
-                Ui.Text(version, "Muted", false, 12),
+                edition,
                 Ui.Text("Your data is kept in", "Muted", false, 12), data,
                 links,
                 Ui.Para("Windows stops programs from typing into, or watching, programs that run as administrator. To use Macro Kit with those, run Macro Kit as administrator too. Macro Kit warns you when the window it works in runs as administrator.", "Muted", 12)));
@@ -129,6 +131,8 @@ namespace MacroKit.App
             grid.Children.Add(right);
             Root = new ScrollViewer { Content = grid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
+            ShowEdition();
+            Edition.Changed += ShowEdition;
             c.HotkeysChanged += ShowHotkeyErrors;
             c.Edited += parts => { if ((parts & SaveParts.Settings) != 0) ShowPillPlace(); };
             ShowPillPlace();
@@ -177,6 +181,35 @@ namespace MacroKit.App
             ShowPillPlace();
         }
 
+        // Version, Free or Pro badge, and the license buttons. Rebuilt when a key is entered or removed.
+        void ShowEdition()
+        {
+            edition.Children.Clear();
+            var badge = Edition.IsPro ? Ui.Pill("PRO", "Good", "GoodBg") : Ui.Pill("FREE", "Info", "InfoBg");
+            badge.VerticalAlignment = VerticalAlignment.Center;
+            var title = Ui.Row(8, Ui.Text("Macro Kit " + Release.Version, "Text", true, 13), badge);
+            edition.Children.Add(title);
+            if (Edition.IsPro)
+            {
+                var who = Ui.Text(Edition.License.Describe(), "Muted", false, 12, true);
+                who.Margin = new Thickness(0, 4, 0, 6);
+                edition.Children.Add(who);
+                edition.Children.Add(Ui.Row(8, Ui.Button("Remove license key", () =>
+                {
+                    if (Ui.Confirm(Window.GetWindow(Root), "Remove the license key from this PC? Loops, conditions, schedules and the Pro library packs stop working until you enter it again.")) c.RemoveLicense();
+                }, "Small", "Take the key off this PC, for example before you give the PC away.")));
+            }
+            else
+            {
+                var pitch = Ui.Para("Everything you see works free, forever. Macro Kit Pro adds loops and conditions in macros, scheduled macros and the macro library packs, and supports the work on Macro Kit.", "Muted", 12);
+                pitch.Margin = new Thickness(0, 4, 0, 6);
+                edition.Children.Add(pitch);
+                edition.Children.Add(Ui.Row(8,
+                    Ui.Button("Enter license key", () => new LicenseWindow(Window.GetWindow(Root), c).ShowDialog(), "Small", "Paste the key from your purchase email."),
+                    Ui.Button("Get Pro", ProPage.Open, "Small", "Opens the Macro Kit website.")));
+            }
+        }
+
         void ShowPillPlace()
         {
             bool custom = !double.IsNaN(c.Settings.PillLeft);
@@ -216,7 +249,8 @@ namespace MacroKit.App
             bool want = startWithWindows.IsChecked == true;
             try
             {
-                if (want) StartupEntry.Enable(Process.GetCurrentProcess().MainModule.FileName); else StartupEntry.Disable();
+                if (want) StartupEntry.Enable(Path.Combine(AppShared.LaunchReadiness.InstallationRoot(AppDomain.CurrentDomain.BaseDirectory), "Macro Kit.exe"));
+                else StartupEntry.Disable();
             }
             catch (Exception ex)
             {

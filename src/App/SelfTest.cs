@@ -201,6 +201,20 @@ namespace MacroKit.App
                 });
                 Step("render deck (" + suffix + ")", () => RenderFloating(shell.Deck, Path.Combine(folder, "5-deck-" + suffix + ".png")));
                 RenderPills(shell, controller, folder, suffix);
+                Step("render the add-an-app editor (" + suffix + ")", () =>
+                {
+                    KeybindAppDef chat = controller.KeybindApps.First(a => a.Name == "Chat App");
+                    var editor = new KeybindAppEditor(chat, main.Keybinds.TakenNames(chat));
+                    editor.AddRow("ctrl-banana", "Something", false);
+                    var host = new Window { Content = editor.Root };
+                    Theme.Style(host);
+                    Prepare(host, 780, 600);
+                    host.Show();
+                    Settle(host);
+                    Capture(host, Path.Combine(folder, "5-keybinds-editor-" + suffix + ".png"));
+                    host.Content = null;
+                    host.Close();
+                });
                 Step("render changelog (" + suffix + ")", () =>
                 {
                     var log = new ChangelogWindow(null);
@@ -291,18 +305,29 @@ namespace MacroKit.App
             {
                 { "snipline", "{\"Schema\":1,\"HotkeyKey\":44,\"HotkeyModifiers\":0,\"WindowShortcutModifier\":2}" },
                 { "notekeeper", "{\"Schema\":1,\"RecordKey\":119,\"CaptureKey\":120,\"MarkKey\":118,\"Modifiers\":0}" },
-                { "studio", "{\"Workflows\":[{\"Name\":\"Morning\",\"Hotkey\":\"Ctrl+Alt+L\"}]}" },
                 { "jancy", string.Join("\n",
                     "id:user-copy-url-list; keybind:ctrl-alt-shift-u; context:tab window",
                     "id:copy-title-to-the-clipboard; keybind:ctrl-shift-c; context:tab window",
                     "id:reload-all-tabs; keybind:ctrl-alt-shift-p; context:tab window",
                     "id:new-tab; keybind:ctrl-t; context:tab window",
                     "id:close-current-tab; keybind:ctrl-w; context:tab window") },
+                { @"pt\settings.json", "{\"enabled\":{\"AlwaysOnTop\":true,\"ColorPicker\":true,\"Peek\":true,\"FancyZones\":false}}" },
+                { @"pt\AlwaysOnTop\settings.json", "{\"properties\":{\"hotkey\":{\"value\":{\"win\":true,\"ctrl\":true,\"alt\":false,\"shift\":false,\"code\":84}}}}" },
+                { @"pt\ColorPicker\settings.json", "{\"properties\":{\"DefaultActivationShortcut\":{\"win\":true,\"shift\":true,\"ctrl\":false,\"alt\":false,\"code\":67},\"ActivationShortcut\":{\"win\":true,\"shift\":true,\"ctrl\":false,\"alt\":false,\"code\":67}}}" },
+                { @"pt\Peek\settings.json", "{\"properties\":{\"ActivationShortcut\":{\"win\":false,\"ctrl\":true,\"alt\":false,\"shift\":false,\"code\":32}}}" },
+                { @"obs\user.ini", "[General]\nHotkeyFocusType=NeverDisableHotkeys\n[Basic]\nProfileDir=Main\nSceneCollectionFile=Main.json\n" },
+                { @"obs\basic\profiles\Main\basic.ini", "[Hotkeys]\nOBSBasic.StartRecording={\"bindings\":[{\"key\":\"OBS_KEY_F9\",\"control\":true}]}\n" },
             };
-            var where = new KeybindLocations { Snipline = "snipline", NoteKeeper = "notekeeper", JancyDefault = "jancy" };
-            where.StudioCandidates.Add("studio");
-            tab.Load = () => KeybindCatalog.Read(where, c.Settings, c.Macros, path => { string text; return files.TryGetValue(path, out text) ? text : null; });
-            tab.IsRunning = app => app == KeybindReaders.MacroKitName || app == KeybindReaders.SniplineName || app == KeybindReaders.JancyName;
+            var where = new KeybindLocations { Snipline = "snipline", NoteKeeper = "notekeeper", JancyDefault = "jancy", PowerToys = "pt", Obs = "obs" };
+            if (c.KeybindApps.Count == 0)
+                c.KeybindApps.Add(new KeybindAppDef
+                {
+                    Name = "Chat App", Program = "chatapp",
+                    Shortcuts = { new KeybindDef { Keys = "Ctrl+Shift+M", Action = "Mute or unmute" }, new KeybindDef { Keys = "Ctrl+K", Action = "Quick switcher", OnlyWhenActive = true } },
+                });
+            tab.Load = () => KeybindCatalog.Read(where, c.Settings, c.Macros, c.KeybindApps, path => { string text; return files.TryGetValue(path, out text) ? text : null; });
+            tab.IsRunning = app => app.App == KeybindReaders.MacroKitName || app.App == KeybindReaders.SniplineName || app.App == KeybindReaders.JancyName || app.App == OtherAppReaders.PowerToysName
+                ? true : app.Processes.Length > 0 ? (bool?)false : null;
             tab.Probe = null;
         }
 
@@ -324,7 +349,43 @@ namespace MacroKit.App
                 bool free = main.Keybinds.VerdictText.Contains("is free");
                 main.Keybinds.SetSearch("");
                 return catalog != null && catalog.Apps.Count >= 5 && prtsc && jancy && free
-                    && catalog.Clashes().Any(x => x.A.App == KeybindReaders.MacroKitName && x.B.App == KeybindReaders.JancyName);
+                    && catalog.Clashes().Any(x => x.A.App == KeybindReaders.MacroKitName && x.B.App == KeybindReaders.JancyName)
+                    && catalog.Apps.Any(a => a.App == OtherAppReaders.PowerToysName && a.Keybinds.Count == 3)
+                    && catalog.Apps.Any(a => a.App == OtherAppReaders.ObsName && a.Keybinds.Any(k => k.Keys == "Ctrl+F9"))
+                    && catalog.Apps.Any(a => a.App == "Chat App" && a.CustomId != null);
+            });
+
+            Check("an app added by hand is saved, counts on the tab and can be deleted", () =>
+            {
+                main.SelectTab(4);
+                Settle(main);
+                var editor = new KeybindAppEditor(null, main.Keybinds.TakenNames(null));
+                editor.SetName("Jancy");
+                bool refusesTakenName = editor.Problems.Any(p => p.Contains("already on the list"));
+                editor.SetName("Stream Tool");
+                KeybindAppEditor.ShortcutRow bad = editor.AddRow("ctrl-banana", "Nonsense", false);
+                bool refusesBadKeys = editor.Problems.Any(p => p.Contains("does not recognise")) && !editor.Save();
+                bad.Keys.Text = "ctrl+alt+shift+k";
+                bad.Action.Text = "Start the stream";
+                editor.SetProgram(@"C:\Tools\streamtool.exe");
+                editor.AddRow("f8", "Mark a moment", true);
+                bool saved = editor.Save();
+                main.Keybinds.Apply(null, editor, KeybindAppEditor.Outcome.Saved);
+                Settle(main);
+                KeybindAppDef added = c.KeybindApps.FirstOrDefault(a => a.Name == "Stream Tool");
+                main.Keybinds.SetSearch("ctrl+alt+shift+k");
+                Settle(main);
+                bool taken = main.Keybinds.VerdictText.Contains("taken everywhere by Stream Tool");
+                main.Keybinds.SetSearch("");
+                bool listed = main.Keybinds.Catalog.Apps.Any(a => a.App == "Stream Tool" && a.Keybinds.Count == 2);
+                bool flushed = c.Flush() && File.Exists(Path.Combine(data, "keybinds.json"));
+                bool reloaded = new Storage(data).LoadKeybindApps().Any(a => a.Name == "Stream Tool" && a.Program == "streamtool" && a.Shortcuts.Count == 2
+                    && a.Shortcuts[0].Keys == "Ctrl+Shift+Alt+K" && a.Shortcuts[1].Keys == "F8" && a.Shortcuts[1].OnlyWhenActive);
+                main.Keybinds.Apply(added, null, KeybindAppEditor.Outcome.Deleted);
+                Settle(main);
+                bool gone = !main.Keybinds.Catalog.Apps.Any(a => a.App == "Stream Tool") && !c.KeybindApps.Contains(added);
+                c.Flush();
+                return refusesTakenName && refusesBadKeys && saved && added != null && taken && listed && flushed && reloaded && gone;
             });
 
             Check("no hook, hotkeys or input in a self test", () => !c.InputEnabled && !c.HookRunning && c.HotkeyErrors.Count == 0);

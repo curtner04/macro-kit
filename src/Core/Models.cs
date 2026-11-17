@@ -8,7 +8,108 @@ namespace MacroKit.Core
     public enum TargetKind { PreviousWindow, SpecificWindow }
     public enum ExpandWhen { Immediately, AfterDelimiter }
     public enum InsertMethod { Type, Paste }
-    public enum RunOrigin { MainWindow, Deck, Hotkey, Tray }
+    public enum RunOrigin { MainWindow, Deck, Hotkey, Tray, Schedule }
+    public enum ScheduleKind { Off, Daily, Every, Once }
+
+    /// <summary>
+    /// When a macro runs by itself (Macro Kit Pro). Runs happen only while Macro Kit is running; a time missed while it was
+    /// closed is not made up later. Times are local. Daily keeps "HH:mm" and a weekday mask (bit 0 = Sunday); Once keeps
+    /// "yyyy-MM-dd HH:mm".
+    /// </summary>
+    public sealed class MacroSchedule
+    {
+        public const int EveryDay = 127;
+        public const int MinMinutes = 1, MaxMinutes = 1440;
+
+        public ScheduleKind Kind { get; set; }
+        public string Time { get; set; }
+        public int Days { get; set; }
+        public int EveryMinutes { get; set; }
+        public string At { get; set; }
+
+        public MacroSchedule()
+        {
+            Kind = ScheduleKind.Off;
+            Time = "09:00";
+            Days = EveryDay;
+            EveryMinutes = 30;
+            At = "";
+        }
+
+        public static bool TryParseTime(string text, out TimeSpan time)
+        {
+            DateTime parsed;
+            bool ok = DateTime.TryParseExact((text ?? "").Trim(), new[] { "H:mm", "HH:mm" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed);
+            time = ok ? parsed.TimeOfDay : TimeSpan.Zero;
+            return ok;
+        }
+
+        public static bool TryParseAt(string text, out DateTime at)
+        {
+            return DateTime.TryParseExact((text ?? "").Trim(), new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd H:mm" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out at);
+        }
+
+        /// <summary>The first run strictly after the given time, or null (off, nothing set up, or a one-off already past).</summary>
+        public DateTime? NextRun(DateTime after)
+        {
+            switch (Kind)
+            {
+                case ScheduleKind.Daily:
+                    TimeSpan time;
+                    int days = Days & EveryDay;
+                    if (!TryParseTime(Time, out time) || days == 0) return null;
+                    for (int i = 0; i <= 7; i++)
+                    {
+                        DateTime candidate = after.Date.AddDays(i) + time;
+                        if (candidate > after && (days & (1 << (int)candidate.DayOfWeek)) != 0) return candidate;
+                    }
+                    return null;
+                case ScheduleKind.Every:
+                    int minutes = Math.Max(MinMinutes, Math.Min(MaxMinutes, EveryMinutes));
+                    return after.AddMinutes(minutes);
+                case ScheduleKind.Once:
+                    DateTime at;
+                    if (!TryParseAt(At, out at)) return null;
+                    return at > after ? at : (DateTime?)null;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>"Every day at 09:00", "Weekdays at 17:30", "Every 30 minutes", "Once on 18 Nov 2026 at 08:00".</summary>
+        public string Describe()
+        {
+            switch (Kind)
+            {
+                case ScheduleKind.Daily:
+                    TimeSpan time;
+                    string clock = TryParseTime(Time, out time) ? time.ToString(@"hh\:mm", CultureInfo.InvariantCulture) : "?";
+                    return DaysText(Days) + " at " + clock;
+                case ScheduleKind.Every:
+                    int minutes = Math.Max(MinMinutes, Math.Min(MaxMinutes, EveryMinutes));
+                    return minutes == 1 ? "Every minute" : "Every " + minutes.ToString(CultureInfo.InvariantCulture) + " minutes";
+                case ScheduleKind.Once:
+                    DateTime at;
+                    return TryParseAt(At, out at) ? "Once on " + at.ToString("d MMM yyyy 'at' HH:mm", CultureInfo.InvariantCulture) : "Once (pick a date and time)";
+                default:
+                    return "Not scheduled";
+            }
+        }
+
+        static readonly string[] DayNames = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+
+        public static string DaysText(int days)
+        {
+            days &= EveryDay;
+            if (days == EveryDay) return "Every day";
+            if (days == 62) return "Weekdays";
+            if (days == 65) return "Weekends";
+            if (days == 0) return "No days";
+            var names = new List<string>();
+            for (int i = 0; i < 7; i++) if ((days & (1 << i)) != 0) names.Add(DayNames[i]);
+            return string.Join(", ", names);
+        }
+    }
 
     /// <summary>
     /// Outcome of a macro run or a recording playback. Lives in Core (not in the Macros module) because
@@ -38,6 +139,7 @@ namespace MacroKit.Core
         public bool StopIfFocusLeaves { get; set; }       // applies when Target = SpecificWindow
         public string Hotkey { get; set; }                // "" = none
         public bool ShowOnDeck { get; set; }
+        public MacroSchedule Schedule { get; set; }      // Pro; Off by default
 
         public MacroDef()
         {
@@ -55,6 +157,7 @@ namespace MacroKit.Core
             StopIfFocusLeaves = true;
             Hotkey = "";
             ShowOnDeck = true;
+            Schedule = new MacroSchedule();
         }
     }
 
@@ -231,6 +334,39 @@ namespace MacroKit.Core
             Id = "";
             Name = "";
             Created = "";
+        }
+    }
+
+    /// <summary>An app the person added to the Global Keybinds tab by hand, with the shortcuts they typed in (keybinds.json).</summary>
+    public sealed class KeybindAppDef
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        /// <summary>Process name without .exe (such as obs64), so the tab can say whether the app is running; "" = unknown.</summary>
+        public string Program { get; set; }
+        public List<KeybindDef> Shortcuts { get; set; }
+
+        public KeybindAppDef()
+        {
+            Id = Guid.NewGuid().ToString("N");
+            Name = "";
+            Program = "";
+            Shortcuts = new List<KeybindDef>();
+        }
+    }
+
+    public sealed class KeybindDef
+    {
+        /// <summary>Keys as text, such as Ctrl+Shift+M.</summary>
+        public string Keys { get; set; }
+        public string Action { get; set; }
+        /// <summary>True when the shortcut only works while the app is the active window.</summary>
+        public bool OnlyWhenActive { get; set; }
+
+        public KeybindDef()
+        {
+            Keys = "";
+            Action = "";
         }
     }
 }

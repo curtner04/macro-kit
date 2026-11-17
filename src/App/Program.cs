@@ -57,12 +57,16 @@ namespace MacroKit.App
         [STAThread]
         public static int Main(string[] args)
         {
+            using var readiness = LaunchReadiness.Open(AppIdentity.Code);
             try
             {
                 if (args.Length > 0 && args[0] == "--version") { WriteOut(Release.Version); return 0; }
                 if (args.Length > 0 && args[0] == "--changelog") { WriteOut(ReleaseNotes.Read()); return 0; }
 
                 Options options = Options.Parse(args);
+                if (!options.NoInput && options.DataFolder == null &&
+                    (args.Length == 0 || (args.Length == 1 && args[0] == "--tray")) &&
+                    LaunchReadiness.TryOpenLauncher("Macro Kit", options.StartInTray)) return 0;
                 // One-shot: only the restart that set it should start hidden, not later launches that inherit this environment.
                 Environment.SetEnvironmentVariable("MK_START_HIDDEN", null);
                 if (options.DataFolder != null) Paths.Override(Path.GetFullPath(options.DataFolder));
@@ -84,20 +88,20 @@ namespace MacroKit.App
                 using (var mutex = new Mutex(false, mutexName))
                 {
                     if (!SingleInstance.TryAcquire(mutex, options.FromRestart ? 10000 : 0)) { TellAlreadyRunning(showName); return 0; }
-                    try { return RunApp(options, showName); }
+                    try { return RunApp(options, showName, readiness); }
                     finally { try { mutex.ReleaseMutex(); } catch (Exception) { } }
                 }
             }
             catch (Exception ex)
             {
                 Log.Error("Could not start", ex);
-                if (Environment.GetEnvironmentVariable("CLAUDE_HIDDEN_DESKTOP") != "1")
+                if (!readiness.Waiting && Environment.GetEnvironmentVariable("CLAUDE_HIDDEN_DESKTOP") != "1")
                     MessageBox.Show(ex.Message, "Macro Kit could not start", MessageBoxButton.OK, MessageBoxImage.Error);
                 return 1;
             }
         }
 
-        static int RunApp(Options options, string showName)
+        static int RunApp(Options options, string showName, LaunchReadiness readiness)
         {
             if (!options.NoInput && SingleInstance.TransferWindowOpen())
                 throw new IOException("Finish and close Export / import configuration before opening Macro Kit.");
@@ -109,6 +113,7 @@ namespace MacroKit.App
             {
                 Log.Error("Unhandled UI error", e.Exception);
                 e.Handled = true;
+                if (readiness.Waiting) { app.Shutdown(1); return; }
                 if (showingError || options.NoInput) return;
                 showingError = true;
                 try { MessageBox.Show("Something unexpected went wrong:\n\n" + e.Exception.Message + "\n\nDetails were saved to " + Log.FilePath, "Macro Kit", MessageBoxButton.OK, MessageBoxImage.Warning); }
@@ -120,7 +125,11 @@ namespace MacroKit.App
             Theme.Initialize(app, controller.Settings.Theme);
             var shell = new AppShell(controller, !options.NoInput);
             controller.Start();
-            app.Dispatcher.BeginInvoke(new Action(() => shell.Start(options.StartInTray)));
+            app.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                shell.Start(options.StartInTray);
+                readiness.Ready();
+            }));
 
             EventWaitHandle showRequest = null;
             RegisteredWaitHandle showWait = null;

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Macro Kit</title>
+<meta name="description" content="Free Windows app to record and replay mouse and keyboard, expand typed phrases and run macro scripts. Macro Kit Pro adds loops, conditions, schedules and a macro library.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fe4'/%3E%3Cpath d='M8 22V10l8 7 8-7v12' fill='none' stroke='white' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f7f8fb;--panel:#ffffff;--ink:#16181d;--muted:#5b6170;--line:#dfe3ea;
+  --accent:#2f6fe4;--accent-ink:#ffffff;--good:#1d7a46;--good-bg:#e3f4ea;--pro:#7a4ad8;--pro-bg:#efe8fc;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px rgba(20,30,60,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#111318;--panel:#1a1d24;--ink:#eceef3;--muted:#a3a9b7;--line:#2c313c;
+    --accent:#5b8ff0;--accent-ink:#0b0d12;--good:#6fd39b;--good-bg:#173226;--pro:#b393f5;--pro-bg:#2a2140;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+header.top{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:18px 0}
+.hero>*,.features>*,.price>*{min-width:0}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;color:var(--ink);text-decoration:none}
+.brand svg{width:28px;height:28px}
+nav a{color:var(--muted);text-decoration:none;margin-left:16px;font-size:15px}
+nav a:first-child{margin-left:0}
+nav a:hover{color:var(--ink)}
+.hero{display:grid;grid-template-columns:1fr;gap:28px;padding:28px 0 40px}
+@media (min-width:880px){.hero{grid-template-columns:5fr 6fr;align-items:center}}
+h1{font-size:clamp(30px,5vw,44px);line-height:1.12;margin:0 0 14px;letter-spacing:-.02em}
+.lede{font-size:18px;color:var(--muted);margin:0 0 22px}
+.cta{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 18px;border-radius:9px;font-weight:600;text-decoration:none;border:1px solid transparent;font-size:16px;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{border-color:var(--line);color:var(--ink);background:var(--panel)}
+.btn.pro{background:var(--pro);color:#fff}
+.btn[aria-disabled="true"]{opacity:.6;cursor:default}
+.fine{font-size:13.5px;color:var(--muted);margin-top:10px}
+.shot{border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--line);width:100%;height:auto;display:block}
+section{padding:36px 0;border-top:1px solid var(--line)}
+h2{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 22px}
+.features{display:grid;grid-template-columns:1fr;gap:14px}
+@media (min-width:640px){.features{grid-template-columns:1fr 1fr}}
+@media (min-width:960px){.features{grid-template-columns:1fr 1fr 1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.card h3{margin:0 0 6px;font-size:17px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;min-width:480px}
+th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);font-size:15px;vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-size:14px;color:var(--muted);font-weight:600}
+td.c,th.c{text-align:center;width:110px}
+.yes{color:var(--good);font-weight:700}
+.no{color:var(--muted)}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.03em}
+.pill.free{background:var(--good-bg);color:var(--good)}
+.pill.pro{background:var(--pro-bg);color:var(--pro)}
+.price{display:grid;grid-template-columns:1fr;gap:14px;margin-top:22px}
+@media (min-width:720px){.price{grid-template-columns:1fr 1fr}}
+.plan{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:10px}
+.plan.highlight{border-color:var(--pro);box-shadow:var(--shadow)}
+.amount{font-size:34px;font-weight:700;letter-spacing:-.02em}
+.amount s{font-size:20px;color:var(--muted);font-weight:500;margin-left:6px}
+.plan ul{margin:0;padding-left:20px;color:var(--muted);font-size:15px}
+.plan .btn{margin-top:auto;align-self:flex-start}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+summary{font-weight:600;cursor:pointer}
+details p{color:var(--muted);margin:10px 0 0;font-size:15px}
+code{overflow-wrap:anywhere;font-family:Consolas,"Cascadia Mono",monospace;font-size:.92em;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#2f6fe4"/><path d="M8 22V10l8 7 8-7v12" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>
+      Macro Kit
+    </a>
+    <nav><a href="#features">Features</a><a href="#pro">Pro</a><a href="#faq">FAQ</a></nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Automate the boring clicks and keystrokes on Windows.</h1>
+      <p class="lede">Record and replay your mouse and keyboard, turn short triggers into whole paragraphs, and run small macro scripts in the window you choose. Free and open source.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/curtner04/macro-kit-downloads/releases/latest/download/MK-Setup.exe">Download for Windows</a>
+        <a class="btn ghost" href="#pro">Get Pro</a>
+      </div>
+      <p class="fine">Windows 10 and 11, 64-bit. Free forever, no account. <a href="https://github.com/curtner04/macro-kit-downloads/releases">Release history</a> · <a href="https://github.com/curtner04/macro-kit">Source code</a></p>
+    </div>
+    <picture>
+      <source srcset="macros-dark.png" media="(prefers-color-scheme: dark)">
+      <img class="shot" src="macros-light.png" width="1040" height="720" alt="Macro Kit's Macros tab: a macro script on the left, its steps listed on the right, and a palette of commands to insert below.">
+    </picture>
+  </div>
+
+  <section id="features">
+    <h2>Everything in the free version</h2>
+    <p class="sub">No trial, no nag screens. These never need a key.</p>
+    <div class="features">
+      <div class="card"><h3>Recorder</h3><p>Record mouse and keyboard, then play it back once, a set number of times or continuously, at 0.1x to 100x speed.</p></div>
+      <div class="card"><h3>Phrases</h3><p>Type a trigger such as <code>;sig</code> in any program and it becomes the text you saved. Your clipboard is kept intact.</p></div>
+      <div class="card"><h3>Macro scripts</h3><p>Write <code>{{CTRL}{C}}{{ALT}{TAB}}{{CTRL}{V}}</code> or click commands together. See every step and the estimated time as you type.</p></div>
+      <div class="card"><h3>Runs where you mean</h3><p>Pick the target window by clicking it. A macro stops with a clear message if that window goes missing or loses focus.</p></div>
+      <div class="card"><h3>Deck and hotkeys</h3><p>A small always-on-top button panel that never steals focus, global hotkeys for each macro, and Esc to stop.</p></div>
+      <div class="card"><h3>Global Keybinds</h3><p>Every shortcut your apps use in one list, with clashes marked. Press keys to see whether they are free.</p></div>
+    </div>
+  </section>
+
+  <section id="pro">
+    <h2>Macro Kit Pro</h2>
+    <p class="sub">A one-time purchase that supports the work and adds a few power features. Same app: paste a key in Settings and they switch on.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Feature</th><th class="c"><span class="pill free">FREE</span></th><th class="c"><span class="pill pro">PRO</span></th></tr></thead>
+        <tbody>
+          <tr><td>Recorder, phrases, macro scripts, Deck, hotkeys, Global Keybinds</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+          <tr><td>Export / import of all your settings and data</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+          <tr><td>Macro library: Starter pack</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+          <tr><td>Macro library: Spreadsheets and forms, Browser, Clicker, Loops and conditions, Symbols packs</td><td class="c no">–</td><td class="c yes">✓</td></tr>
+          <tr><td>Loops in macros: <code>{{LOOP:5}}</code> … <code>{{ENDLOOP}}</code>, or loop by a variable</td><td class="c no">–</td><td class="c yes">✓</td></tr>
+          <tr><td>Conditions: <code>{{IF:$clip~http}}</code> … <code>{{ELSE}}</code> … <code>{{ENDIF}}</code>, and <code>{{IFWINDOW:Excel}}</code></td><td class="c no">–</td><td class="c yes">✓</td></tr>
+          <tr><td>Scheduled macros: daily at a time, every few minutes, or once at a date and time</td><td class="c no">–</td><td class="c yes">✓</td></tr>
+          <tr><td>Pro badge in About, and a thank-you</td><td class="c no">–</td><td class="c yes">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="price">
+      <div class="plan">
+        <span class="pill free" style="align-self:flex-start">FREE</span>
+        <div class="amount">$0</div>
+        <ul><li>Everything in the free column</li><li>Updates included</li><li>Open source</li></ul>
+        <a class="btn ghost" href="https://github.com/curtner04/macro-kit-downloads/releases/latest/download/MK-Setup.exe">Download</a>
+      </div>
+      <div class="plan highlight">
+        <span class="pill pro" style="align-self:flex-start">PRO · ONE-TIME</span>
+        <div class="amount"><span data-founder-price>$9</span><s data-regular-price>$15</s></div>
+        <ul>
+          <li>Founder price for the first 100 supporters, then <span data-regular-price>$15</span></li>
+          <li>Pay once, keep it: no subscription</li>
+          <li>Use it on all your own PCs</li>
+          <li>30-day refund, no questions asked</li>
+        </ul>
+        <a class="btn pro" id="buy" href="#pro" aria-disabled="true">Checkout opens soon</a>
+      </div>
+    </div>
+    <p class="fine">After you pay, your license key arrives by email. Open Macro Kit, go to <b>Settings → About → Enter license key</b>, and paste it.</p>
+  </section>
+
+  <section id="faq">
+    <h2>Questions</h2>
+    <p class="sub">Straight answers.</p>
+    <details>
+      <summary>Is it safe?</summary>
+      <p>The full source code is <a href="https://github.com/curtner04/macro-kit">on GitHub</a>, so anyone can read exactly what it does. It has no ads, no tracking and no account. Its only network request is the launcher's update check against the public release page. Until code signing is in place, Windows SmartScreen may show "Windows protected your PC" for the installer: choose <b>More info → Run anyway</b>, or build it yourself from the source.</p>
+    </details>
+    <details>
+      <summary>Why does it watch my keyboard and mouse?</summary>
+      <p>That is how it works. Recording needs to see your clicks and keys. Phrases need to see what you type so they can spot a trigger like <code>;sig</code>. Hotkeys need to hear their keys in any window. Playback and macros press keys and move the mouse for you. It keeps only your recordings, which you can delete, and nothing it sees leaves your PC. Some antivirus tools flag any program that does this, which is why the source is public.</p>
+    </details>
+    <details>
+      <summary>Does the license key need the internet?</summary>
+      <p>No. The key is checked on your PC against a public key built into Macro Kit, and it is never sent anywhere. It also moves to a new PC with Export / import.</p>
+    </details>
+    <details>
+      <summary>What if I change my mind?</summary>
+      <p>Ask for a refund within 30 days of buying, for any reason, by replying to your receipt email. You get your money back.</p>
+    </details>
+    <details>
+      <summary>Do scheduled macros run when Macro Kit is closed?</summary>
+      <p>No. They run while Macro Kit is running, and sitting in the tray is fine. A time missed while it was closed is not made up. The PC also needs to be on and unlocked, because Windows does not let any program type into a locked screen.</p>
+    </details>
+    <details>
+      <summary>What happens to my macros if I stop using Pro?</summary>
+      <p>Your macros stay where they are. Without a key, the Pro features switch off, and a macro that uses loops or conditions says so instead of running.</p>
+    </details>
+    <details>
+      <summary>I lost my key.</summary>
+      <p>Reply to your receipt email and you will get it again.</p>
+    </details>
+  </section>
+
+  <footer>
+    Macro Kit is free and open source. <a href="https://github.com/curtner04/macro-kit/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/curtner04/macro-kit/issues">Report a problem</a>
+  </footer>
+</div>
+<script>
+// Set CHECKOUT_URL to the store's checkout link to switch the Buy button on.
+// Change the prices here; the page shows the founder price while FOUNDER is true.
+var CHECKOUT_URL = "";
+var FOUNDER = true, FOUNDER_PRICE = "$9", REGULAR_PRICE = "$15";
+(function () {
+  document.querySelectorAll("[data-regular-price]").forEach(function (el) { el.textContent = REGULAR_PRICE; });
+  var founder = document.querySelector("[data-founder-price]");
+  if (founder) founder.textContent = FOUNDER ? FOUNDER_PRICE : REGULAR_PRICE;
+  if (!FOUNDER) document.querySelectorAll("s[data-regular-price]").forEach(function (el) { el.remove(); });
+  var buy = document.getElementById("buy");
+  if (buy && CHECKOUT_URL) {
+    buy.href = CHECKOUT_URL;
+    buy.removeAttribute("aria-disabled");
+    buy.textContent = "Buy Pro for " + (FOUNDER ? FOUNDER_PRICE : REGULAR_PRICE);
+  } else if (buy) {
+    buy.addEventListener("click", function (e) { e.preventDefault(); });
+  }
+})();
+</script>
+</body>
+</html>

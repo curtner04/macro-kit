@@ -12,10 +12,16 @@ namespace MacroKit.Keybinds
     {
         public string Snipline;
         public string NoteKeeper;
-        /// <summary>Jancy Macro Studio keeps data\studio.json beside its exe; the first that exists wins.</summary>
-        public List<string> StudioCandidates = new List<string>();
-        /// <summary>Used when Jancy Macro Studio does not name another keybinds file.</summary>
         public string JancyDefault;
+        /// <summary>PowerToys' settings folder, and Command Palette's settings file (it lives in its app package).</summary>
+        public string PowerToys, CommandPalette;
+        /// <summary>OBS Studio's settings folder (%APPDATA%\obs-studio).</summary>
+        public string Obs;
+        /// <summary>
+        /// Whether a sister app (or Jancy) is on this PC, by its name. Each one is listed only when it is, so a fresh PC shows
+        /// Macro Kit, the programs it finds and the apps added by hand. Null (tests) lists them all.
+        /// </summary>
+        public Func<string, bool> IsInstalled;
 
         public static KeybindLocations Default()
         {
@@ -26,9 +32,20 @@ namespace MacroKit.Keybinds
                 Snipline = Path.Combine(local, "Snipline", "data", "settings.json"),
                 NoteKeeper = Path.Combine(local, "Note Keeper", "data", "settings.json"),
                 JancyDefault = Path.Combine(roaming, "Jancy", "keybinds.txt"),
+                PowerToys = Path.Combine(local, "Microsoft", "PowerToys"),
+                CommandPalette = Path.Combine(local, "Packages", "Microsoft.CommandPalette_8wekyb3d8bbwe", "LocalState", "settings.json"),
+                Obs = Path.Combine(roaming, "obs-studio"),
             };
-            locations.StudioCandidates.Add(@"C:\dev\Jancy Macro Studio\data\studio.json");
-            locations.StudioCandidates.Add(Path.Combine(local, "Programs", "Jancy Macro Studio", "data", "studio.json"));
+            // An app counts as installed when it keeps a data folder here or is running.
+            locations.IsInstalled = name =>
+            {
+                try
+                {
+                    if (Directory.Exists(Path.Combine(local, name)) || Directory.Exists(Path.Combine(roaming, name))) return true;
+                    return System.Diagnostics.Process.GetProcessesByName(name).Length > 0;
+                }
+                catch { return false; }
+            };
             return locations;
         }
     }
@@ -49,39 +66,46 @@ namespace MacroKit.Keybinds
 
         public IEnumerable<Keybind> All { get { return Apps.SelectMany(a => a.Keybinds); } }
 
-        /// <summary>Reads every app. readText returns a file's text, or null when it does not exist (it may throw for a locked file).</summary>
-        public static KeybindCatalog Read(KeybindLocations where, AppSettings settings, IEnumerable<MacroDef> macros, Func<string, string> readText)
+        /// <summary>
+        /// Reads every app: Macro Kit, its sister apps, other programs found on this PC (PowerToys, OBS Studio) and the apps the
+        /// person added by hand. readText returns a file's text, or null when it does not exist (it may throw for a locked file).
+        /// </summary>
+        public static KeybindCatalog Read(KeybindLocations where, AppSettings settings, IEnumerable<MacroDef> macros, IEnumerable<KeybindAppDef> added, Func<string, string> readText)
         {
             var catalog = new KeybindCatalog();
             catalog.Apps.Add(KeybindReaders.MacroKit(settings, macros));
 
             string text, problem;
-            text = Load(readText, where.Snipline, out problem);
-            catalog.Apps.Add(WithProblem(KeybindReaders.Snipline(where.Snipline, text), problem));
+            Func<string, bool> present = name => where.IsInstalled == null || where.IsInstalled(name);
+            if (present(KeybindReaders.SniplineName))
+            {
+                text = Load(readText, where.Snipline, out problem);
+                catalog.Apps.Add(WithProblem(KeybindReaders.Snipline(where.Snipline, text), problem));
+            }
+            if (present(KeybindReaders.NoteKeeperName))
+            {
+                text = Load(readText, where.NoteKeeper, out problem);
+                catalog.Apps.Add(WithProblem(KeybindReaders.NoteKeeper(where.NoteKeeper, text), problem));
+            }
+            if (present(KeybindReaders.JancyName))
+            {
+                text = Load(readText, where.JancyDefault, out problem);
+                catalog.Apps.Add(WithProblem(KeybindReaders.Jancy(where.JancyDefault, text), problem));
+            }
+            if (present(KeybindReaders.RecordKeeperName)) catalog.Apps.Add(KeybindReaders.RecordKeeper());
+            if (present(KeybindReaders.LittleButtonsName)) catalog.Apps.Add(KeybindReaders.LittleButtons());
+            if (present(KeybindReaders.StorageLensName)) catalog.Apps.Add(KeybindReaders.StorageLens());
+            if (present(KeybindReaders.TweakBenchName)) catalog.Apps.Add(KeybindReaders.TweakBench());
 
-            text = Load(readText, where.NoteKeeper, out problem);
-            catalog.Apps.Add(WithProblem(KeybindReaders.NoteKeeper(where.NoteKeeper, text), problem));
+            // Programs that are not Macro Kit's sister apps only appear when they are installed.
+            AppKeybinds other = OtherAppReaders.PowerToys(where.PowerToys, where.CommandPalette, readText);
+            if (other != null) catalog.Apps.Add(other);
+            other = OtherAppReaders.Obs(where.Obs, readText);
+            if (other != null) catalog.Apps.Add(other);
 
-            string studioPath = where.StudioCandidates.FirstOrDefault(p => Exists(readText, p)) ?? where.StudioCandidates.FirstOrDefault() ?? "";
-            text = Load(readText, studioPath, out problem);
-            string jancyPath;
-            catalog.Apps.Add(WithProblem(KeybindReaders.JancyMacroStudio(studioPath, text, out jancyPath), problem));
-
-            if (string.IsNullOrWhiteSpace(jancyPath)) jancyPath = where.JancyDefault;
-            text = Load(readText, jancyPath, out problem);
-            catalog.Apps.Add(WithProblem(KeybindReaders.Jancy(jancyPath, text), problem));
-
-            catalog.Apps.Add(KeybindReaders.RecordKeeper());
-            catalog.Apps.Add(KeybindReaders.LittleButtons());
-            catalog.Apps.Add(KeybindReaders.StorageLens());
-            catalog.Apps.Add(KeybindReaders.TweakBench());
+            foreach (KeybindAppDef def in added ?? Enumerable.Empty<KeybindAppDef>())
+                if (def != null && !string.IsNullOrWhiteSpace(def.Name)) catalog.Apps.Add(CustomKeybinds.Read(def));
             return catalog;
-        }
-
-        static bool Exists(Func<string, string> readText, string path)
-        {
-            try { return !string.IsNullOrEmpty(path) && readText(path) != null; }
-            catch (Exception) { return true; }   // there, but locked right now
         }
 
         static string Load(Func<string, string> readText, string path, out string problem)

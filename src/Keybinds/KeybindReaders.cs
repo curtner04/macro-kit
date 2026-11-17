@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -17,7 +16,7 @@ namespace MacroKit.Keybinds
     public static class KeybindReaders
     {
         public const string MacroKitName = "Macro Kit", SniplineName = "Snipline", NoteKeeperName = "Note Keeper",
-            StudioName = "Jancy Macro Studio", JancyName = "Jancy", RecordKeeperName = "Record Keeper";
+            JancyName = "Jancy", RecordKeeperName = "Record Keeper";
 
         // ---------------------------------------------------------------- Macro Kit (its own live settings)
 
@@ -45,7 +44,7 @@ namespace MacroKit.Keybinds
         /// <summary>%LOCALAPPDATA%\Snipline\data\settings.json: HotkeyKey (VK) + HotkeyModifiers (MOD_* bits), WindowShortcutModifier.</summary>
         public static AppKeybinds Snipline(string path, string text)
         {
-            var app = new AppKeybinds(SniplineName, path);
+            var app = new AppKeybinds(SniplineName, path) { Processes = new[] { "Snipline" } };
             int key = 0x2C, modifiers = 0, windowModifier = 0;
             if (text == null) app.Problem = "Settings file not found, so Snipline's defaults are shown.";
             else
@@ -87,7 +86,7 @@ namespace MacroKit.Keybinds
         /// <summary>%LOCALAPPDATA%\Note Keeper\data\settings.json: RecordKey, CaptureKey, MarkKey (VKs, F1-F12) and one Modifiers mask.</summary>
         public static AppKeybinds NoteKeeper(string path, string text)
         {
-            var app = new AppKeybinds(NoteKeeperName, path);
+            var app = new AppKeybinds(NoteKeeperName, path) { Processes = new[] { "Note Keeper" } };
             int record = 119, capture = 120, mark = 118, modifiers = 0;
             if (text == null) app.Problem = "Settings file not found, so Note Keeper's defaults are shown.";
             else
@@ -109,43 +108,6 @@ namespace MacroKit.Keybinds
             return app;
         }
 
-        // ---------------------------------------------------------------- Jancy Macro Studio
-
-        /// <summary>data\studio.json beside the exe: Workflows[].Name and Workflows[].Hotkey ("Ctrl+Alt+1", null for none).</summary>
-        public static AppKeybinds JancyMacroStudio(string path, string text, out string jancyKeybindPath)
-        {
-            jancyKeybindPath = null;
-            var app = new AppKeybinds(StudioName, path);
-            app.Add("Start / stop recording", "Ctrl+Alt+F11", KeybindScope.Global, false, "Built in; works while Jancy Macro Studio is open");
-            app.Add("Emergency stop", "Ctrl+Alt+F12", KeybindScope.Global, false, "Built in; works while Jancy Macro Studio is open");
-            if (text == null) app.Problem = "studio.json not found, so workflow hotkeys could not be read.";
-            else
-            {
-                try
-                {
-                    var tree = AsObject(Json.ParseTree(text));
-                    jancyKeybindPath = Str(tree, "KeybindPath");
-                    object workflows;
-                    if (tree != null && tree.TryGetValue("Workflows", out workflows) && workflows is IEnumerable)
-                    {
-                        foreach (object item in (IEnumerable)workflows)
-                        {
-                            var workflow = AsObject(item);
-                            string hotkey = Str(workflow, "Hotkey");
-                            if (string.IsNullOrWhiteSpace(hotkey)) continue;
-                            string name = Str(workflow, "Name");
-                            app.Add("Run workflow “" + (string.IsNullOrWhiteSpace(name) ? "(no name)" : name) + "”", hotkey, KeybindScope.Global, true, "Works while Jancy Macro Studio is open, even minimized");
-                        }
-                    }
-                }
-                catch (Exception ex) { app.Problem = "Could not read studio.json (" + ex.Message + ")."; }
-            }
-            app.Add("Save now", "Ctrl+S", KeybindScope.AppActive, false);
-            app.Add("Delete the selected action", "Delete", KeybindScope.AppActive, false, "In the Actions table");
-            app.Add("Edit the selected cell", "F2", KeybindScope.AppActive, false, "In the Actions table");
-            return app;
-        }
-
         // ---------------------------------------------------------------- Jancy (its own keybinds.txt)
 
         static readonly Regex fieldSplit = new Regex(@"(?<!\\);", RegexOptions.Compiled);
@@ -153,7 +115,7 @@ namespace MacroKit.Keybinds
         /// <summary>%APPDATA%\Jancy\keybinds.txt: one "id:...; keybind:ctrl-shift-c; context:tab window" per line.</summary>
         public static AppKeybinds Jancy(string path, string text)
         {
-            var app = new AppKeybinds(JancyName, path);
+            var app = new AppKeybinds(JancyName, path) { Processes = new[] { "Jancy" } };
             if (text == null) { app.Problem = "keybinds.txt not found. Jancy writes it once you change a keybind in Jancy."; return app; }
             int skipped = 0;
             foreach (string raw in text.Split('\n'))
@@ -189,7 +151,7 @@ namespace MacroKit.Keybinds
 
         public static AppKeybinds RecordKeeper()
         {
-            var app = new AppKeybinds(RecordKeeperName);
+            var app = new AppKeybinds(RecordKeeperName) { Processes = new[] { "Record Keeper" } };
             app.Add("Close the OBS preview (or cancel a screenshot)", "Esc", KeybindScope.AppActive, false, "Only while Record Keeper's OBS preview is the active window");
             app.Add("Submit added rooms", "Ctrl+Enter", KeybindScope.AppActive, false, "In the Add rooms panel");
             return app;
@@ -201,7 +163,7 @@ namespace MacroKit.Keybinds
 
         public static AppKeybinds LittleButtons()
         {
-            var app = new AppKeybinds(LittleButtonsName);
+            var app = new AppKeybinds(LittleButtonsName) { Processes = new[] { "Little Buttons" } };
             app.Add("Full screen on / off", "F11", KeybindScope.AppActive, false);
             app.Add("Parent controls", "Ctrl+Shift+P", KeybindScope.AppActive, false, "Also stops a song while the song player is open");
             return app;
@@ -209,7 +171,7 @@ namespace MacroKit.Keybinds
 
         public static AppKeybinds StorageLens()
         {
-            var app = new AppKeybinds(StorageLensName);
+            var app = new AppKeybinds(StorageLensName) { Processes = new[] { "Storage Lens" } };
             app.Add("Scan again", "F5", KeybindScope.AppActive, false);
             app.Add("Back", "Alt+Left", KeybindScope.AppActive, false);
             app.Add("Parent folder", "Alt+Up", KeybindScope.AppActive, false);
@@ -219,7 +181,7 @@ namespace MacroKit.Keybinds
 
         public static AppKeybinds TweakBench()
         {
-            var app = new AppKeybinds(TweakBenchName);
+            var app = new AppKeybinds(TweakBenchName) { Processes = new[] { "Tweak Bench" } };
             app.Add("Search", "Ctrl+F", KeybindScope.AppActive, false);
             return app;
         }
@@ -236,11 +198,5 @@ namespace MacroKit.Keybinds
             catch (Exception) { return fallback; }
         }
 
-        static string Str(IDictionary<string, object> tree, string name)
-        {
-            object value;
-            if (tree == null || !tree.TryGetValue(name, out value) || value == null) return null;
-            return Convert.ToString(value, CultureInfo.InvariantCulture);
-        }
     }
 }

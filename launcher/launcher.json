@@ -1,0 +1,12 @@
+{
+  "App": "MK",
+  "Name": "Macro Kit",
+  "Repository": "curtner04/macro-kit-downloads",
+  "TagPrefix": "macro-kit",
+  "Mutex": "Local\\MacroKit.App",
+  "Tray": true,
+  "Files": [
+    "assets/MK.ico",
+    "assets/MK.png"
+  ]
+}

@@ -46,6 +46,10 @@ namespace MacroKit.Keybinds
         public string Source = "";
         /// <summary>Null when everything was read; otherwise why some or all of the saved shortcuts are missing.</summary>
         public string Problem;
+        /// <summary>Process names (without .exe) that mean the app is running; empty = unknown.</summary>
+        public string[] Processes = new string[0];
+        /// <summary>Set for an app the person added by hand: the id of its entry in keybinds.json.</summary>
+        public string CustomId;
         public readonly List<Keybind> Keybinds = new List<Keybind>();
 
         public AppKeybinds(string app, string source = "") { App = app; Source = source ?? ""; }

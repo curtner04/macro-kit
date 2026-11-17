@@ -9,7 +9,9 @@ namespace MacroKit.Macros
     {
         Keys, KeyDown, KeyUp, KeyRepeat, Text, Pause, MouseMoveTo, MouseMoveBy, MouseMoveNormalized,
         MouseDown, MouseUp, MouseClick, MouseDoubleClick, MouseWheel, SaveMousePos, LoadMousePos,
-        SetVar, OutputVar, UnsetVar, UnsetAllVars, SetClipboard, VarFromClipboard
+        SetVar, OutputVar, UnsetVar, UnsetAllVars, SetClipboard, VarFromClipboard,
+        // Macro Kit Pro flow steps. Jump links each block's start and end (see MacroParser.ParseFlow).
+        LoopStart, LoopEnd, If, IfWindow, Else, EndIf
     }
 
     /// <summary>One parsed command (or run of literal text) of a Super Macro script.</summary>
@@ -29,6 +31,10 @@ namespace MacroKit.Macros
         public string Value;           // SetVar / SetClipboard: the value, with $names still to be filled in at run time
         public string Command;         // Only for a command whose numbers contain $names: its upper-case name; Args hold the raw arguments.
         public string[] Args;
+        public int Jump = -1;          // Flow steps: LoopStart -> its LoopEnd, LoopEnd -> its LoopStart, If / IfWindow -> its Else or EndIf, Else -> its EndIf
+        public string Left;            // If: the two sides (with $names still to be filled in) and the comparison
+        public string Op;
+        public string Right;
         public int Index;              // Source span in the script
         public int Length;
         public int Line;               // 1-based
@@ -51,6 +57,12 @@ namespace MacroKit.Macros
                     case StepKind.UnsetAllVars:
                     case StepKind.SetClipboard:
                     case StepKind.VarFromClipboard:
+                    case StepKind.LoopStart:
+                    case StepKind.LoopEnd:
+                    case StepKind.If:
+                    case StepKind.IfWindow:
+                    case StepKind.Else:
+                    case StepKind.EndIf:
                         return false;
                     default:
                         return true;
@@ -92,8 +104,29 @@ namespace MacroKit.Macros
                 case StepKind.UnsetAllVars: return "Forget all variables";
                 case StepKind.SetClipboard: return "Copy “" + Shorten(Value) + "” to the clipboard";
                 case StepKind.VarFromClipboard: return "Store the clipboard text in $" + Var;
+                case StepKind.LoopStart: return Var != null ? "Repeat the next steps $" + Var + " times" : "Repeat the next steps " + Count + (Count == 1 ? " time" : " times");
+                case StepKind.LoopEnd: return "End of repeat";
+                case StepKind.If: return "If " + Shorten(Left) + " " + OpWords() + " " + Shorten(Right);
+                case StepKind.IfWindow: return "If the active window matches \u201C" + Shorten(Value) + "\u201D";
+                case StepKind.Else: return "Otherwise";
+                case StepKind.EndIf: return "End of if";
             }
             return Kind.ToString();
+        }
+
+        string OpWords()
+        {
+            switch (Op)
+            {
+                case "=": return "is";
+                case "!=": return "is not";
+                case "<": return "is less than";
+                case ">": return "is more than";
+                case "<=": return "is at most";
+                case ">=": return "is at least";
+                case "~": return "contains";
+                default: return Op;
+            }
         }
 
         string KeyList()
@@ -138,18 +171,34 @@ namespace MacroKit.Macros
 
         /// <summary>
         /// Rough time one pass takes: every wait plus the key delay after each step that sends input.
-        /// Steps whose numbers come from variables count only their key delay.
+        /// Steps whose numbers come from variables count only their key delay. A {{LOOP:n}} multiplies what it holds
+        /// (a $variable count counts once); both branches of an {{IF}} count.
         /// </summary>
         public long EstimatedMs(MacroDef m)
         {
             int keyDelay = m == null ? 0 : Math.Max(0, m.KeyDelayMs);
+            var totals = new Stack<long>();
+            var times = new Stack<long>();
             long total = 0;
             foreach (MacroStep step in Steps)
             {
-                if (step.Kind == StepKind.Pause) total += step.Ms;
+                if (step.Kind == StepKind.LoopStart)
+                {
+                    totals.Push(total);
+                    times.Push(step.Var != null ? 1 : Math.Max(1, step.Count));
+                    total = 0;
+                }
+                else if (step.Kind == StepKind.LoopEnd && totals.Count > 0)
+                {
+                    long inner = total;
+                    long repeat = times.Pop();
+                    total = totals.Pop() + (inner > long.MaxValue / Math.Max(1, repeat) ? long.MaxValue / 2 : inner * repeat);
+                }
+                else if (step.Kind == StepKind.Pause) total += step.Ms;
                 else if (step.Kind == StepKind.KeyRepeat) total += (long)(step.Count - 1) * (step.Ms > 0 ? step.Ms : keyDelay) + keyDelay;
                 else if (step.SendsInput) total += keyDelay;
             }
+            while (totals.Count > 0) total += totals.Pop();
             return total;
         }
     }

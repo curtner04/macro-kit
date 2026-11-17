@@ -20,6 +20,9 @@ namespace MacroKit.App
         public static readonly FontFamily MonoFont = new FontFamily("Cascadia Mono, Consolas, Courier New");
 
         // Segoe MDL2 Assets code points used in the app.
+        public const string GlyphAdd = "";
+        public const string GlyphEdit = "";
+        public const string GlyphDelete = "";
         public const string GlyphRefresh = "";
         public const string GlyphMore = "";
         public const string GlyphDeck = "";

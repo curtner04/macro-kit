@@ -33,7 +33,7 @@ function Find-Roslyn {
 $compiler = Find-Roslyn
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $references = @(
-    'mscorlib.dll', 'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Web.Extensions.dll', 'System.Windows.Forms.dll',
+    'mscorlib.dll', 'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Numerics.dll', 'System.Web.Extensions.dll', 'System.Windows.Forms.dll',
     'System.Xml.dll', 'System.Xaml.dll', 'Microsoft.CSharp.dll',
     'WPF\PresentationCore.dll', 'WPF\PresentationFramework.dll', 'WPF\WindowsBase.dll'
 ) | ForEach-Object { '/r:' + (Join-Path $framework $_) }
@@ -67,15 +67,20 @@ function New-Stage {
 $stage = New-Stage
 $candidate = Join-Path $stage $exeName
 $sources = @(Get-ChildItem -LiteralPath $src -Filter '*.cs' -File -Recurse | ForEach-Object FullName)
-$sources += @(Get-SharedSource @('AppRestart.cs', 'SingleInstance.cs', 'ConfigurationTransfer.cs', 'ReleaseNotes.cs', 'ReleaseAttributes.cs'))
+$sources += @(Get-SharedSource @('AppRestart.cs', 'SingleInstance.cs', 'ConfigurationTransfer.cs', 'ReleaseNotes.cs', 'ReleaseAttributes.cs', 'LauncherHandoff.cs'))
 $resources = @(('/resource:' + (Join-Path $PSScriptRoot 'CHANGELOG.md') + ',App.Changelog.md'), ('/resource:' + (Join-Path $src 'App\Styles.xaml') + ',App.Styles.xaml'))
 $png = Join-Path $PSScriptRoot 'assets\MK.png'
 if (Test-Path -LiteralPath $png) { $resources += ('/resource:' + $png + ',App.Icon.png') }
 $icon = Join-Path $PSScriptRoot 'assets\MK.ico'
 $iconArgument = @(); if (Test-Path -LiteralPath $icon) { $iconArgument = @('-win32icon:' + $icon) }
 Invoke-Roslyn 'Macro Kit' (@('-target:winexe', ('-win32manifest:' + (Join-Path $PSScriptRoot 'app.manifest')), ('-out:' + $candidate)) + $iconArgument + $resources + $references + $sources)
+$launcherStage = New-Stage
+$launcherName = $cleanupName + ' Launcher.exe'
+$launcherCandidate = Join-Path $launcherStage $launcherName
+& (Join-Path $sharedRoot 'Build-Launcher.ps1') -AppRoot $PSScriptRoot -AppBinary $candidate -Output $launcherCandidate
 $target = Join-Path $OutputDirectory $exeName
 Install-Binary $candidate $target $stage
+Install-Binary $launcherCandidate (Join-Path $OutputDirectory $launcherName) $launcherStage
 
 if ($OutputDirectory -ne $PSScriptRoot) {
     foreach ($item in @('assets', 'README.md', 'CHANGELOG.md', 'Macro Kit.exe.config')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $item) -Destination $OutputDirectory -Recurse -Force }

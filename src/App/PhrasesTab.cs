@@ -132,6 +132,7 @@ namespace MacroKit.App
 
             // The tray menu can switch phrases on or off too.
             c.Edited += parts => { if ((parts & SaveParts.Settings) != 0) enabledSwitch.IsChecked = c.Settings.ExpansionEnabled; };
+            c.LibraryAdded += (macro, phrase) => { if (phrase != null) Reload(phrase); };
 
             Reload(null);
             UpdateWarning();

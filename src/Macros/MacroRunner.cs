@@ -148,7 +148,7 @@ namespace MacroKit.Macros
 
                 ResolveTarget(origin);
                 ResolvePartner();
-                if (origin == RunOrigin.Hotkey) WaitForModifiersReleased();
+                if (origin == RunOrigin.Hotkey || origin == RunOrigin.Schedule) WaitForModifiersReleased();
                 PrimeFocus();
                 SeedVariables();
                 AnnounceTargetReady();
@@ -189,7 +189,7 @@ namespace MacroKit.Macros
                 }
 
                 IntPtr handle = IntPtr.Zero;
-                if (origin == RunOrigin.Deck || origin == RunOrigin.Hotkey)
+                if (origin == RunOrigin.Deck || origin == RunOrigin.Hotkey || origin == RunOrigin.Schedule)
                 {
                     // The window in front counts only when Alt+Tab would list it: not the taskbar, the desktop, the Start menu or the task switcher.
                     IntPtr foreground = Windows.Foreground;
@@ -278,17 +278,78 @@ namespace MacroKit.Macros
 
             // ---- Passes and steps ----
 
+            // A program counter walks the steps so Pro's loops and conditions can jump. Without them it is a plain pass in order.
             void RunPass()
             {
                 int count = parsed.Steps.Count;
-                for (int i = 0; i < count; i++)
+                var loops = new Stack<int[]>();   // { LoopStart index, presses left }
+                int i = 0;
+                while (i < count)
                 {
                     token.ThrowIfCancellationRequested();
                     MacroStep step = parsed.Steps[i];
+                    switch (step.Kind)
+                    {
+                        case StepKind.LoopStart:
+                            {
+                                int times = LoopCount(step);
+                                if (times <= 0) { i = step.Jump + 1; continue; }
+                                Raise(step.Describe(), i + 1, count);
+                                loops.Push(new[] { i, times });
+                                i++;
+                                continue;
+                            }
+                        case StepKind.LoopEnd:
+                            {
+                                int[] loop = loops.Count > 0 && loops.Peek()[0] == step.Jump ? loops.Peek() : null;
+                                if (loop != null && --loop[1] > 0) { i = step.Jump + 1; continue; }
+                                if (loop != null) loops.Pop();
+                                i++;
+                                continue;
+                            }
+                        case StepKind.If:
+                        case StepKind.IfWindow:
+                            {
+                                bool holds = step.Kind == StepKind.If ? MacroParser.Compare(Substitute(step.Left), step.Op, Substitute(step.Right)) : WindowMatches(step.Value);
+                                Raise(step.Describe() + (holds ? ": yes" : ": no"), i + 1, count);
+                                i = holds ? i + 1 : step.Jump + 1;
+                                continue;
+                            }
+                        case StepKind.Else:
+                            // Reached only by running the IF branch to its end, so skip the ELSE branch.
+                            i = step.Jump + 1;
+                            continue;
+                        case StepKind.EndIf:
+                            i++;
+                            continue;
+                    }
                     string message = IsSmartAltTab(step) ? "Switching to " + NameOf(AltTabDestination()) : step.Describe();
                     Raise(message, i + 1, count);
                     RunStep(step);
+                    i++;
                 }
+            }
+
+            int LoopCount(MacroStep step)
+            {
+                if (step.Var == null) return step.Count;
+                string text = Lookup(step.Var).Trim();
+                int times;
+                if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out times) || times < 0)
+                    throw new RunStopped("{{LOOP:$" + step.Var + "}} needs a whole number of 0 or more, but $" + step.Var + " is \u201C" + text + "\u201D.");
+                return Math.Min(times, MaxLoopTimes);
+            }
+
+            const int MaxLoopTimes = 100000;
+
+            // The window in front matches when its title or program name contains the text (ignoring case).
+            bool WindowMatches(string text)
+            {
+                string wanted = Substitute(text).Trim();
+                WindowInfo front = Windows.Describe(Windows.Foreground);
+                if (front == null || wanted.Length == 0) return false;
+                return (front.Title ?? "").IndexOf(wanted, StringComparison.OrdinalIgnoreCase) >= 0
+                    || (front.ProcessName ?? "").IndexOf(wanted, StringComparison.OrdinalIgnoreCase) >= 0;
             }
 
             void RunStep(MacroStep step)
