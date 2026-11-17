@@ -147,6 +147,39 @@ namespace MacroKit.Core
         }
     }
 
+    /// <summary>
+    /// The Stream Deck-style actions a macro can take besides keys and mouse: open things, close programs, sound, volume, lock.
+    /// Real: Win32.SystemActions. Without input (tests, hidden-desktop runs): Core.NoSystemActions. Tests: Fakes.FakeSystemActions.
+    /// Every method returns null when it worked, or a sentence saying why not. None of them throws.
+    /// </summary>
+    public interface ISystemActions
+    {
+        /// <summary>Opens a program, file, folder or web address the way Explorer would (arguments may be empty).</summary>
+        string Open(string target, string arguments);
+
+        /// <summary>Asks every window of the program ("notepad" or "notepad.exe") to close, like clicking its X. Never closes Macro Kit.</summary>
+        string CloseProgram(string processName, out int windowsAsked);
+
+        /// <summary>Starts playing a sound file (.wav, .mp3, .wma...) and returns at once. A new sound replaces one still playing.</summary>
+        string PlaySound(string path);
+
+        /// <summary>Locks the PC (like Win+L, which programs can't press).</summary>
+        string Lock();
+
+        /// <summary>Sets the main speaker volume to a percentage, or changes it by one (relative: +10 or -10). Results are kept within 0 to 100.</summary>
+        string SetVolume(int percent, bool relative);
+    }
+
+    /// <summary>Used while Macro Kit runs without input: every action is skipped and reported as done.</summary>
+    public sealed class NoSystemActions : ISystemActions
+    {
+        public string Open(string target, string arguments) { Log.Info("No-input mode: skipped opening " + target); return null; }
+        public string CloseProgram(string processName, out int windowsAsked) { windowsAsked = 0; return null; }
+        public string PlaySound(string path) { return null; }
+        public string Lock() { return null; }
+        public string SetVolume(int percent, bool relative) { return null; }
+    }
+
     /// <summary>Windows. Real: Win32.WindowSystem. Tests: Fakes.FakeWindowSystem.</summary>
     public interface IWindowSystem
     {

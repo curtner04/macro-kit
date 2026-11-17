@@ -135,14 +135,14 @@ namespace MacroKit.Tests
         // ---- Flow steps: parsing ----
 
         [Test]
-        public static void LoopsAndConditionsNeedPro()
+        public static void ConditionsNeedProButLoopsAreFree()
         {
             WithPro(false, () =>
             {
-                ParseResult parsed = MacroParser.Parse("{{LOOP:3}}a{{ENDLOOP}}", true);
+                Assert.True(MacroParser.Parse("{{LOOP:3}}a{{ENDLOOP}}", true).Ok, "repeat blocks are free since 1.4.0");
+                ParseResult parsed = MacroParser.Parse("{{IF:$a=1}}x{{ENDIF}}", true);
                 Assert.False(parsed.Ok);
                 Assert.Contains(parsed.Errors[0].Message, "Macro Kit Pro");
-                Assert.False(MacroParser.Parse("{{IF:$a=1}}x{{ENDIF}}", true).Ok);
                 Assert.True(MacroParser.Parse("{{CTRL}{C}}hello", true).Ok, "ordinary scripts stay free");
             });
         }

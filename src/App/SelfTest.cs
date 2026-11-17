@@ -169,6 +169,20 @@ namespace MacroKit.App
                     main.Height = 720;
                     Settle(main);
                 });
+                Step("render macros, every command group (" + suffix + ")", () =>
+                {
+                    main.Macros.SelectMacro(0);
+                    string before = main.Macros.ScriptText;
+                    main.Macros.SetScript("{{RUN:notepad}}{{WAITWINDOW:Notepad}}{{LOOP:3}}{{CTRL}{C}}{{SWITCH}}{{VOLUME:20}}{{OR}}{{VOLUME:80}}{{ENDSWITCH}}{{ENDLOOP}}{{MACRO:No such macro}}");
+                    main.Macros.OpenAllCommandGroups();
+                    main.Height = 2300;
+                    Settle(main);
+                    Capture(main, Path.Combine(folder, "3-macros-commands-" + suffix + ".png"));
+                    main.Macros.SearchCommands("");
+                    main.Macros.SetScript(before);
+                    main.Height = 720;
+                    Settle(main);
+                });
                 Step("render macros at the minimum size (" + suffix + ")", () =>
                 {
                     main.Width = MainWindow.MinimumWidth;
@@ -414,6 +428,37 @@ namespace MacroKit.App
                 main.Macros.Insert("{{PAUSE:100}}");
                 if (main.Macros.ScriptText != "a{{ENTER}}{{PAUSE:100}}b") throw new Exception("second insert gave " + main.Macros.ScriptText);
                 if (c.Macros[2].Script != "a{{ENTER}}{{PAUSE:100}}b") throw new Exception("the macro was not updated");
+            });
+            Step("blocks go around the selected script text", () =>
+            {
+                main.Macros.SelectMacro(2);
+                string gap = c.Macros[2].NewLineIsEnter ? "" : "\n";
+                main.Macros.SetScript("ab");
+                main.Macros.SelectScript(0, 1);
+                main.Macros.WrapInRepeat(3);
+                string want = "{{LOOP:3}}" + gap + "a" + gap + "{{ENDLOOP}}b";
+                if (main.Macros.ScriptText != want) throw new Exception("repeat gave " + main.Macros.ScriptText);
+                main.Macros.SetScript("x");
+                main.Macros.SelectScript(1, 0);
+                main.Macros.AddTakeTurns(3);
+                want = "x{{SWITCH}}" + gap + gap + "{{OR}}" + gap + gap + "{{OR}}" + gap + gap + "{{ENDSWITCH}}";
+                if (main.Macros.ScriptText != want) throw new Exception("take turns gave " + main.Macros.ScriptText);
+                if (main.Macros.CaretIndex != ("x{{SWITCH}}" + gap).Length) throw new Exception("caret at " + main.Macros.CaretIndex);
+                main.Macros.RefreshPreview();
+                if (main.Macros.ErrorCount != 0 || main.Macros.StepCount != 5) throw new Exception(main.Macros.StepCount + " steps, " + main.Macros.ErrorCount + " problems");
+            });
+            Step("command search shows only matching groups and keeps the saved layout", () =>
+            {
+                var saved = new List<string>(c.Settings.OpenCommandGroups);
+                main.Macros.SearchCommands("volume");
+                if (main.Macros.VisibleCommandGroups != 1 || string.Join(",", main.Macros.OpenCommandGroups) != "media") throw new Exception("volume showed " + string.Join(",", main.Macros.OpenCommandGroups));
+                main.Macros.SearchCommands("loop");
+                if (string.Join(",", main.Macros.OpenCommandGroups) != "multi") throw new Exception("loop showed " + string.Join(",", main.Macros.OpenCommandGroups));
+                main.Macros.SearchCommands("zzzz");
+                if (main.Macros.VisibleCommandGroups != 0) throw new Exception("nonsense matched " + main.Macros.VisibleCommandGroups);
+                main.Macros.SearchCommands("");
+                if (main.Macros.VisibleCommandGroups != 10) throw new Exception(main.Macros.VisibleCommandGroups + " groups after clearing the search");
+                if (string.Join(",", main.Macros.OpenCommandGroups) != string.Join(",", saved) || !c.Settings.OpenCommandGroups.SequenceEqual(saved)) throw new Exception("the saved open groups changed");
             });
             Step("parse preview counts steps and problems", () =>
             {

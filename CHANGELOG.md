@@ -1,5 +1,15 @@
 # Macro Kit changelog
 
+## 1.4.0 - 2026-11-17
+
+- Multi action, like Stream Deck's: repeat blocks are now free. Select steps in the script and press **Repeat** to run them a number of times, then repeat other steps another number of times (`{{LOOP:3}}…{{ENDLOOP}}`).
+- **Take turns**: each time a macro reaches a `{{SWITCH}}…{{OR}}…{{ENDSWITCH}}` block it does the next choice, so one hotkey can mute and then unmute, or step through scenes. **Pick at random** (`{{RANDOM}}…{{ENDRANDOM}}`) does one choice at random. Free.
+- **Run the macro** (`{{MACRO:name}}`) runs another of your macros in place, in the same window and with the same variables. Free.
+- New free actions: open a program, file, folder or website (`{{RUN}}`), close a program (`{{CLOSE}}`), switch to a window (`{{FOCUS}}`) or wait for one to open (`{{WAITWINDOW}}`), set or change the volume (`{{VOLUME:50}}`, `{{VOLUME:+10}}`), play a sound file (`{{PLAYSOUND}}`) and lock the PC (`{{LOCK}}`). The media keys (play/pause, next, previous, mute, volume) have their own buttons.
+- The commands under the script now sit in groups that fold open and closed: Keys, Multi action, Wait, Text, Mouse, Apps and websites, Windows, Media and sound, Variables, and Conditions. Macro Kit remembers which groups are open, and **Find a command** shows only the groups that match a word.
+- The steps list indents the steps inside a block and points out a `{{MACRO}}` whose name doesn't match any of your macros.
+- Conditions (`{{IF}}`, `{{IFWINDOW}}`) still come with Macro Kit Pro.
+
 ## 1.3.0 - 2026-11-17
 
 - Macro Kit stays free, and everything it did before still works without paying. The new **Macro Kit Pro** adds four things, unlocked with a license key in Settings, About. Keys are checked on your PC and never sent anywhere.

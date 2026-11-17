@@ -15,7 +15,7 @@ if (-not $compiler) { Write-Output 'ERROR: the Roslyn C# compiler was not found 
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $references = @(
     'mscorlib.dll', 'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Web.Extensions.dll', 'System.Windows.Forms.dll',
-    'System.Xml.dll', 'System.Xaml.dll', 'Microsoft.CSharp.dll',
+    'System.Xml.dll', 'System.Xaml.dll', 'System.Numerics.dll', 'Microsoft.CSharp.dll',
     'WPF\PresentationCore.dll', 'WPF\PresentationFramework.dll', 'WPF\WindowsBase.dll'
 ) | ForEach-Object { '/r:' + (Join-Path $framework $_) }
 

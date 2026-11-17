@@ -231,6 +231,7 @@ namespace MacroKit.Core
         public bool CloseToTray { get; set; }
         public bool ShowWindowAfterRun { get; set; }
         public bool StartWithWindows { get; set; }        // the Run value is the truth; this mirrors it
+        public List<string> OpenCommandGroups { get; set; } // the Macros tab's command groups that are open ("keys", "multi"...)
 
         public AppSettings()
         {
@@ -263,6 +264,7 @@ namespace MacroKit.Core
             CloseToTray = true;
             ShowWindowAfterRun = true;
             StartWithWindows = false;
+            OpenCommandGroups = new List<string> { "keys", "multi" };
         }
     }
 

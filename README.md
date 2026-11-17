@@ -52,7 +52,16 @@ Closing the window keeps Macro Kit running in the notification area (tray), beca
 A macro is a Super Macro script (see the reference below) plus where and how it runs.
 
 - **Script text** is what runs. The **Steps** list beside it shows what Macro Kit understood, with the estimated time per pass. Problems appear in red with line and column; click one to select it in the script. A script with problems will not run.
-- **Add commands** inserts at the cursor so you never have to remember the syntax: keys grouped by kind, each group in its own colour (Clipboard: Copy, Cut, Paste, Select all; Switch: Alt+Tab, Ctrl+Tab; Edit: Enter, Tab, Esc, Backspace, Delete; Arrows; Jump: Home, End, PgUp, PgDn; any F key), **Pause** (box or 50/100/250/500/1000 ms), **Type text**, **Your own shortcut** (click the box and press the keys), **Repeat a key** (key × count, delay), **Mouse** (clicks, move to X,Y with a 3-second *Pick* countdown, scroll), **Hold or release a key** and **Note**.
+- **Add commands** inserts at the cursor so you never have to remember the syntax. The commands sit in groups that fold open and closed (Macro Kit remembers which are open), and **Find a command** shows only the groups that match a word such as *copy*, *loop* or *volume*:
+  - **Keys**: keys grouped by kind, each in its own colour (Clipboard, Switch, Edit, Arrows, Jump, any F key), **Your own shortcut** and **Hold or release a key**.
+  - **Multi action** (like Stream Deck's Multi Action): **Repeat** the steps you selected N times, **Run the macro** (another of your macros), and **Take turns** or **Pick at random** between 2 or more choices. Select steps in the script first and the block goes around them; with nothing selected an empty block goes in at the cursor.
+  - **Wait and repeat a key**: **Pause** (box or 50/100/250/500/1000 ms) and **Repeat a key** (key × count, delay).
+  - **Type text and notes**, **Mouse** (clicks, move to X,Y with a 3-second *Pick* countdown, scroll).
+  - **Apps and websites**: open a program, file or folder (**Browse…**), open a website, close a program (pick one that is open), lock the PC.
+  - **Windows**: switch to a window, or wait for one to open.
+  - **Media and sound**: play/pause, next, previous, stop, mute and the volume keys, set the volume to a percentage or turn it up or down, play a sound file.
+  - **Variables and clipboard**, and **Conditions** (Macro Kit Pro).
+- The **Steps** list indents the steps inside a block, so you can see what repeats or takes turns.
 - **Repeat**: once, a number of times, or continuously, with a wait between repeats and a delay after every key or click. *New lines in the script press Enter* matches Super Macro; turn it off to lay a long script out over several lines.
 - **Where it runs** and **Alt+Tab switches to**: see the next section.
 - **Start it with** gives the macro its own global hotkey (pressing it while that macro runs stops it) and chooses whether it appears on the Deck.
@@ -124,8 +133,17 @@ Macro Kit reads the same text as the Stream Deck Super Macro plugin by BarRaider
 - **Mouse**: `{{MOUSEXY:x,y}}` (screen pixels, 0,0 is the top-left of the main screen, negatives allowed), `{{MOUSEMOVE:dx,dy}}`, `{{MOUSEPOS:x,y}}` (0 to 65535), `{{MLEFTDOWN}}` `{{MLEFTUP}}` `{{MLEFTDBLCLICK}}`, `{{MRIGHTDOWN}}` `{{MRIGHTUP}}` `{{MRIGHTDBLCLICK}}`, `{{MMIDDLEDOWN}}` `{{MMIDDLEUP}}`, `{{MSCROLLUP[:n]}}` `{{MSCROLLDOWN[:n]}}` `{{MSCROLLLEFT[:n]}}` `{{MSCROLLRIGHT[:n]}}`, `{{MSAVEPOS}}` and `{{MLOADPOS}}` (save and return to a pointer position, also available as `$MOUSE_X` and `$MOUSE_Y`).
 - **Variables** (live for one run, across its repeats): `{{VARSET:name:value}}`, `{{OUTPUT:name}}` (types it; `{{$name}}` also works), `{{VARUNSET:name}}`, `{{VARUNSETALL}}`, `{{SETCLIPBOARD:value}}`, `{{VARSETFROMCLIPBOARD:name}}`. In command arguments `$Name` is replaced by the value. Built in: `$SMCOLON`, `$SMDOLLAR`, `$SMLCB` (`{`), `$SMRCB` (`}`), `$SMSPACE`, `$SMENTER`.
 - **Key names**: letters and digits; `ENTER`, `TAB`, `ESC`, `SPACE`, `BACK`, `DELETE`, `INSERT`, `HOME`, `END`, `PAGEUP`, `PAGEDOWN`, `UP`, `DOWN`, `LEFT`, `RIGHT`, `CAPITAL`, `NUMLOCK`, `SCROLL`, `SNAPSHOT`, `APPS`; modifiers `SHIFT`, `CTRL`, `ALT`, `WIN` (and `LSHIFT`, `RCTRL` and so on); `F1` to `F24`; `NUMPAD0` to `NUMPAD9`, `MULTIPLY`, `ADD`, `SUBTRACT`, `DECIMAL`, `DIVIDE`; `OEM_1` to `OEM_8`, `OEM_PLUS`, `OEM_MINUS`, `OEM_COMMA`, `OEM_PERIOD`; media, volume and browser keys such as `VOLUME_UP` and `BROWSER_BACK`. `BREAK` is the Pause/Break key (the word `PAUSE` is always the wait).
-- **Loops and conditions** (Macro Kit Pro): `{{LOOP:n}}…{{ENDLOOP}}` repeats the steps between (1 to 100,000 times, or `{{LOOP:$count}}`). `{{IF:left op right}}…{{ELSE}}…{{ENDIF}}` compares after filling in `$names`: `=`, `!=`, `<`, `>`, `<=`, `>=` (numbers compare as numbers, text ignores case) and `~` (contains). `{{IFWINDOW:text}}` is true when the window in front has that text in its title or program name. Blocks nest; `{{ELSE}}` is optional.
-- Not supported (Macro Kit says so instead of ignoring them): `INPUT`, `OUTPUTTOFILE`, `APPENDTOFILE`, `VARSETFROMFILE`, `VARSETFROMENV`, `SETICONFROMFILE`, `SETKEYTITLE`, `RUN`, `PLAYSOUND`, functions, `FOR` and `WHILE`.
+- **Repeat** (free): `{{LOOP:n}}…{{ENDLOOP}}` repeats the steps between (1 to 100,000 times, or `{{LOOP:$count}}`).
+- **Take turns and random** (free, like Stream Deck's Multi Action Switch and Random Action): `{{SWITCH}}a{{OR}}b{{OR}}c{{ENDSWITCH}}` does the next choice each time the macro reaches it (a, then b, then c, then a again), so one hotkey can mute and then unmute. Turns are remembered until Macro Kit closes. `{{RANDOM}}a{{OR}}b{{ENDRANDOM}}` does one choice picked at random. Choices can hold any steps, including other blocks.
+- **Actions** (free):
+  - `{{RUN:target}}` opens a program, file, folder or web address as if you double-clicked it (`{{RUN:notepad}}`, `{{RUN:https://example.com}}`). Put a path in quotes to add arguments: `{{RUN:"C:\Tools\my app.exe" --quiet}}`.
+  - `{{CLOSE:program}}` asks a program's windows to close, as their close button would (`{{CLOSE:notepad}}`); unsaved work still asks first. A program that isn't open is skipped.
+  - `{{FOCUS:text}}` brings the window whose title or program name has that text to the front and carries on in it. `{{WAITWINDOW:text[:ms]}}` waits for such a window to open (10 seconds unless you say, up to an hour) and carries on in it; the macro stops if none opens in time.
+  - `{{MACRO:name}}` runs another of your macros once, in the same window and with the same variables, then carries on. A macro can't start itself, and macros run inside each other at most 8 deep.
+  - `{{VOLUME:50}}` sets the speaker volume to 50%; `{{VOLUME:+10}}` and `{{VOLUME:-10}}` turn it up or down. `{{PLAYSOUND:path}}` plays a .wav or .mp3 file and carries on while it plays. `{{LOCK}}` locks the PC.
+  - Tests and runs with input turned off (`--no-input`) skip every action.
+- **Conditions** (Macro Kit Pro): `{{IF:left op right}}…{{ELSE}}…{{ENDIF}}` compares after filling in `$names`: `=`, `!=`, `<`, `>`, `<=`, `>=` (numbers compare as numbers, text ignores case) and `~` (contains). `{{IFWINDOW:text}}` is true when the window in front has that text in its title or program name. Blocks nest; `{{ELSE}}` is optional.
+- Not supported (Macro Kit says so instead of ignoring them): `INPUT`, `OUTPUTTOFILE`, `APPENDTOFILE`, `VARSETFROMFILE`, `VARSETFROMENV`, `SETICONFROMFILE`, `SETKEYTITLE`, functions, `FOR` and `WHILE`.
 
 ## Macro Kit Pro
 
@@ -133,7 +151,7 @@ Macro Kit is free and stays free: everything above works without paying. **Macro
 
 | Pro adds | Where |
 | --- | --- |
-| Loops and conditions in macros (`{{LOOP}}`, `{{IF}}`, `{{IFWINDOW}}`, `{{ELSE}}`) | Macros, script |
+| Conditions in macros (`{{IF}}`, `{{IFWINDOW}}`, `{{ELSE}}`). Repeat, take turns, random and every action are free | Macros, script |
 | Scheduled macros: every day at a time (on chosen days), every few minutes, or once at a date and time | Macros, **Run on a schedule** card |
 | The macro library's Pro packs: Spreadsheets and forms, Browser, Clicker, Loops and conditions, Symbols | Macros, **Library** |
 
@@ -141,7 +159,7 @@ The library's Starter pack is free. Get Pro on the [Macro Kit website](https://c
 
 - License keys start with `MK1-` and are checked on your PC with a public key built into Macro Kit (Ed25519 signatures). The key is never sent anywhere. Macro Kit's only network request is the launcher's update check against the public `macro-kit-downloads` releases on GitHub, which carries nothing about you or your key. The key is saved as `license.key` in the data folder and moves with Export / import.
 - Scheduled macros run only while Macro Kit is running (in the tray is fine). A time missed while it was closed is not made up. A run that finds Macro Kit busy waits up to 5 minutes, then is skipped. A scheduled macro types into the window in front at that moment unless **Where it runs** names a specific window, so pick one.
-- Removing the key (**Settings → About → Remove license key**) turns the Pro features off again; macros that use loops or conditions then show an error until a key is entered.
+- Removing the key (**Settings → About → Remove license key**) turns the Pro features off again; macros that use conditions then show an error until a key is entered.
 - The source is open. The key generator and the signing key are not in this repository.
 
 ## Hotkeys

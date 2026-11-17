@@ -49,6 +49,9 @@ namespace MacroKit.App
         readonly IInputSink input;
         readonly IClipboard clipboard = new Win32Clipboard();
         readonly IClock clock = new SystemClock();
+        readonly ISystemActions systemActions;
+        // Which choice each {{SWITCH}} block takes next, kept while Macro Kit runs so the blocks take turns from run to run.
+        readonly Dictionary<string, int> switchTurns = new Dictionary<string, int>();
         readonly ExpansionEngine engine;
         readonly Recorder recorder;
         readonly DispatcherTimer saveTimer;
@@ -147,11 +150,13 @@ namespace MacroKit.App
                 hook = new InputHook();
                 windows = new WindowSystem(hook);
                 input = new SendInputSink();
+                systemActions = new SystemActions();
             }
             else
             {
                 windows = new WindowSystem();
                 input = new NoInputSink();
+                systemActions = new NoSystemActions();
             }
             engine = new ExpansionEngine(input, clipboard, clock);
             engine.ExpansionFailed += message => Post(() => { SetStatus(message, true); Flash("Phrase not inserted", message, true); });
@@ -761,6 +766,11 @@ namespace MacroKit.App
             activity.TotalPasses = macro.Repeat == RepeatMode.Once ? 1 : macro.Repeat == RepeatMode.Times ? Math.Max(1, macro.RepeatTimes) : 0;
             CancellationToken token = cts.Token;
             var runner = new MacroRunner(input, windows, clock, clipboard);
+            runner.Actions = systemActions;
+            runner.Turns = switchTurns;
+            // {{MACRO:name}} looks among copies taken now, so edits made while the run goes on can't change it halfway.
+            List<MacroDef> others = Macros.Select(m => Json.Deserialize<MacroDef>(Json.Serialize(m))).ToList();
+            runner.FindMacro = wanted => others.FirstOrDefault(m => string.Equals((m.Name ?? "").Trim(), wanted, StringComparison.OrdinalIgnoreCase));
             runner.Progress += p => OnMacroProgress(activity, p);
             // The runner calls this once the window it runs in is in front and before its first step.
             runner.TargetReady = ready => HideForRun(activity, ready);

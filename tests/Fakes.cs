@@ -304,4 +304,19 @@ namespace MacroKit.Tests
         /// <summary>Another program copies something: the content and the sequence number change.</summary>
         public void SimulateOtherAppCopy(string text) { Text = text; Other = null; Sequence++; }
     }
+
+    /// <summary>Records every system action as text in Log ("open notepad |", "close notepad", "sound a.wav", "lock", "volume 50", "volume +10"). FailWith makes the next ones fail.</summary>
+    public sealed class FakeSystemActions : ISystemActions
+    {
+        public readonly List<string> Log = new List<string>();
+        public string FailWith;
+        public int WindowsToClose = 1;
+        public Action<string> OnOpen;
+
+        public string Open(string target, string arguments) { Log.Add("open " + target + " |" + arguments); if (OnOpen != null) OnOpen(target); return FailWith; }
+        public string CloseProgram(string processName, out int windowsAsked) { Log.Add("close " + processName); windowsAsked = WindowsToClose; return FailWith; }
+        public string PlaySound(string path) { Log.Add("sound " + path); return FailWith; }
+        public string Lock() { Log.Add("lock"); return FailWith; }
+        public string SetVolume(int percent, bool relative) { Log.Add("volume " + (relative && percent >= 0 ? "+" : "") + percent); return FailWith; }
+    }
 }

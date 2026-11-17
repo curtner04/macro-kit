@@ -10,8 +10,12 @@ namespace MacroKit.Macros
         Keys, KeyDown, KeyUp, KeyRepeat, Text, Pause, MouseMoveTo, MouseMoveBy, MouseMoveNormalized,
         MouseDown, MouseUp, MouseClick, MouseDoubleClick, MouseWheel, SaveMousePos, LoadMousePos,
         SetVar, OutputVar, UnsetVar, UnsetAllVars, SetClipboard, VarFromClipboard,
-        // Macro Kit Pro flow steps. Jump links each block's start and end (see MacroParser.ParseFlow).
-        LoopStart, LoopEnd, If, IfWindow, Else, EndIf
+        // Flow steps. Jump links each block's start and end (see MacroParser.ParseFlow). Loops, switches and random picks are free;
+        // conditions (If, IfWindow, Else, EndIf) come with Macro Kit Pro.
+        LoopStart, LoopEnd, If, IfWindow, Else, EndIf,
+        SwitchStart, RandomStart, Or, EndSwitch, EndRandom,
+        // Stream Deck-style actions. Value holds the raw argument, with $names still to be filled in at run time.
+        Open, CloseApp, PlaySound, Lock, Volume, RunMacro, FocusWindow, WaitWindow
     }
 
     /// <summary>One parsed command (or run of literal text) of a Super Macro script.</summary>
@@ -31,7 +35,10 @@ namespace MacroKit.Macros
         public string Value;           // SetVar / SetClipboard: the value, with $names still to be filled in at run time
         public string Command;         // Only for a command whose numbers contain $names: its upper-case name; Args hold the raw arguments.
         public string[] Args;
-        public int Jump = -1;          // Flow steps: LoopStart -> its LoopEnd, LoopEnd -> its LoopStart, If / IfWindow -> its Else or EndIf, Else -> its EndIf
+        public int Jump = -1;          // Flow steps: LoopStart -> its LoopEnd, LoopEnd -> its LoopStart, If / IfWindow -> its Else or EndIf, Else -> its EndIf,
+                                       // SwitchStart / RandomStart / Or -> the block's end
+        public int[] Branches;         // SwitchStart / RandomStart: the index of the step each choice follows (the start itself, then every Or)
+        public bool Relative;          // Volume: Count is a change (+10 / -10) rather than a level
         public string Left;            // If: the two sides (with $names still to be filled in) and the comparison
         public string Op;
         public string Right;
@@ -63,6 +70,19 @@ namespace MacroKit.Macros
                     case StepKind.IfWindow:
                     case StepKind.Else:
                     case StepKind.EndIf:
+                    case StepKind.SwitchStart:
+                    case StepKind.RandomStart:
+                    case StepKind.Or:
+                    case StepKind.EndSwitch:
+                    case StepKind.EndRandom:
+                    case StepKind.Open:
+                    case StepKind.CloseApp:
+                    case StepKind.PlaySound:
+                    case StepKind.Lock:
+                    case StepKind.Volume:
+                    case StepKind.RunMacro:
+                    case StepKind.FocusWindow:
+                    case StepKind.WaitWindow:
                         return false;
                     default:
                         return true;
@@ -110,8 +130,39 @@ namespace MacroKit.Macros
                 case StepKind.IfWindow: return "If the active window matches \u201C" + Shorten(Value) + "\u201D";
                 case StepKind.Else: return "Otherwise";
                 case StepKind.EndIf: return "End of if";
+                case StepKind.SwitchStart: return "Take turns: each time, do the next of " + ChoiceCount() + " choices";
+                case StepKind.RandomStart: return "Pick one of " + ChoiceCount() + " choices at random";
+                case StepKind.Or: return "Next choice";
+                case StepKind.EndSwitch:
+                case StepKind.EndRandom: return "End of choices";
+                case StepKind.Open: return "Open “" + Shorten(Value) + "”";
+                case StepKind.CloseApp: return "Close " + Shorten(Value);
+                case StepKind.PlaySound: return "Play the sound “" + Shorten(FileName(Value)) + "”";
+                case StepKind.Lock: return "Lock the PC";
+                case StepKind.Volume:
+                    if (Value != null) return "Set the volume from “" + Shorten(Value) + "”";
+                    if (!Relative) return "Set the volume to " + Count + "%";
+                    return (Count >= 0 ? "Turn the volume up " : "Turn the volume down ") + Math.Abs(Count) + "%";
+                case StepKind.RunMacro: return "Run the macro “" + Shorten(Value) + "”";
+                case StepKind.FocusWindow: return "Switch to the window “" + Shorten(Value) + "”";
+                case StepKind.WaitWindow: return "Wait for the window “" + Shorten(Value) + "” (up to " + Seconds(Ms) + ")";
             }
             return Kind.ToString();
+        }
+
+        int ChoiceCount() { return Branches == null ? 1 : Branches.Length; }
+
+        static string FileName(string path)
+        {
+            path = path ?? "";
+            int slash = Math.Max(path.LastIndexOf('\\'),path.LastIndexOf('/'));
+            return slash >= 0 && slash < path.Length - 1 ? path.Substring(slash + 1) : path;
+        }
+
+        static string Seconds(int ms)
+        {
+            if (ms % 1000 == 0) return (ms / 1000) + (ms == 1000 ? " second" : " seconds");
+            return (ms / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " seconds";
         }
 
         string OpWords()

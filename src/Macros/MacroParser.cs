@@ -29,12 +29,76 @@ namespace MacroKit.Macros
         // Super Macro commands that need files, prompts or program flow. Macro Kit leaves them out on purpose.
         static readonly HashSet<string> Unsupported = new HashSet<string>
         {
-            "INPUT", "OUTPUTTOFILE", "APPENDTOFILE", "VARSETFROMFILE", "VARSETFROMENV", "SETICONFROMFILE", "SETKEYTITLE", "RUN", "PLAYSOUND",
+            "INPUT", "OUTPUTTOFILE", "APPENDTOFILE", "VARSETFROMFILE", "VARSETFROMENV", "SETICONFROMFILE", "SETKEYTITLE",
             "FUNCTION", "ENDFUNCTION", "CALL", "FOR", "ENDFOR", "WHILE", "ENDWHILE"
         };
 
-        // Macro Kit Pro's loops and conditions. They parse into flow steps whose Jump links each block's start and end.
-        static readonly HashSet<string> Flow = new HashSet<string> { "LOOP", "ENDLOOP", "IF", "IFWINDOW", "ELSE", "ENDIF" };
+        // Blocks: loops, take-turns switches and random picks (free) and conditions (Macro Kit Pro). They parse into flow steps whose
+        // Jump links each block's start and end.
+        static readonly HashSet<string> Flow = new HashSet<string>
+        {
+            "LOOP", "ENDLOOP", "IF", "IFWINDOW", "ELSE", "ENDIF", "SWITCH", "RANDOM", "OR", "ENDSWITCH", "ENDRANDOM"
+        };
+
+        // Only these blocks need Macro Kit Pro.
+        static readonly HashSet<string> ProFlow = new HashSet<string> { "IF", "IFWINDOW", "ELSE", "ENDIF" };
+
+        // Stream Deck-style actions. Their whole argument is kept as written (paths and web addresses contain colons).
+        static readonly HashSet<string> Actions = new HashSet<string> { "RUN", "CLOSE", "PLAYSOUND", "LOCK", "VOLUME", "MACRO", "FOCUS", "WAITWINDOW" };
+
+        /// <summary>How long {{WAITWINDOW}} waits when the script doesn't say.</summary>
+        public const int DefaultWaitWindowMs = 10000;
+
+        /// <summary>
+        /// Splits {{RUN}}'s argument into what to open and its arguments. A target in double quotes may be followed by arguments
+        /// ("C:\Program Files\App\app.exe" --new); without quotes the whole text is the target (notepad, C:\Notes\todo.txt, https://...).
+        /// </summary>
+        public static void SplitRun(string value, out string target, out string arguments)
+        {
+            value = (value ?? "").Trim();
+            arguments = "";
+            if (value.StartsWith("\"", StringComparison.Ordinal))
+            {
+                int close = value.IndexOf('"', 1);
+                if (close > 0)
+                {
+                    target = value.Substring(1, close - 1).Trim();
+                    arguments = value.Substring(close + 1).Trim();
+                    return;
+                }
+                value = value.Substring(1);
+            }
+            target = value;
+        }
+
+        /// <summary>Reads {{VOLUME}}'s value: "50" sets 50%, "+10" and "-10" change it. False when it isn't one of those.</summary>
+        public static bool TryVolume(string value, out int amount, out bool relative)
+        {
+            value = (value ?? "").Trim().TrimEnd('%').Trim();
+            relative = value.StartsWith("+", StringComparison.Ordinal) || value.StartsWith("-", StringComparison.Ordinal);
+            return int.TryParse(value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out amount)
+                && (relative ? amount >= -100 && amount <= 100 : amount >= 0 && amount <= 100);
+        }
+
+        /// <summary>Reads {{WAITWINDOW}}'s value: "Notepad" or "Notepad:5000" (the last part, when it is a number, is the time limit in ms).</summary>
+        public static bool TryWaitWindow(string value, out string window, out int timeoutMs)
+        {
+            window = (value ?? "").Trim();
+            timeoutMs = DefaultWaitWindowMs;
+            int colon = window.LastIndexOf(':');
+            if (colon >= 0)
+            {
+                string tail = window.Substring(colon + 1).Trim();
+                if (tail.Length > 0 && tail.All(char.IsDigit))
+                {
+                    int ms;
+                    if (!int.TryParse(tail, NumberStyles.None, CultureInfo.InvariantCulture, out ms) || ms < 100 || ms > MaxPauseMs) return false;
+                    timeoutMs = ms;
+                    window = window.Substring(0, colon).Trim();
+                }
+            }
+            return window.Length > 0;
+        }
 
         /// <summary>The comparisons {{IF}} understands, two-character ones first so "&lt;=" wins over "&lt;".</summary>
         public static readonly string[] Comparisons = { "!=", ">=", "<=", "=", ">", "<", "~" };
@@ -323,8 +387,10 @@ namespace MacroKit.Macros
                 FlushLiteral(n);
                 foreach (int start in open)
                 {
-                    MacroStep step = result.Steps[start];
-                    AddError(step.Index, step.Length, step.Kind == StepKind.LoopStart ? "This {{LOOP}} has no {{ENDLOOP}} after it." : "This {{IF}} has no {{ENDIF}} after it.");
+                    StepKind kind = BlockKind(start);
+                    int first = BlockStart(start);
+                    MacroStep step = result.Steps[first];
+                    AddError(step.Index, step.Length, "This {{" + StartWord(kind) + "}} has no {{" + EndWord(kind) + "}} after it.");
                 }
                 return result;
             }
@@ -399,6 +465,11 @@ namespace MacroKit.Macros
                     args = exact;
                 }
 
+                if (Actions.Contains(name))
+                {
+                    ParseAction(name, colon < 0 ? null : content.Substring(content.IndexOf(':') + 1), index, length);
+                    return;
+                }
                 if (Flow.Contains(name))
                 {
                     ParseFlow(name, colon < 0 ? null : content.Substring(content.IndexOf(':') + 1), index, length);
@@ -474,17 +545,58 @@ namespace MacroKit.Macros
                 else AddStep(step, index, length);
             }
 
-            // {{LOOP:n}} ... {{ENDLOOP}}, {{IF:a=b}} or {{IFWINDOW:text}} ... {{ELSE}} ... {{ENDIF}}. Blocks nest.
+            // The kind of block an open step belongs to: an Else stands for its If, an Or for the Switch or Random it is part of.
+            StepKind BlockKind(int open)
+            {
+                MacroStep step = result.Steps[open];
+                if (step.Kind == StepKind.Else || step.Kind == StepKind.IfWindow) return StepKind.If;
+                if (step.Kind == StepKind.Or) return result.Steps[step.Jump].Kind;
+                return step.Kind;
+            }
+
+            // While a Switch or Random block is still open, each of its Or steps points back at the block's first step.
+            int BlockStart(int open)
+            {
+                MacroStep step = result.Steps[open];
+                return step.Kind == StepKind.Or ? step.Jump : open;
+            }
+
+            static string StartWord(StepKind block)
+            {
+                switch (block)
+                {
+                    case StepKind.LoopStart: return "LOOP";
+                    case StepKind.SwitchStart: return "SWITCH";
+                    case StepKind.RandomStart: return "RANDOM";
+                    default: return "IF";
+                }
+            }
+
+            static string EndWord(StepKind block)
+            {
+                switch (block)
+                {
+                    case StepKind.LoopStart: return "ENDLOOP";
+                    case StepKind.SwitchStart: return "ENDSWITCH";
+                    case StepKind.RandomStart: return "ENDRANDOM";
+                    default: return "ENDIF";
+                }
+            }
+
+            // {{LOOP:n}} ... {{ENDLOOP}}, {{IF:a=b}} or {{IFWINDOW:text}} ... {{ELSE}} ... {{ENDIF}}, and
+            // {{SWITCH}} or {{RANDOM}} ... {{OR}} ... {{ENDSWITCH}} / {{ENDRANDOM}}. Blocks nest.
             void ParseFlow(string name, string arg, int index, int length)
             {
-                if (!Edition.IsPro)
+                if (ProFlow.Contains(name) && !Edition.IsPro)
                 {
-                    AddError(index, length, "{{" + name + "}}: loops and conditions come with Macro Kit Pro. Enter your license key in Settings.");
+                    AddError(index, length, "{{" + name + "}}: conditions come with Macro Kit Pro. Enter your license key in Settings. Repeat blocks ({{LOOP}}) are free.");
                     return;
                 }
                 string value = (arg ?? "").Trim();
                 int top = open.Count == 0 ? -1 : open[open.Count - 1];
+                StepKind block = top < 0 ? StepKind.Text : BlockKind(top);
                 StepKind topKind = top < 0 ? StepKind.Text : result.Steps[top].Kind;
+                string closeFirst = top < 0 ? null : "Close the {{" + StartWord(block) + "}} with {{" + EndWord(block) + "}} before this {{" + name + "}}.";
                 var step = new MacroStep();
                 switch (name)
                 {
@@ -513,7 +625,7 @@ namespace MacroKit.Macros
                     case "ENDLOOP":
                         if (topKind != StepKind.LoopStart)
                         {
-                            AddError(index, length, top < 0 ? "{{ENDLOOP}} has no {{LOOP}} before it." : "Close the {{IF}} with {{ENDIF}} before this {{ENDLOOP}}.");
+                            AddError(index, length, top < 0 ? "{{ENDLOOP}} has no {{LOOP}} before it." : closeFirst);
                             return;
                         }
                         step.Kind = StepKind.LoopEnd;
@@ -543,7 +655,7 @@ namespace MacroKit.Macros
                     case "ELSE":
                         if (topKind != StepKind.If && topKind != StepKind.IfWindow)
                         {
-                            AddError(index, length, topKind == StepKind.Else ? "This {{IF}} already has an {{ELSE}}." : top < 0 ? "{{ELSE}} has no {{IF}} before it." : "Close the {{LOOP}} with {{ENDLOOP}} before this {{ELSE}}.");
+                            AddError(index, length, topKind == StepKind.Else ? "This {{IF}} already has an {{ELSE}}." : top < 0 ? "{{ELSE}} has no {{IF}} before it." : closeFirst);
                             return;
                         }
                         step.Kind = StepKind.Else;
@@ -552,16 +664,117 @@ namespace MacroKit.Macros
                         open[open.Count - 1] = elseIndex;
                         return;
                     case "ENDIF":
-                        if (topKind != StepKind.If && topKind != StepKind.IfWindow && topKind != StepKind.Else)
+                        if (block != StepKind.If)
                         {
-                            AddError(index, length, top < 0 ? "{{ENDIF}} has no {{IF}} before it." : "Close the {{LOOP}} with {{ENDLOOP}} before this {{ENDIF}}.");
+                            AddError(index, length, top < 0 ? "{{ENDIF}} has no {{IF}} before it." : closeFirst);
                             return;
                         }
                         step.Kind = StepKind.EndIf;
                         result.Steps[top].Jump = AddFlowStep(step, index, length);
                         open.RemoveAt(open.Count - 1);
                         return;
+                    case "SWITCH":
+                    case "RANDOM":
+                        if (value.Length > 0) { AddError(index, length, "{{" + name + "}} doesn't take a value. Put {{OR}} between the choices."); return; }
+                        step.Kind = name == "SWITCH" ? StepKind.SwitchStart : StepKind.RandomStart;
+                        int startIndex = AddFlowStep(step, index, length);
+                        step.Branches = new[] { startIndex };
+                        open.Add(startIndex);
+                        return;
+                    case "OR":
+                        if (block != StepKind.SwitchStart && block != StepKind.RandomStart)
+                        {
+                            AddError(index, length, top < 0 ? "{{OR}} goes between the choices of a {{SWITCH}} or {{RANDOM}} block." : closeFirst);
+                            return;
+                        }
+                        if (value.Length > 0) { AddError(index, length, "{{OR}} doesn't take a value."); return; }
+                        int blockStart = BlockStart(top);
+                        step.Kind = StepKind.Or;
+                        step.Jump = blockStart;   // until the block ends; then every Or jumps to the end
+                        int orIndex = AddFlowStep(step, index, length);
+                        MacroStep starter = result.Steps[blockStart];
+                        starter.Branches = starter.Branches.Concat(new[] { orIndex }).ToArray();
+                        open[open.Count - 1] = orIndex;
+                        return;
+                    case "ENDSWITCH":
+                    case "ENDRANDOM":
+                        StepKind wanted = name == "ENDSWITCH" ? StepKind.SwitchStart : StepKind.RandomStart;
+                        if (block != wanted)
+                        {
+                            AddError(index, length, top < 0 ? "{{" + name + "}} has no {{" + StartWord(wanted) + "}} before it." : closeFirst);
+                            return;
+                        }
+                        int first = BlockStart(top);
+                        step.Kind = name == "ENDSWITCH" ? StepKind.EndSwitch : StepKind.EndRandom;
+                        step.Jump = first;
+                        int endIndex = AddFlowStep(step, index, length);
+                        foreach (int branch in result.Steps[first].Branches) result.Steps[branch].Jump = endIndex;
+                        open.RemoveAt(open.Count - 1);
+                        return;
                 }
+            }
+
+            // {{RUN:...}}, {{CLOSE:...}}, {{PLAYSOUND:...}}, {{LOCK}}, {{VOLUME:...}}, {{MACRO:...}}, {{FOCUS:...}}, {{WAITWINDOW:...}}.
+            void ParseAction(string name, string arg, int index, int length)
+            {
+                string tag = "{{" + name + "}}";
+                string value = (arg ?? "").Trim();
+                var step = new MacroStep { Value = value };
+                switch (name)
+                {
+                    case "RUN":
+                        if (value.Length == 0) { AddError(index, length, tag + " needs what to open, like {{RUN:notepad}}, {{RUN:C:\\Notes\\todo.txt}} or {{RUN:https://example.com}}."); return; }
+                        step.Kind = StepKind.Open;
+                        break;
+                    case "CLOSE":
+                        if (value.Length == 0) { AddError(index, length, tag + " needs a program name, like {{CLOSE:notepad.exe}}."); return; }
+                        step.Kind = StepKind.CloseApp;
+                        break;
+                    case "PLAYSOUND":
+                        if (value.Length == 0) { AddError(index, length, tag + " needs a sound file, like {{PLAYSOUND:C:\\Sounds\\ding.wav}}."); return; }
+                        step.Kind = StepKind.PlaySound;
+                        break;
+                    case "LOCK":
+                        if (value.Length > 0) { AddError(index, length, tag + " doesn't take a value."); return; }
+                        step.Kind = StepKind.Lock;
+                        step.Value = null;
+                        break;
+                    case "VOLUME":
+                        step.Kind = StepKind.Volume;
+                        if (value.IndexOf('$') >= 0) break;   // filled in at run time
+                        int amount;
+                        bool relative;
+                        if (!TryVolume(value, out amount, out relative))
+                        {
+                            AddError(index, length, tag + " needs a level from 0 to 100, like {{VOLUME:50}}, or a change, like {{VOLUME:+10}} or {{VOLUME:-10}}.");
+                            return;
+                        }
+                        step.Count = amount;
+                        step.Relative = relative;
+                        step.Value = null;
+                        break;
+                    case "MACRO":
+                        if (value.Length == 0) { AddError(index, length, tag + " needs the name of another macro, like {{MACRO:Copy row}}."); return; }
+                        step.Kind = StepKind.RunMacro;
+                        break;
+                    case "FOCUS":
+                        if (value.Length == 0) { AddError(index, length, tag + " needs part of a window's title or its program name, like {{FOCUS:Notepad}}."); return; }
+                        step.Kind = StepKind.FocusWindow;
+                        break;
+                    case "WAITWINDOW":
+                        string window;
+                        int timeout;
+                        if (!TryWaitWindow(value, out window, out timeout))
+                        {
+                            AddError(index, length, tag + " needs part of a window's title or its program name, like {{WAITWINDOW:Notepad}}, and optionally a time limit from 100 to 3,600,000 ms, like {{WAITWINDOW:Notepad:5000}}.");
+                            return;
+                        }
+                        step.Kind = StepKind.WaitWindow;
+                        step.Value = window;
+                        step.Ms = timeout;
+                        break;
+                }
+                AddStep(step, index, length);
             }
 
             int AddFlowStep(MacroStep step, int index, int length)

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Macro Kit</title>
-<meta name="description" content="Free Windows app to record and replay mouse and keyboard, expand typed phrases and run macro scripts. Macro Kit Pro adds loops, conditions, schedules and a macro library.">
+<meta name="description" content="Free Windows app to record and replay mouse and keyboard, expand typed phrases and run macro scripts with Stream Deck-style multi actions. Macro Kit Pro adds conditions, schedules and a macro library.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fe4'/%3E%3Cpath d='M8 22V10l8 7 8-7v12' fill='none' stroke='white' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 :root{
@@ -100,7 +100,7 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
     </div>
     <picture>
       <source srcset="macros-dark.png" media="(prefers-color-scheme: dark)">
-      <img class="shot" src="macros-light.png" width="1040" height="720" alt="Macro Kit's Macros tab: a macro script on the left, its steps listed on the right, and a palette of commands to insert below.">
+      <img class="shot" src="macros-light.png" width="1040" height="720" alt="Macro Kit's Macros tab: a macro script on the left, its steps listed on the right, and folding groups of commands to insert below.">
     </picture>
   </div>
 
@@ -110,7 +110,7 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
     <div class="features">
       <div class="card"><h3>Recorder</h3><p>Record mouse and keyboard, then play it back once, a set number of times or continuously, at 0.1x to 100x speed.</p></div>
       <div class="card"><h3>Phrases</h3><p>Type a trigger such as <code>;sig</code> in any program and it becomes the text you saved. Your clipboard is kept intact.</p></div>
-      <div class="card"><h3>Macro scripts</h3><p>Write <code>{{CTRL}{C}}{{ALT}{TAB}}{{CTRL}{V}}</code> or click commands together. See every step and the estimated time as you type.</p></div>
+      <div class="card"><h3>Macro scripts</h3><p>Write <code>{{CTRL}{C}}{{ALT}{TAB}}{{CTRL}{V}}</code> or click commands together from folding groups: keys, repeats, take turns, open apps and websites, windows, volume and sounds. See every step as you type.</p></div>
       <div class="card"><h3>Runs where you mean</h3><p>Pick the target window by clicking it. A macro stops with a clear message if that window goes missing or loses focus.</p></div>
       <div class="card"><h3>Deck and hotkeys</h3><p>A small always-on-top button panel that never steals focus, global hotkeys for each macro, and Esc to stop.</p></div>
       <div class="card"><h3>Global Keybinds</h3><p>Every shortcut your apps use in one list, with clashes marked. Press keys to see whether they are free.</p></div>
@@ -126,9 +126,10 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
         <tbody>
           <tr><td>Recorder, phrases, macro scripts, Deck, hotkeys, Global Keybinds</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
           <tr><td>Export / import of all your settings and data</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+          <tr><td>Multi action: repeat steps (<code>{{LOOP:5}}</code> … <code>{{ENDLOOP}}</code>), take turns between choices, pick one at random, run another macro</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
+          <tr><td>Actions: open programs, files and websites, close a program, switch to or wait for a window, set the volume, play a sound, lock the PC</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
           <tr><td>Macro library: Starter pack</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
           <tr><td>Macro library: Spreadsheets and forms, Browser, Clicker, Loops and conditions, Symbols packs</td><td class="c no">–</td><td class="c yes">✓</td></tr>
-          <tr><td>Loops in macros: <code>{{LOOP:5}}</code> … <code>{{ENDLOOP}}</code>, or loop by a variable</td><td class="c no">–</td><td class="c yes">✓</td></tr>
           <tr><td>Conditions: <code>{{IF:$clip~http}}</code> … <code>{{ELSE}}</code> … <code>{{ENDIF}}</code>, and <code>{{IFWINDOW:Excel}}</code></td><td class="c no">–</td><td class="c yes">✓</td></tr>
           <tr><td>Scheduled macros: daily at a time, every few minutes, or once at a date and time</td><td class="c no">–</td><td class="c yes">✓</td></tr>
           <tr><td>Pro badge in About, and a thank-you</td><td class="c no">–</td><td class="c yes">✓</td></tr>
@@ -183,7 +184,7 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
     </details>
     <details>
       <summary>What happens to my macros if I stop using Pro?</summary>
-      <p>Your macros stay where they are. Without a key, the Pro features switch off, and a macro that uses loops or conditions says so instead of running.</p>
+      <p>Your macros stay where they are. Without a key, the Pro features switch off, and a macro that uses conditions says so instead of running. Repeat blocks and actions keep working.</p>
     </details>
     <details>
       <summary>I lost my key.</summary>

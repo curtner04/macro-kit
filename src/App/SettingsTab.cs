@@ -196,12 +196,12 @@ namespace MacroKit.App
                 edition.Children.Add(who);
                 edition.Children.Add(Ui.Row(8, Ui.Button("Remove license key", () =>
                 {
-                    if (Ui.Confirm(Window.GetWindow(Root), "Remove the license key from this PC? Loops, conditions, schedules and the Pro library packs stop working until you enter it again.")) c.RemoveLicense();
+                    if (Ui.Confirm(Window.GetWindow(Root), "Remove the license key from this PC? Conditions, schedules and the Pro library packs stop working until you enter it again.")) c.RemoveLicense();
                 }, "Small", "Take the key off this PC, for example before you give the PC away.")));
             }
             else
             {
-                var pitch = Ui.Para("Everything you see works free, forever. Macro Kit Pro adds loops and conditions in macros, scheduled macros and the macro library packs, and supports the work on Macro Kit.", "Muted", 12);
+                var pitch = Ui.Para("Everything you see works free, forever. Macro Kit Pro adds conditions in macros, scheduled macros and the macro library packs, and supports the work on Macro Kit.", "Muted", 12);
                 pitch.Margin = new Thickness(0, 4, 0, 6);
                 edition.Children.Add(pitch);
                 edition.Children.Add(Ui.Row(8,

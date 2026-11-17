@@ -52,6 +52,27 @@ namespace MacroKit.App
         readonly ComboBox holdKey = new ComboBox { Width = 110 };
         readonly ComboBox functionKey = new ComboBox { Width = 76 };
         readonly TextBox commentText = new TextBox();
+        readonly NumberBox loopTimes = new NumberBox(3, 1, 100000, 56);
+        readonly ComboBox otherMacro = new ComboBox { IsEditable = true, Width = 180 };
+        readonly NumberBox choiceCount = new NumberBox(2, 2, 50, 50);
+        readonly TextBox openTarget = new TextBox();
+        readonly TextBox websiteText = new TextBox();
+        readonly ComboBox closeProgram = new ComboBox { IsEditable = true, Width = 170 };
+        readonly ComboBox windowName = new ComboBox { IsEditable = true, Width = 240 };
+        readonly NumberBox waitWindowSeconds = new NumberBox(10, 1, 3600, 56);
+        readonly NumberBox volumePercent = new NumberBox(50, 0, 100, 50);
+        readonly TextBox soundFile = new TextBox();
+        readonly TextBox varName = new TextBox();
+        readonly TextBox varValue = new TextBox();
+        readonly TextBox ifLeft = new TextBox();
+        readonly ComboBox ifOp = new ComboBox { Width = 58 };
+        readonly TextBox ifRight = new TextBox();
+        readonly TextBox ifWindow = new TextBox();
+        readonly TextBox commandSearch = new TextBox();
+        readonly List<CommandGroup> groups = new List<CommandGroup>();
+        FrameworkElement proCommands;
+        Border proNote;
+        TextBlock noMatches;
         Button pickPosition;
         DispatcherTimer countdown;
 
@@ -218,6 +239,17 @@ namespace MacroKit.App
 
         // ------------------------------------------------------------------ palette
 
+        /// <summary>One collapsible group of commands. Which groups are open is saved in Settings.OpenCommandGroups.</summary>
+        sealed class CommandGroup
+        {
+            public string Id, Words;
+            public FrameworkElement Root, Body;
+            public TextBlock Chevron;
+            public bool Open;
+        }
+
+        const string ChevronOpen = "\uE70D", ChevronClosed = "\uE76C";
+
         FrameworkElement BuildPalette()
         {
             functionKey.ToolTip = "Function keys";
@@ -226,7 +258,58 @@ namespace MacroKit.App
             foreach (string key in new[] { "CTRL", "SHIFT", "ALT", "WIN", "SPACE", "ENTER", "TAB", "ESC", "UP", "DOWN", "LEFT", "RIGHT" }) holdKey.Items.Add(key);
             for (char ch = 'A'; ch <= 'Z'; ch++) holdKey.Items.Add(ch.ToString());
             holdKey.SelectedIndex = 0;
+            // Show the selection while a palette button has the focus, so it is clear what a block will wrap.
+            script.IsInactiveSelectionHighlightEnabled = true;
 
+            var list = new StackPanel();
+            list.Children.Add(Group("keys", "Keys", "Shortcuts, F keys, hold and release", "copy paste cut select all alt tab enter esc arrows home end page function hotkey combination modifier ctrl shift win", BuildKeysGroup()));
+            list.Children.Add(Group("multi", "Multi action", "Repeat steps, run another macro, take turns, pick at random", "loop repeat times again switch toggle alternate random choice macro chain nested", BuildMultiGroup()));
+            list.Children.Add(Group("wait", "Wait and repeat a key", "Pause, press one key several times", "pause delay sleep wait ms seconds keypress repeat", BuildWaitGroup()));
+            list.Children.Add(Group("text", "Type text and notes", "Text to type, a note to yourself", "type text string phrase comment note", BuildTextGroup()));
+            list.Children.Add(Group("mouse", "Mouse", "Click, move, scroll", "mouse click left right middle double move position scroll wheel pointer cursor", BuildMouseGroup()));
+            list.Children.Add(Group("apps", "Apps and websites", "Open a program, file or web page, close a program, lock the PC", "open run launch start program app exe file folder website url browser link close quit exit kill lock", BuildAppsGroup()));
+            list.Children.Add(Group("windows", "Windows", "Switch to a window, wait for one to open", "window focus activate switch bring front wait title", BuildWindowsGroup()));
+            list.Children.Add(Group("media", "Media and sound", "Play, pause, skip, volume, play a sound file", "media play pause next previous track stop mute volume louder quieter sound audio wav mp3 music", BuildMediaGroup()));
+            list.Children.Add(Group("vars", "Variables and clipboard", "Remember a value, type it, use the clipboard", "variable var value set output clipboard copy remember", BuildVariablesGroup()));
+            list.Children.Add(Group("conditions", "Conditions", "Do steps only if a value or window matches", "if else condition compare window when check", BuildConditionsGroup(), Ui.Pill("PRO", "Good", "GoodBg", 10)));
+            noMatches = Ui.Text("No command matches. Try another word.", "Muted", false, 12);
+            noMatches.Margin = new Thickness(12, 4, 0, 6);
+            noMatches.Visibility = Visibility.Collapsed;
+            list.Children.Add(noMatches);
+
+            // The search box, with its hint drawn behind the text.
+            commandSearch.Width = 190;
+            commandSearch.ToolTip = "Type a word such as copy, loop, volume or window to find the command.";
+            var searchHint = Ui.Text("Find a command", "Muted", false, 12);
+            searchHint.IsHitTestVisible = false;
+            searchHint.Margin = new Thickness(8, 0, 0, 0);
+            var search = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            search.Children.Add(commandSearch);
+            search.Children.Add(searchHint);
+            commandSearch.TextChanged += (s, e) => { searchHint.Visibility = commandSearch.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; ApplySearch(); };
+            var closeAll = Ui.Button("Close all", () => { commandSearch.Text = ""; foreach (CommandGroup g in groups) SetOpen(g, false, false); SaveOpenGroups(); }, "Link", "Fold every group away.");
+            closeAll.Margin = new Thickness(10, 0, 0, 0);
+
+            var title = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            var tools = Ui.Row(0, search, closeAll);
+            DockPanel.SetDock(tools, Dock.Right);
+            title.Children.Add(tools);
+            title.Children.Add(Ui.Text("Add commands at the cursor in the script", "Muted", false, 12));
+
+            var frame = new Border { Padding = new Thickness(8, 8, 8, 6), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1) };
+            Ui.Ref(frame, Border.BackgroundProperty, "Card2");
+            Ui.Ref(frame, Border.BorderBrushProperty, "Border");
+            title.Margin = new Thickness(4, 0, 0, 6);
+            frame.Child = Ui.Stack(0, title, list);
+
+            var open = c.Settings.OpenCommandGroups ?? new List<string>();
+            foreach (CommandGroup g in groups) SetOpen(g, open.Contains(g.Id), false);
+            RefreshProCommands();
+            return frame;
+        }
+
+        FrameworkElement BuildKeysGroup()
+        {
             // One labelled row per kind of key, each in its own colour, so a key is quick to find.
             var keys = new Grid();
             keys.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -247,21 +330,67 @@ namespace MacroKit.App
             fLabel.VerticalAlignment = VerticalAlignment.Center;
             fLabel.Margin = new Thickness(0, 0, 12, 5);
 
-            var pauseRow = Ui.WrapRow(6, pauseMs, Ui.Text("ms", "Muted", false, 12), AddButton(() => MacroScript.Pause(pauseMs.Value), "Wait this long before the next command."));
-            var pauseChips = Ui.Wrap(Chip("50", () => MacroScript.Pause(50), "Wait 50 ms"), Chip("100", () => MacroScript.Pause(100), "Wait 100 ms"),
-                Chip("250", () => MacroScript.Pause(250), "Wait 250 ms"), Chip("500", () => MacroScript.Pause(500), "Wait 500 ms"), Chip("1000", () => MacroScript.Pause(1000), "Wait 1 second"));
-
-            var typeRow = DockedAdd(typeText, AddButton(() => typeText.Text.Length == 0 ? null : MacroScript.Text(typeText.Text), "Type this text."));
-            typeText.ToolTip = "Text to type, exactly as written.";
-
             var customRow = Ui.WrapRow(6, customShortcut, AddButton(() => { var k = customShortcut.Keys(); return k.Count == 0 ? null : MacroScript.Shortcut(k); }, "Press these keys together."));
+            var holdRow = Ui.WrapRow(6, holdKey, Ui.Button("Hold down", null, "Chip"), Ui.Button("Release", null, "Chip"));
+            ((Button)holdRow.Children[1]).Click += (s, e) => InsertKey(true);
+            ((Button)holdRow.Children[2]).Click += (s, e) => InsertKey(false);
+            return Ui.Stack(8, keys,
+                Ui.Stack(4, Ui.Caption("YOUR OWN SHORTCUT"), customRow),
+                Ui.Stack(4, Ui.Caption("HOLD OR RELEASE A KEY"), holdRow));
+        }
+
+        FrameworkElement BuildMultiGroup()
+        {
+            var loopRow = Ui.WrapRow(6, Ui.Text("Repeat", "Muted", false, 12), loopTimes, Ui.Text("times", "Muted", false, 12),
+                ActionButton("Add", () => { InsertBlock(MacroScript.Loop(loopTimes.Value), 0, MacroScript.EndLoop); return ""; },
+                    "Repeat the steps you selected in the script. With nothing selected, an empty repeat block goes in at the cursor for you to fill."));
+            otherMacro.ToolTip = "The macro to run. It runs once, in the same window, then this macro carries on.";
+            otherMacro.DropDownOpened += (s, e) => FillMacroNames();
+            var macroRow = Ui.WrapRow(6, Ui.Text("Run the macro", "Muted", false, 12), otherMacro,
+                AddButton(() => otherMacro.Text.Trim().Length == 0 ? null : MacroScript.Macro(otherMacro.Text), "Run another of your macros here, then carry on."));
+            var choiceRow = Ui.WrapRow(6, choiceCount, Ui.Text("choices:", "Muted", false, 12),
+                ActionButton("Take turns", () => { InsertBlock(MacroScript.Switch, choiceCount.Value - 1, MacroScript.EndSwitch); return ""; },
+                    "Each time the macro runs it does the next choice: mute, then unmute; or scene 1, 2, 3 and round again. Choices are split by {{OR}}."),
+                ActionButton("Pick at random", () => { InsertBlock(MacroScript.Random, choiceCount.Value - 1, MacroScript.EndRandom); return ""; },
+                    "Each time, one of the choices runs, picked at random. Choices are split by {{OR}}."),
+                Chip("Next choice", () => MacroScript.Or, "Starts the next choice inside a take-turns or random block."));
+            var hint = Ui.Para("Select steps in the script first and the block goes around them. Blocks can sit inside each other.", "Muted", 12);
+            return Ui.Stack(6,
+                Ui.Stack(4, Ui.Caption("REPEAT STEPS"), loopRow),
+                Ui.Stack(4, Ui.Caption("ANOTHER MACRO"), macroRow),
+                Ui.Stack(4, Ui.Caption("TAKE TURNS OR PICK ONE"), choiceRow),
+                hint);
+        }
+
+        FrameworkElement BuildWaitGroup()
+        {
+            var pauseRow = Ui.WrapRow(6, pauseMs, Ui.Text("ms", "Muted", false, 12), AddButton(() => MacroScript.Pause(pauseMs.Value), "Wait this long before the next command."),
+                Chip("50", () => MacroScript.Pause(50), "Wait 50 ms"), Chip("100", () => MacroScript.Pause(100), "Wait 100 ms"),
+                Chip("250", () => MacroScript.Pause(250), "Wait 250 ms"), Chip("500", () => MacroScript.Pause(500), "Wait 500 ms"), Chip("1000", () => MacroScript.Pause(1000), "Wait 1 second"));
             var repeatRow = Ui.WrapRow(6, repeatKey, Ui.Text("×", "Muted"), repeatCount, Ui.Text("every", "Muted", false, 12), repeatEvery, Ui.Text("ms", "Muted", false, 12),
                 AddButton(() => repeatKey.Value.IsEmpty ? null : MacroScript.KeyPress(repeatKey.Value.Vk, repeatCount.Value, repeatEvery.Value), "Press this key several times."));
             repeatKey.SingleKeyOnly = true;
-            repeatKey.ToolTip = "Click, then press the one key to repeat. Use \"Your own shortcut\" for a key with Ctrl, Alt, Shift or Win.";
+            repeatKey.ToolTip = "Click, then press the one key to repeat. Use \"Your own shortcut\" under Keys for a key with Ctrl, Alt, Shift or Win.";
             repeatKey.Placeholder = "Press a key";
             repeatKey.SetText("");
+            return Ui.Stack(6,
+                Ui.Stack(4, Ui.Caption("PAUSE"), pauseRow),
+                Ui.Stack(4, Ui.Caption("REPEAT A KEY"), repeatRow));
+        }
 
+        FrameworkElement BuildTextGroup()
+        {
+            var typeRow = DockedAdd(typeText, AddButton(() => typeText.Text.Length == 0 ? null : MacroScript.Text(typeText.Text), "Type this text."));
+            typeText.ToolTip = "Text to type, exactly as written.";
+            var commentRow = DockedAdd(commentText, AddButton(() => commentText.Text.Trim().Length == 0 ? null : MacroScript.Comment(commentText.Text) + "\n", "A note to yourself; it is not run."));
+            commentText.ToolTip = "A note to yourself on its own line.";
+            return Ui.Stack(6,
+                Ui.Stack(4, Ui.Caption("TYPE TEXT"), typeRow),
+                Ui.Stack(4, Ui.Caption("NOTE"), commentRow));
+        }
+
+        FrameworkElement BuildMouseGroup()
+        {
             var clicks = Ui.Wrap(Chip("Left click", () => MacroScript.Click(MouseButton.Left)), Chip("Right click", () => MacroScript.Click(MouseButton.Right)),
                 Chip("Middle click", () => MacroScript.Click(MouseButton.Middle)), Chip("Double click", () => MacroScript.DoubleClick(MouseButton.Left)));
             pickPosition = Ui.Button("Pick…", PickPosition, "Small", "Move the pointer to the spot you want. After 3 seconds its position is filled in.");
@@ -271,48 +400,236 @@ namespace MacroKit.App
                 Ui.Button("Up", null, "Chip"), Ui.Button("Down", null, "Chip"), scrollNotches, Ui.Text("notches", "Muted", false, 12));
             ((Button)scrollRow.Children[1]).Click += (s, e) => Insert(MacroScript.ScrollUp(scrollNotches.Value));
             ((Button)scrollRow.Children[2]).Click += (s, e) => Insert(MacroScript.ScrollDown(scrollNotches.Value));
+            return Ui.Stack(4, clicks, moveRow, scrollRow);
+        }
 
-            var holdRow = Ui.WrapRow(6, holdKey, Ui.Button("Hold down", null, "Chip"), Ui.Button("Release", null, "Chip"));
-            ((Button)holdRow.Children[1]).Click += (s, e) => InsertKey(true);
-            ((Button)holdRow.Children[2]).Click += (s, e) => InsertKey(false);
+        FrameworkElement BuildAppsGroup()
+        {
+            openTarget.ToolTip = "A program, file or folder, such as notepad, C:\\Reports\\week.xlsx or a shortcut. Put a path in quotes to add arguments after it.";
+            var openRow = DockedAdd(openTarget, Ui.Row(6,
+                Ui.Button("Browse…", () => Browse(openTarget, "Choose what to open", "Programs and shortcuts (*.exe;*.lnk;*.bat;*.cmd)|*.exe;*.lnk;*.bat;*.cmd|All files (*.*)|*.*"), "Small", "Pick a program or file."),
+                AddButton(() =>
+                {
+                    if (openTarget.Text.Trim().Length == 0) return null;
+                    string target, arguments;
+                    MacroParser.SplitRun(openTarget.Text, out target, out arguments);
+                    return MacroScript.Run(target, arguments);
+                }, "Open it, as if you double-clicked it.")));
+            websiteText.ToolTip = "A web address, such as example.com. It opens in your default browser.";
+            var websiteRow = DockedAdd(websiteText, AddButton(() => websiteText.Text.Trim().Length == 0 ? null : MacroScript.Website(websiteText.Text), "Open this web page."));
+            closeProgram.ToolTip = "The program's name, such as notepad or chrome. Pick one that is open now or type it.";
+            closeProgram.DropDownOpened += (s, e) => FillCombo(closeProgram, c.Windows.ListSwitchableWindows()
+                .Select(w => ProgramName(w.ProcessName)).Where(n => n.Length > 0 && !n.Equals("MacroKit", StringComparison.OrdinalIgnoreCase)));
+            var closeRow = Ui.WrapRow(6, closeProgram,
+                AddButton(() => closeProgram.Text.Trim().Length == 0 ? null : MacroScript.Close(ProgramName(closeProgram.Text)), "Ask the program's windows to close, as if you pressed their close button. Unsaved work still asks first."),
+                Chip("Lock the PC", () => MacroScript.Lock, "Lock Windows, like Win+L"));
+            return Ui.Stack(6,
+                Ui.Stack(4, Ui.Caption("OPEN A PROGRAM, FILE OR FOLDER"), openRow),
+                Ui.Stack(4, Ui.Caption("OPEN A WEBSITE"), websiteRow),
+                Ui.Stack(4, Ui.Caption("CLOSE A PROGRAM"), closeRow));
+        }
 
-            var commentRow = DockedAdd(commentText, AddButton(() => commentText.Text.Trim().Length == 0 ? null : MacroScript.Comment(commentText.Text) + "\n", "A note to yourself; it is not run."));
-            commentText.ToolTip = "A note to yourself on its own line.";
+        FrameworkElement BuildWindowsGroup()
+        {
+            windowName.ToolTip = "Part of the window's title or its program name. Pick an open window or type it.";
+            windowName.DropDownOpened += (s, e) => FillCombo(windowName, c.Windows.ListSwitchableWindows()
+                .Select(w => (w.Title ?? "").Trim()).Where(t => t.Length > 0));
+            var focusRow = Ui.WrapRow(6, windowName,
+                ActionButton("Switch to it", () => windowName.Text.Trim().Length == 0 ? null : MacroScript.Focus(windowName.Text),
+                    "Bring this window to the front. The rest of the macro runs in it."));
+            var waitRow = Ui.WrapRow(6, Ui.Text("Wait up to", "Muted", false, 12), waitWindowSeconds, Ui.Text("seconds for it to open", "Muted", false, 12),
+                ActionButton("Add", () => windowName.Text.Trim().Length == 0 ? null : MacroScript.WaitWindow(windowName.Text, waitWindowSeconds.Value * 1000),
+                    "Wait until a window like this opens (after Open, for example), then carry on in it. The macro stops if it doesn't open in time."));
+            return Ui.Stack(4, focusRow, waitRow);
+        }
 
-            var left = Ui.Stack(10,
-                Ui.Stack(0, Ui.Caption("KEYS"), keys),
-                Ui.Stack(4, Ui.Caption("PAUSE"), pauseRow, pauseChips),
-                Ui.Stack(4, Ui.Caption("TYPE TEXT"), typeRow));
-            var right = Ui.Stack(10,
-                Ui.Stack(4, Ui.Caption("YOUR OWN SHORTCUT"), customRow),
-                Ui.Stack(4, Ui.Caption("REPEAT A KEY"), repeatRow),
-                Ui.Stack(4, Ui.Caption("MOUSE"), clicks, moveRow, scrollRow),
-                Ui.Stack(4, Ui.Caption("HOLD OR RELEASE A KEY"), holdRow),
-                Ui.Stack(4, Ui.Caption("NOTE"), commentRow));
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.Children.Add(left);
-            Grid.SetColumn(right, 2);
-            grid.Children.Add(right);
-            var frame = new Border { Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1) };
-            Ui.Ref(frame, Border.BackgroundProperty, "Card2");
-            Ui.Ref(frame, Border.BorderBrushProperty, "Border");
-            var toggle = Ui.Button("Hide", null, "Link", "Hide or show the command buttons.");
-            var title = new DockPanel { Margin = new Thickness(0, 0, 0, 2) };
-            DockPanel.SetDock(toggle, Dock.Right);
-            title.Children.Add(toggle);
-            title.Children.Add(Ui.Text("Add commands at the cursor in the script", "Muted", false, 12));
-            grid.Margin = new Thickness(0, 8, 0, 0);
-            toggle.Click += (s, e) =>
+        FrameworkElement BuildMediaGroup()
+        {
+            var mediaChips = Ui.Wrap(Chip("Play/Pause", () => Keys("MEDIA_PLAY_PAUSE")), Chip("Next", () => Keys("MEDIA_NEXT_TRACK"), "Next track"),
+                Chip("Previous", () => Keys("MEDIA_PREV_TRACK"), "Previous track"), Chip("Stop", () => Keys("MEDIA_STOP"), "Stop playing"),
+                Chip("Mute", () => Keys("VOLUME_MUTE"), "Mute or unmute"), Chip("Volume up", () => Keys("VOLUME_UP"), "The volume key: one step up"),
+                Chip("Volume down", () => Keys("VOLUME_DOWN"), "The volume key: one step down"));
+            var volumeRow = Ui.WrapRow(6, Ui.Text("Set the volume to", "Muted", false, 12), volumePercent, Ui.Text("%", "Muted", false, 12),
+                AddButton(() => MacroScript.Volume(volumePercent.Value), "Set the speaker volume to exactly this."),
+                Chip("+10%", () => MacroScript.VolumeBy(10), "Turn the volume up by 10%"), Chip("−10%", () => MacroScript.VolumeBy(-10), "Turn the volume down by 10%"));
+            soundFile.ToolTip = "A .wav or .mp3 file to play. The macro carries on while it plays.";
+            var soundRow = DockedAdd(soundFile, Ui.Row(6,
+                Ui.Button("Browse…", () => Browse(soundFile, "Choose a sound", "Sounds (*.wav;*.mp3;*.wma)|*.wav;*.mp3;*.wma|All files (*.*)|*.*"), "Small", "Pick a sound file."),
+                AddButton(() => soundFile.Text.Trim().Length == 0 ? null : MacroScript.PlaySound(soundFile.Text), "Play this sound.")));
+            return Ui.Stack(6,
+                Ui.Stack(4, Ui.Caption("MEDIA KEYS"), mediaChips),
+                Ui.Stack(4, Ui.Caption("VOLUME"), volumeRow),
+                Ui.Stack(4, Ui.Caption("PLAY A SOUND"), soundRow));
+        }
+
+        FrameworkElement BuildVariablesGroup()
+        {
+            varName.Width = 90;
+            varName.ToolTip = "The variable's name, such as row. Use it in the script as $row.";
+            varValue.Width = 150;
+            varValue.ToolTip = "The value. It can use other variables, such as $row.";
+            var setRow = Ui.WrapRow(6, Ui.Text("Name", "Muted", false, 12), varName, Ui.Text("value", "Muted", false, 12), varValue,
+                ActionButton("Set", () => VarName() == null ? null : MacroScript.SetVar(VarName(), varValue.Text), "Remember this value under this name."),
+                ActionButton("Type it", () => VarName() == null ? null : MacroScript.OutputVar(VarName()), "Type the variable's value."),
+                ActionButton("From the clipboard", () => VarName() == null ? null : MacroScript.VarFromClipboard(VarName()), "Remember what is on the clipboard under this name."),
+                ActionButton("Value to the clipboard", () => MacroScript.SetClipboard(varValue.Text), "Put the value on the clipboard."));
+            return setRow;
+        }
+
+        FrameworkElement BuildConditionsGroup()
+        {
+            ifLeft.Width = 90;
+            ifLeft.ToolTip = "Usually a variable, such as $count.";
+            ifRight.Width = 90;
+            foreach (string op in new[] { "=", "!=", "<", ">", "<=", ">=", "~" }) ifOp.Items.Add(op);
+            ifOp.SelectedItem = "=";
+            ifOp.ToolTip = "~ means \"contains\".";
+            var ifRow = Ui.WrapRow(6, Ui.Text("If", "Muted", false, 12), ifLeft, ifOp, ifRight,
+                ActionButton("Add", () => { if (ifLeft.Text.Trim().Length == 0) return null; InsertBlock(MacroScript.If(ifLeft.Text.Trim(), (string)ifOp.SelectedItem, ifRight.Text.Trim()), 0, MacroScript.EndIf); return ""; },
+                    "Do the selected steps only when this is true."));
+            ifWindow.ToolTip = "Part of the title or program name of the window the macro is typing into.";
+            var windowRow = DockedAdd(ifWindow, Ui.Row(6,
+                ActionButton("Add", () => { if (ifWindow.Text.Trim().Length == 0) return null; InsertBlock(MacroScript.IfWindow(ifWindow.Text.Trim()), 0, MacroScript.EndIf); return ""; },
+                    "Do the selected steps only when the macro's window matches."),
+                Chip("Otherwise", () => MacroScript.Else, "{{ELSE}}: the steps after it run when the condition is false.")));
+            proCommands = Ui.Stack(6,
+                Ui.Stack(4, Ui.Caption("IF A VALUE MATCHES"), ifRow),
+                Ui.Stack(4, Ui.Caption("IF THE WINDOW IS"), windowRow));
+            proNote = Ui.Note("Conditions come with Macro Kit Pro. Enter your license key in Settings. Repeat, take turns and random blocks in Multi action are free.", "Info");
+            return Ui.Stack(0, proNote, proCommands);
+        }
+
+        void RefreshProCommands()
+        {
+            if (proCommands == null) return;
+            bool pro = Edition.IsPro;
+            proCommands.IsEnabled = pro;
+            proNote.Visibility = pro ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        FrameworkElement Group(string id, string title, string hint, string words, FrameworkElement body, FrameworkElement badge = null)
+        {
+            var g = new CommandGroup { Id = id, Words = (title + " " + hint + " " + words).ToLowerInvariant(), Body = body };
+            g.Chevron = Ui.Glyph(ChevronClosed, 10, "Muted");
+            g.Chevron.Width = 16;
+            var head = new Grid();
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            head.Children.Add(g.Chevron);
+            var titleText = Ui.Text(title, "Text", true, 12.5);
+            Grid.SetColumn(titleText, 1);
+            head.Children.Add(titleText);
+            if (badge != null)
             {
-                bool show = grid.Visibility != Visibility.Visible;
-                grid.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-                toggle.Content = show ? "Hide" : "Show";
-            };
-            frame.Child = Ui.Stack(0, title, grid);
-            return frame;
+                badge.Margin = new Thickness(8, 0, 0, 0);
+                Grid.SetColumn(badge, 2);
+                head.Children.Add(badge);
+            }
+            var hintText = Ui.Text(hint, "Muted", false, 12);
+            hintText.Margin = new Thickness(12, 0, 0, 0);
+            Grid.SetColumn(hintText, 3);
+            head.Children.Add(hintText);
+            var header = Ui.Button(head, null, "MenuBtn", "Show or hide these commands.");
+            header.Padding = new Thickness(6, 5, 8, 5);
+            header.HorizontalAlignment = HorizontalAlignment.Stretch;
+            System.Windows.Automation.AutomationProperties.SetName(header, title);
+            header.Click += (s, e) => { SetOpen(g, !g.Open, true); if (g.Open && id == "conditions") RefreshProCommands(); };
+            body.Margin = new Thickness(28, 4, 6, 10);
+            g.Root = Ui.Stack(0, header, body);
+            groups.Add(g);
+            return g.Root;
+        }
+
+        void SetOpen(CommandGroup g, bool open, bool save)
+        {
+            g.Open = open;
+            g.Body.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            g.Chevron.Text = open ? ChevronOpen : ChevronClosed;
+            if (save) SaveOpenGroups();
+        }
+
+        void SaveOpenGroups()
+        {
+            // While a search is showing its matches, opening and closing is only for the moment.
+            if (commandSearch.Text.Trim().Length > 0) return;
+            var open = groups.Where(g => g.Open).Select(g => g.Id).ToList();
+            var saved = c.Settings.OpenCommandGroups ?? new List<string>();
+            if (open.SequenceEqual(saved)) return;
+            c.Settings.OpenCommandGroups = open;
+            c.MarkDirty(SaveParts.Settings);
+        }
+
+        /// <summary>Shows only the groups that match every word typed in the search box, opened; an empty box brings back the saved layout.</summary>
+        void ApplySearch()
+        {
+            string[] words = commandSearch.Text.ToLowerInvariant().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            int shown = 0;
+            var saved = c.Settings.OpenCommandGroups ?? new List<string>();
+            foreach (CommandGroup g in groups)
+            {
+                bool match = words.All(w => g.Words.Contains(w));
+                g.Root.Visibility = match ? Visibility.Visible : Visibility.Collapsed;
+                if (match) shown++;
+                SetOpen(g, words.Length > 0 ? match : saved.Contains(g.Id), false);
+            }
+            noMatches.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (words.Length > 0) RefreshProCommands();
+        }
+
+        /// <summary>
+        /// Puts a block into the script around the selected text: start, the selection, an {{OR}} for each further choice, end.
+        /// With nothing selected the cursor lands inside the empty block. Line breaks only go in when they don't press Enter.
+        /// </summary>
+        void InsertBlock(string start, int separators, string end)
+        {
+            if (current == null) return;
+            string gap = current.NewLineIsEnter ? "" : "\n";
+            string inside = script.SelectedText;
+            string text = start + gap + inside;
+            int caret = inside.Length == 0 ? text.Length : -1;
+            for (int i = 0; i < separators; i++) text += gap + MacroScript.Or + gap;
+            text += gap + end;
+            if (caret < 0) caret = text.Length;
+            int at = Math.Min(script.SelectionStart, script.Text.Length);
+            script.SelectedText = text;
+            script.CaretIndex = at + caret;
+            script.SelectionLength = 0;
+            script.Focus();
+            script.ScrollToLine(script.GetLineIndexFromCharacterIndex(script.CaretIndex));
+        }
+
+        void FillMacroNames()
+        {
+            FillCombo(otherMacro, c.Macros.Where(m => m != current).Select(m => (m.Name ?? "").Trim()).Where(n => n.Length > 0));
+        }
+
+        /// <summary>Refills an editable combo box's list and keeps what is typed in it.</summary>
+        static void FillCombo(ComboBox box, IEnumerable<string> items)
+        {
+            string typed = box.Text;
+            box.Items.Clear();
+            foreach (string item in items.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase)) box.Items.Add(item);
+            box.Text = typed;
+        }
+
+        static string ProgramName(string processName)
+        {
+            string name = (processName ?? "").Trim();
+            return name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name.Substring(0, name.Length - 4) : name;
+        }
+
+        string VarName()
+        {
+            string n = varName.Text.Trim().TrimStart('$');
+            return n.Length == 0 || n.Any(ch => !char.IsLetterOrDigit(ch) && ch != '_') ? null : n;
+        }
+
+        void Browse(TextBox box, string title, string filter)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Title = title, Filter = filter, DereferenceLinks = false };
+            if (dialog.ShowDialog(owner) == true) box.Text = dialog.FileName;
         }
 
         /// <summary>Adds a row of key chips tinted with a key-group colour (tint = theme key; tint + "Bg" is the chip fill).</summary>
@@ -348,13 +665,16 @@ namespace MacroKit.App
             return b;
         }
 
-        Button AddButton(Func<string> token, string tooltip)
+        Button AddButton(Func<string> token, string tooltip) { return ActionButton("Add", token, tooltip); }
+
+        /// <summary>A small button that inserts what token gives. Null means a box still needs filling in; "" means token inserted it itself.</summary>
+        Button ActionButton(string label, Func<string> token, string tooltip)
         {
-            var b = Ui.Button("Add", () => { string t = token(); if (t == null) c.SetStatus("Fill in the box first, then press Add.", true); else Insert(t); }, "Small", tooltip);
+            var b = Ui.Button(label, () => { string t = token(); if (t == null) c.SetStatus("Fill in the box first, then press " + label + ".", true); else Insert(t); }, "Small", tooltip);
             return b;
         }
 
-        static FrameworkElement DockedAdd(TextBox box, Button add)
+        static FrameworkElement DockedAdd(TextBox box, FrameworkElement add)
         {
             var dock = new DockPanel();
             DockPanel.SetDock(add, Dock.Right);
@@ -449,14 +769,31 @@ namespace MacroKit.App
                 var row = Ui.Text("Line " + error.Line + ", column " + error.Column + ":  " + error.Message, "Bad", false, 12.5, true);
                 steps.Items.Add(new ListBoxItem { Content = row, Tag = error, Padding = new Thickness(8, 4, 8, 4) });
             }
-            int number = 1;
+            int number = 1, depth = 0;
             foreach (MacroStep step in parsed.Steps)
             {
+                // Steps inside a repeat, take-turns, random or if block are indented under it; Else and Or line up with the block.
+                bool opens = step.Kind == StepKind.LoopStart || step.Kind == StepKind.If || step.Kind == StepKind.IfWindow
+                    || step.Kind == StepKind.SwitchStart || step.Kind == StepKind.RandomStart;
+                bool closes = step.Kind == StepKind.LoopEnd || step.Kind == StepKind.EndIf || step.Kind == StepKind.EndSwitch || step.Kind == StepKind.EndRandom;
+                bool divides = step.Kind == StepKind.Else || step.Kind == StepKind.Or;
+                if (closes && depth > 0) depth--;
+                int shown = divides ? Math.Max(0, depth - 1) : depth;
+                if (opens) depth++;
+                string describe = step.Describe();
+                string colour = opens || closes || divides ? "AccentText" : "Text";
+                if (step.Kind == StepKind.RunMacro && (step.Value ?? "").IndexOf('$') < 0
+                    && !c.Macros.Any(m => string.Equals((m.Name ?? "").Trim(), (step.Value ?? "").Trim(), StringComparison.OrdinalIgnoreCase)))
+                {
+                    describe += "  (you have no macro by this name)";
+                    colour = "Bad";
+                }
                 var row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
                 row.ColumnDefinitions.Add(new ColumnDefinition());
                 row.Children.Add(Ui.Text(number.ToString(CultureInfo.InvariantCulture), "Muted", false, 12));
-                var text = Ui.Text(step.Describe(), "Text", false, 12.5);
+                var text = Ui.Text(describe, colour, opens || closes || divides, 12.5);
+                text.Margin = new Thickness(Math.Min(shown, 6) * 14, 0, 0, 0);
                 Grid.SetColumn(text, 1);
                 row.Children.Add(text);
                 steps.Items.Add(new ListBoxItem { Content = row, Tag = step, Padding = new Thickness(8, 3, 8, 3) });
@@ -570,6 +907,7 @@ namespace MacroKit.App
                 showOnDeck.IsChecked = m.ShowOnDeck;
                 schedule.Bind(m, () => Edit(x => { }, false));
                 UpdateEditorEnabled();
+                RefreshProCommands();
             }
             else
             {
@@ -675,9 +1013,9 @@ namespace MacroKit.App
         public int StepCount { get { return parsed == null ? 0 : parsed.Steps.Count; } }
         public int ErrorCount { get { return parsed == null ? 0 : parsed.Errors.Count; } }
         public bool RepeatKeyIsSingleKey { get { return repeatKey.SingleKeyOnly; } }
-        /// <summary>Self test: gives the repeat count box the keyboard focus (which must not change the repeat mode).</summary>
         /// <summary>Self test: rebuilds the list from the current macros.</summary>
         public void ReloadList() { Reload(null); }
+        /// <summary>Self test: gives the repeat count box the keyboard focus (which must not change the repeat mode).</summary>
         public void FocusRepeatCount() { repeatTimes.Focus(); }
         /// <summary>Self test: types a repeat count.</summary>
         public void TypeRepeatCount(string text) { repeatTimes.Text = text; }
@@ -685,5 +1023,16 @@ namespace MacroKit.App
         public void SetScript(string text) { script.Text = text; ShowSteps(); }
         /// <summary>Applies pending parse work immediately (the preview normally follows typing after 150 ms).</summary>
         public void RefreshPreview() { parseTimer.Stop(); ShowSteps(); }
+        /// <summary>Self test: selects part of the script, as dragging over it would.</summary>
+        public void SelectScript(int start, int length) { script.Select(start, length); }
+        /// <summary>Self test: what Multi action's Repeat and Take turns buttons do.</summary>
+        public void WrapInRepeat(int times) { InsertBlock(MacroScript.Loop(times), 0, MacroScript.EndLoop); }
+        public void AddTakeTurns(int choices) { InsertBlock(MacroScript.Switch, choices - 1, MacroScript.EndSwitch); }
+        /// <summary>Self test: types in the command search box.</summary>
+        public void SearchCommands(string text) { commandSearch.Text = text; }
+        public int VisibleCommandGroups { get { return groups.Count(g => g.Root.Visibility == Visibility.Visible); } }
+        public string[] OpenCommandGroups { get { return groups.Where(g => g.Open && g.Root.Visibility == Visibility.Visible).Select(g => g.Id).ToArray(); } }
+        /// <summary>Self test: opens every group for a screenshot without saving it; SearchCommands("") puts the saved layout back.</summary>
+        public void OpenAllCommandGroups() { foreach (CommandGroup g in groups) SetOpen(g, true, false); RefreshProCommands(); }
     }
 }

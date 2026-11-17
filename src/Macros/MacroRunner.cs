@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -51,12 +52,36 @@ namespace MacroKit.Macros
         /// <summary>Tells whether Macro Kit itself runs as administrator. Tests replace it.</summary>
         internal Func<bool> ElevationProbe = IsCurrentProcessElevated;
 
+        /// <summary>Opens programs, closes them, plays sounds, sets the volume and locks the PC for {{RUN}}, {{CLOSE}} and friends.</summary>
+        public ISystemActions Actions { get; set; }
+
+        /// <summary>Finds another saved macro by name for {{MACRO:name}} (null = none). Called on the worker thread.</summary>
+        public Func<string, MacroDef> FindMacro { get; set; }
+
+        /// <summary>
+        /// Which choice each {{SWITCH}} block takes next. Share one dictionary between runs so the blocks take turns from run to run
+        /// (the shell keeps one for as long as Macro Kit runs). Locked while in use.
+        /// </summary>
+        public IDictionary<string, int> Turns { get; set; }
+
+        /// <summary>Picks a choice for {{RANDOM}}: 0 to n - 1. Tests replace it.</summary>
+        internal Func<int, int> PickRandom = PickAtRandom;
+
+        static readonly Random random = new Random();
+
+        static int PickAtRandom(int choices)
+        {
+            lock (random) return random.Next(Math.Max(1, choices));
+        }
+
         public MacroRunner(IInputSink input, IWindowSystem windows, IClock clock, IClipboard clipboard)
         {
             this.input = input;
             this.windows = windows;
             this.clock = clock;
             this.clipboard = clipboard;
+            Actions = new NoSystemActions();
+            Turns = new Dictionary<string, int>();
         }
 
         /// <summary>Blocking; call from a background thread. Never throws (problems go to RunResult.Error).</summary>
@@ -118,6 +143,7 @@ namespace MacroKit.Macros
             readonly Dictionary<string, string> variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             readonly List<ushort> heldKeys = new List<ushort>();
             readonly List<MouseButton> heldButtons = new List<MouseButton>();
+            readonly Dictionary<string, ParseResult> nested = new Dictionary<string, ParseResult>();   // macros started with {{MACRO}}, parsed once
             WindowInfo target;
             WindowInfo partner;
             IntPtr otherWindow;               // specific window, no partner: the window the first real Alt+Tab settled on
@@ -278,23 +304,45 @@ namespace MacroKit.Macros
 
             // ---- Passes and steps ----
 
-            // A program counter walks the steps so Pro's loops and conditions can jump. Without them it is a plain pass in order.
+            // A program counter walks the steps so loops, conditions and choices can jump. Without them it is a plain pass in order.
             void RunPass()
             {
-                int count = parsed.Steps.Count;
-                var loops = new Stack<int[]>();   // { LoopStart index, presses left }
+                RunSteps(parsed.Steps, new Frame { Key = MacroKey(macro), Chain = new List<string> { MacroKey(macro) } });
+            }
+
+            // Where a list of steps is running: the macro itself, or one it started with {{MACRO}}.
+            sealed class Frame
+            {
+                public string Key;              // names this list of steps for the take-turns memory
+                public List<string> Chain;      // the macros running, outermost first (to catch a macro that starts itself)
+                public string Prefix = "";      // "Copy row: " in front of the progress messages of a macro started with {{MACRO}}
+                public int ReportIndex;         // for those: the outer step to show the progress at (0 = report this list's own steps)
+                public int ReportCount;
+            }
+
+            static string MacroKey(MacroDef m)
+            {
+                return string.IsNullOrEmpty(m.Id) ? "name:" + (m.Name ?? "") : m.Id;
+            }
+
+            void RunSteps(IList<MacroStep> steps, Frame frame)
+            {
+                int count = steps.Count;
+                var loops = new Stack<int[]>();   // { LoopStart index, passes left }
                 int i = 0;
                 while (i < count)
                 {
                     token.ThrowIfCancellationRequested();
-                    MacroStep step = parsed.Steps[i];
+                    MacroStep step = steps[i];
+                    int shownIndex = frame.ReportIndex > 0 ? frame.ReportIndex : i + 1;
+                    int shownCount = frame.ReportIndex > 0 ? frame.ReportCount : count;
                     switch (step.Kind)
                     {
                         case StepKind.LoopStart:
                             {
                                 int times = LoopCount(step);
                                 if (times <= 0) { i = step.Jump + 1; continue; }
-                                Raise(step.Describe(), i + 1, count);
+                                Raise(frame.Prefix + step.Describe(), shownIndex, shownCount);
                                 loops.Push(new[] { i, times });
                                 i++;
                                 continue;
@@ -311,7 +359,7 @@ namespace MacroKit.Macros
                         case StepKind.IfWindow:
                             {
                                 bool holds = step.Kind == StepKind.If ? MacroParser.Compare(Substitute(step.Left), step.Op, Substitute(step.Right)) : WindowMatches(step.Value);
-                                Raise(step.Describe() + (holds ? ": yes" : ": no"), i + 1, count);
+                                Raise(frame.Prefix + step.Describe() + (holds ? ": yes" : ": no"), shownIndex, shownCount);
                                 i = holds ? i + 1 : step.Jump + 1;
                                 continue;
                             }
@@ -319,16 +367,126 @@ namespace MacroKit.Macros
                             // Reached only by running the IF branch to its end, so skip the ELSE branch.
                             i = step.Jump + 1;
                             continue;
+                        case StepKind.SwitchStart:
+                        case StepKind.RandomStart:
+                            {
+                                int choices = step.Branches == null ? 1 : step.Branches.Length;
+                                int choice = step.Kind == StepKind.SwitchStart ? NextTurn(frame.Key + "#" + i, choices) : owner.PickRandom(choices);
+                                Raise(frame.Prefix + (step.Kind == StepKind.SwitchStart ? "Taking turns: " : "Picked at random: ") + "choice " + (choice + 1) + " of " + choices, shownIndex, shownCount);
+                                i = (step.Branches == null ? i : step.Branches[choice]) + 1;
+                                continue;
+                            }
+                        case StepKind.Or:
+                            // Reached only by running a choice to its end, so skip the other choices.
+                            i = step.Jump + 1;
+                            continue;
                         case StepKind.EndIf:
+                        case StepKind.EndSwitch:
+                        case StepKind.EndRandom:
+                            i++;
+                            continue;
+                        case StepKind.RunMacro:
+                            RunOtherMacro(step, frame, shownIndex, shownCount);
                             i++;
                             continue;
                     }
                     string message = IsSmartAltTab(step) ? "Switching to " + NameOf(AltTabDestination()) : step.Describe();
-                    Raise(message, i + 1, count);
+                    Raise(frame.Prefix + message, shownIndex, shownCount);
                     RunStep(step);
                     i++;
                 }
             }
+
+            // {{SWITCH}}: the first time choice 1, then 2, ... and round again. Remembered across runs while Macro Kit runs.
+            int NextTurn(string key, int choices)
+            {
+                IDictionary<string, int> turns = owner.Turns;
+                lock (turns)
+                {
+                    int next;
+                    if (!turns.TryGetValue(key, out next) || next < 0 || next >= choices) next = 0;
+                    turns[key] = (next + 1) % choices;
+                    return next;
+                }
+            }
+
+            // {{MACRO:name}}: runs that macro's script once, right here: same window, same variables, this macro's key delay.
+            void RunOtherMacro(MacroStep step, Frame frame, int shownIndex, int shownCount)
+            {
+                string name = Substitute(step.Value).Trim();
+                MacroDef other = owner.FindMacro == null ? null : owner.FindMacro(name);
+                if (other == null) throw new RunStopped("Line " + step.Line + ": there is no macro called “" + name + "”.");
+                string key = MacroKey(other);
+                if (frame.Chain.Contains(key)) throw new RunStopped("“" + other.Name + "” starts itself through {{MACRO}}, so it would never end.");
+                if (frame.Chain.Count > MaxNesting) throw new RunStopped("Macros start each other more than " + MaxNesting + " deep through {{MACRO}}.");
+                ParseResult inner;
+                if (!nested.TryGetValue(key, out inner))
+                {
+                    inner = MacroParser.Parse(other.Script, other.NewLineIsEnter);
+                    nested[key] = inner;
+                }
+                if (!inner.Ok) throw new RunStopped("“" + other.Name + "” has a problem on line " + inner.Errors[0].Line + ": " + inner.Errors[0].Message);
+                Raise(frame.Prefix + step.Describe(), shownIndex, shownCount);
+                var chain = new List<string>(frame.Chain) { key };
+                RunSteps(inner.Steps, new Frame
+                {
+                    Key = frame.Key + ">" + key,
+                    Chain = chain,
+                    Prefix = frame.Prefix + other.Name + ": ",
+                    ReportIndex = shownIndex,
+                    ReportCount = shownCount
+                });
+            }
+
+            const int MaxNesting = 8;
+
+            // An action that couldn't be done stops the run with its reason.
+            static void Fail(MacroStep step, string error)
+            {
+                if (error != null) throw new RunStopped("Line " + step.Line + ": " + error);
+            }
+
+            // The window in front if it matches, otherwise the most recent one Alt+Tab would list whose title or program name contains the text.
+            WindowInfo FindWindow(string text)
+            {
+                text = (text ?? "").Trim();
+                if (text.Length == 0) return null;
+                Func<WindowInfo, bool> matches = w => w != null
+                    && ((w.Title ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0 || (w.ProcessName ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0);
+                IntPtr front = Windows.Foreground;
+                if (front != IntPtr.Zero && !Windows.IsOwnWindow(front))
+                {
+                    WindowInfo inFront = Windows.Describe(front);
+                    if (matches(inFront)) return inFront;
+                }
+                return Windows.ListSwitchableWindows().FirstOrDefault(matches);
+            }
+
+            // {{FOCUS}} and {{WAITWINDOW}}: bring the window forward and make it the one the macro runs in, so the focus guard follows it.
+            void SwitchTo(WindowInfo window)
+            {
+                if (Windows.Foreground != window.Handle) Activate(window);
+                if (partner != null && window.Handle == partner.Handle) return;
+                target = window;
+                otherWindow = IntPtr.Zero;
+                awaitingOtherWindow = false;
+            }
+
+            void WaitForWindow(MacroStep step)
+            {
+                string wanted = Substitute(step.Value).Trim();
+                long deadline = Clock.NowMs + step.Ms;
+                while (true)
+                {
+                    WindowInfo window = FindWindow(wanted);
+                    if (window != null) { SwitchTo(window); return; }
+                    if (Clock.NowMs >= deadline)
+                        throw new RunStopped("Line " + step.Line + ": no window matching “" + wanted + "” opened within " + (step.Ms / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + " seconds.");
+                    Clock.Sleep(WaitWindowPollMs, token);
+                }
+            }
+
+            const int WaitWindowPollMs = 100;
 
             int LoopCount(MacroStep step)
             {
@@ -445,6 +603,52 @@ namespace MacroKit.Macros
                         break;
                     case StepKind.VarFromClipboard:
                         variables[step.Var] = owner.clipboard.GetText() ?? "";
+                        break;
+                    case StepKind.Open:
+                        {
+                            string what, arguments;
+                            MacroParser.SplitRun(Substitute(step.Value), out what, out arguments);
+                            if (what.Length == 0) throw new RunStopped("Line " + step.Line + ": {{RUN}} has nothing to open. Check that the variable it uses has been set.");
+                            Fail(step, owner.Actions.Open(what, arguments));
+                            break;
+                        }
+                    case StepKind.CloseApp:
+                        {
+                            string program = Substitute(step.Value).Trim();
+                            int asked;
+                            Fail(step, owner.Actions.CloseProgram(program, out asked));
+                            if (asked == 0) Raise(program + " isn't open, so there was nothing to close.");
+                            break;
+                        }
+                    case StepKind.PlaySound:
+                        Fail(step, owner.Actions.PlaySound(Substitute(step.Value).Trim().Trim('"')));
+                        break;
+                    case StepKind.Lock:
+                        Fail(step, owner.Actions.Lock());
+                        break;
+                    case StepKind.Volume:
+                        {
+                            int amount = step.Count;
+                            bool relative = step.Relative;
+                            if (step.Value != null)
+                            {
+                                string level = Substitute(step.Value);
+                                if (!MacroParser.TryVolume(level, out amount, out relative))
+                                    throw new RunStopped("Line " + step.Line + ": {{VOLUME}} needs 0 to 100, or a change like +10, but got “" + level + "”.");
+                            }
+                            Fail(step, owner.Actions.SetVolume(amount, relative));
+                            break;
+                        }
+                    case StepKind.FocusWindow:
+                        {
+                            string wanted = Substitute(step.Value).Trim();
+                            WindowInfo window = FindWindow(wanted);
+                            if (window == null) throw new RunStopped("Line " + step.Line + ": there is no open window matching “" + wanted + "”.");
+                            SwitchTo(window);
+                            break;
+                        }
+                    case StepKind.WaitWindow:
+                        WaitForWindow(step);
                         break;
                 }
                 if (step.SendsInput) Wait(macro.KeyDelayMs);
