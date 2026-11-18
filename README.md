@@ -49,7 +49,15 @@ Closing the window keeps Macro Kit running in the notification area (tray), beca
 
 ### Macros
 
-A macro is a Super Macro script (see the reference below) plus where and how it runs.
+A macro is a list of steps plus where and how it runs. Pick an editor the first time Macro Kit opens; change it in Settings, *Macro editor*, or with the link above the steps.
+
+- **Type it**: one step per line, written the way you'd say it: `ctrl+c`, `wait 50ms`, `alt+tab`, `type "hello"`, `click`, `open notepad`, `repeat 3 times` … `end repeat`, `take turns` … `or` … `end turns`. The column beside the text says what each line does and marks lines Macro Kit doesn't understand. Suggestions appear as you type (Tab or Ctrl+Space). The **Add** chips insert a step at the cursor: **Record keys** (press shortcuts; each becomes a line), **Type text**, **Wait**, **Click**, **Repeat** (around the selected lines), **Open app** and **More…**.
+- **Key tiles**: the same steps as tiles (**Ctrl + C**, **50 ms**, **“hello”**), without key down and key up markers. **+** adds Record keystrokes, Text, Action, Launch application, System (media keys, volume, show desktop, lock the PC) or Delay after the selected tile. Click a tile to retype it, move it with ◀ ▶ or delete it.
+- Both editors store the same Super Macro text (see the reference below), so a macro made in one opens in the other.
+- **Stream Deck** (the switch beside Run) shows the macro as Super Macro code to copy into BarRaider's Super Macro action, with the commands list and *New lines in the script press Enter*. Editing the code updates the steps. **Show all commands** opens the full command list below the steps without turning the switch on.
+- **Options** sums up Repeat, Where it runs, Start it with and the schedule in one line; **Change options** opens them.
+
+With the Stream Deck switch on:
 
 - **Script text** is what runs. The **Steps** list beside it shows what Macro Kit understood, with the estimated time per pass. Problems appear in red with line and column; click one to select it in the script. A script with problems will not run.
 - **Add commands** inserts at the cursor so you never have to remember the syntax. The commands sit in groups that fold open and closed (Macro Kit remembers which are open), and **Find a command** shows only the groups that match a word such as *copy*, *loop* or *volume*:

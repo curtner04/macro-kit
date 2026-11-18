@@ -120,8 +120,29 @@ namespace MacroKit.App
                 links,
                 Ui.Para("Windows stops programs from typing into, or watching, programs that run as administrator. To use Macro Kit with those, run Macro Kit as administrator too. Macro Kit warns you when the window it works in runs as administrator.", "Muted", 12)));
 
+            // The macro editor: typed lines or key tiles. Asked once on the first launch.
+            var typed = new RadioButton { Content = "Type it: one step per line, like ctrl+c or wait 50ms", GroupName = "macroEditor" };
+            var tiles = new RadioButton { Content = "Key tiles: build it from tiles like Ctrl + C, with a + button", GroupName = "macroEditor" };
+            typed.IsChecked = EditorKinds.Normal(c.Settings.MacroEditor) == EditorKinds.Text;
+            tiles.IsChecked = !typed.IsChecked;
+            typed.Checked += (s, e) => Change(() => c.Settings.MacroEditor = EditorKinds.Text);
+            tiles.Checked += (s, e) => Change(() => c.Settings.MacroEditor = EditorKinds.Tiles);
+            c.Edited += parts =>
+            {
+                if ((parts & SaveParts.Settings) == 0) return;
+                bool t = EditorKinds.Normal(c.Settings.MacroEditor) == EditorKinds.Tiles;
+                loading = true;
+                if (tiles.IsChecked != t) tiles.IsChecked = t;
+                if (typed.IsChecked == t) typed.IsChecked = !t;
+                loading = false;
+            };
+            var editorCard = Ui.Card(Ui.Stack(8,
+                Ui.Heading("Macro editor"),
+                Ui.Para("How the Macros tab shows a macro's steps. Both make the same macros, so you can switch whenever you like.", "Muted", 12),
+                typed, tiles));
+
             var left = Ui.Stack(0, hotkeyCard, excludedCard, popupCard);
-            var right = Ui.Stack(0, behavior, about);
+            var right = Ui.Stack(0, behavior, editorCard, about);
             var grid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 380 });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });

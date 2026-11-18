@@ -163,11 +163,58 @@ namespace MacroKit.App
                 Step("render macros, whole editor (" + suffix + ")", () =>
                 {
                     main.Macros.SelectMacro(0);
-                    main.Height = 1500;
+                    main.Macros.ToggleStreamDeck(true);
+                    main.Macros.ToggleOptions(true);
+                    main.Height = 2100;
                     Settle(main);
                     Capture(main, Path.Combine(folder, "3-macros-full-" + suffix + ".png"));
+                    main.Macros.ToggleStreamDeck(false);
+                    main.Macros.ToggleOptions(false);
                     main.Height = 720;
                     Settle(main);
+                });
+                Step("render macros as key tiles (" + suffix + ")", () =>
+                {
+                    controller.Settings.MacroEditor = EditorKinds.Tiles;
+                    controller.MarkDirty(SaveParts.Settings);
+                    main.Macros.SelectMacro(0);
+                    Settle(main);
+                    Capture(main, Path.Combine(folder, "3-macros-tiles-" + suffix + ".png"));
+                    main.Macros.TileEditor.SelectTile(0);
+                    Settle(main);
+                    Capture(main, Path.Combine(folder, "3-macros-tiles-edit-" + suffix + ".png"));
+                    main.Macros.SelectMacro(1);
+                    Settle(main);
+                    Capture(main, Path.Combine(folder, "3-macros-tiles-errors-" + suffix + ".png"));
+                    controller.Settings.MacroEditor = EditorKinds.Text;
+                    controller.MarkDirty(SaveParts.Settings);
+                    main.Macros.SelectMacro(0);
+                    Settle(main);
+                });
+                Step("render the first-run editor question (" + suffix + ")", () =>
+                {
+                    var ask = new EditorChoiceWindow(null);
+                    Prepare(ask, 760, 520);
+                    ask.SizeToContent = SizeToContent.Height;
+                    ask.Show();
+                    Settle(ask);
+                    Capture(ask, Path.Combine(folder, "7-editor-choice-" + suffix + ".png"));
+                    ask.Close();
+                });
+                Step("render the key recorder (" + suffix + ")", () =>
+                {
+                    var rec = new KeyRecorderWindow(null);
+                    Prepare(rec, 560, 360);
+                    rec.SizeToContent = SizeToContent.Height;
+                    rec.Show();
+                    Settle(rec);
+                    rec.Press(System.Windows.Input.Key.LeftCtrl, System.Windows.Input.Key.C);
+                    rec.Press(System.Windows.Input.Key.LeftAlt, System.Windows.Input.Key.Tab);
+                    rec.Press(System.Windows.Input.Key.LeftCtrl, System.Windows.Input.Key.V);
+                    rec.Press(System.Windows.Input.Key.Enter);
+                    Settle(rec);
+                    Capture(rec, Path.Combine(folder, "7-key-recorder-" + suffix + ".png"));
+                    rec.Close();
                 });
                 Step("render macros, every command group (" + suffix + ")", () =>
                 {
@@ -416,10 +463,20 @@ namespace MacroKit.App
                 return began && !c.IsBusy;
             });
 
+            Step("the palette adds to the Stream Deck code when that box was used last", () =>
+            {
+                main.SelectTab(2);
+                main.Macros.SelectMacro(2);
+                main.Macros.InsertIntoCode = true;
+                if (main.Macros.InsertIntoCode) throw new Exception("the hidden Stream Deck code was the target");
+                main.Macros.ToggleStreamDeck(true);
+                if (!main.Macros.StreamDeckCodeVisible || !main.Macros.InsertIntoCode) throw new Exception("the Stream Deck code did not show");
+            });
             Step("palette inserts at the cursor", () =>
             {
                 main.SelectTab(2);
                 main.Macros.SelectMacro(2);
+                main.Macros.InsertIntoCode = true;
                 main.Macros.SetScript("ab");
                 main.Macros.CaretIndex = 1;
                 main.Macros.Insert("{{ENTER}}");
@@ -470,6 +527,78 @@ namespace MacroKit.App
                 if (main.Macros.StepCount != 10) throw new Exception("The example script has " + main.Macros.StepCount + " steps");
                 main.Macros.SetScript("{{KEYPRESS:DOWN:5:100}}");
             });
+            Step("Stream Deck code edits change the steps", () =>
+            {
+                main.Macros.SetScript("{{CTRL}{V}}{{PAUSE:100}}");
+                if (main.Macros.PlainText != "Ctrl+V\r\nwait 100ms") throw new Exception("the steps are " + main.Macros.PlainText);
+                main.Macros.ToggleStreamDeck(false);
+                if (main.Macros.StreamDeckCodeVisible || main.Macros.InsertIntoCode) throw new Exception("the Stream Deck code is still showing");
+            });
+            Step("typed steps become the macro's Super Macro text", () =>
+            {
+                main.Macros.SelectMacro(2);
+                main.Macros.SetPlain("ctrl+c\r\nwait 50ms\r\nalt+tab\r\ntype \"hi\"");
+                if (c.Macros[2].Script != "{{CTRL}{C}}{{PAUSE:50}}{{ALT}{TAB}}hi" || main.Macros.ScriptText != c.Macros[2].Script) throw new Exception("script " + c.Macros[2].Script);
+                if (c.Macros[2].Plain != main.Macros.PlainText) throw new Exception("the typed text was not kept");
+                if (!main.Macros.PlainSummaryText.StartsWith("4 steps", StringComparison.Ordinal)) throw new Exception("summary " + main.Macros.PlainSummaryText);
+                main.Macros.SetPlain("ctrl+c\r\nfoo bar");
+                if (c.Macros[2].Script.IndexOf("{{?:", StringComparison.Ordinal) < 0) throw new Exception("an unknown line did not block the run: " + c.Macros[2].Script);
+                if (main.Macros.PlainSummaryText.IndexOf("Line 2", StringComparison.Ordinal) < 0) throw new Exception("summary " + main.Macros.PlainSummaryText);
+                main.Macros.RefreshPreview();
+                if (main.Macros.ErrorCount == 0) throw new Exception("the parser saw no problem");
+                main.Macros.SelectMacro(1);
+                main.Macros.SelectMacro(2);
+                if (main.Macros.PlainText != "ctrl+c\r\nfoo bar") throw new Exception("reselecting showed " + main.Macros.PlainText);
+            });
+            Step("the palette adds plain steps", () =>
+            {
+                main.Macros.InsertIntoCode = false;
+                main.Macros.SetPlain("type \"a\"");
+                main.Macros.TextEditor.CaretIndex = main.Macros.PlainText.Length;
+                main.Macros.Insert("{{ENTER}}");
+                if (main.Macros.PlainText != "type \"a\"\r\nEnter" || c.Macros[2].Script != "a{{ENTER}}") throw new Exception("got " + main.Macros.PlainText + " / " + c.Macros[2].Script);
+                main.Macros.SetPlain("ctrl+c\r\nctrl+v");
+                main.Macros.TextEditor.Select(0, main.Macros.PlainText.Length);
+                main.Macros.WrapInRepeat(2);
+                if (main.Macros.PlainText != "repeat 2 times\r\nctrl+c\r\nctrl+v\r\nend repeat") throw new Exception("repeat gave " + main.Macros.PlainText);
+                if (c.Macros[2].Script != "{{LOOP:2}}{{CTRL}{C}}{{CTRL}{V}}{{ENDLOOP}}") throw new Exception("repeat script " + c.Macros[2].Script);
+                main.Macros.SetPlain("");
+                main.Macros.AddTakeTurns(2);
+                if (main.Macros.PlainText != "take turns\r\n\r\nor\r\n\r\nend turns") throw new Exception("take turns gave " + main.Macros.PlainText);
+            });
+            Step("key tiles show clean steps and edit the same macro", () =>
+            {
+                c.Settings.MacroEditor = EditorKinds.Tiles;
+                c.MarkDirty(SaveParts.Settings);
+                if (main.Macros.CurrentEditor != EditorKinds.Tiles) throw new Exception("the editor is " + main.Macros.CurrentEditor);
+                main.Macros.SetPlain("ctrl+c\r\nwait 50ms\r\nalt+tab");
+                string labels = string.Join("|", main.Macros.TileEditor.TileLabels);
+                if (labels != "Ctrl + C|50 ms|Alt + Tab") throw new Exception("tiles " + labels);
+                main.Macros.TileEditor.SelectTile(2);
+                main.Macros.TileEditor.MoveSelected(-1);
+                if (main.Macros.PlainText != "ctrl+c\r\nalt+tab\r\nwait 50ms" || c.Macros[2].Script != "{{CTRL}{C}}{{ALT}{TAB}}{{PAUSE:50}}") throw new Exception("move gave " + c.Macros[2].Script);
+                main.Macros.Insert("{{ENTER}}");
+                if (main.Macros.PlainText != "ctrl+c\r\nalt+tab\r\nEnter\r\nwait 50ms") throw new Exception("insert gave " + main.Macros.PlainText);
+                c.Settings.MacroEditor = EditorKinds.Text;
+                c.MarkDirty(SaveParts.Settings);
+                if (main.Macros.CurrentEditor != EditorKinds.Text || main.Macros.PlainText != "ctrl+c\r\nalt+tab\r\nEnter\r\nwait 50ms") throw new Exception("switching back showed " + main.Macros.PlainText);
+            });
+            Step("recording keys makes one step per shortcut", () =>
+            {
+                var w = new KeyRecorderWindow(null);
+                Prepare(w, 560, 360);
+                w.Show();
+                Settle(w);
+                w.Press(System.Windows.Input.Key.LeftCtrl, System.Windows.Input.Key.C);
+                for (int i = 0; i < 3; i++) w.Press(System.Windows.Input.Key.Down);
+                w.Press(System.Windows.Input.Key.LeftShift);
+                w.Press(System.Windows.Input.Key.LeftAlt, System.Windows.Input.Key.S);
+                w.Finish();
+                w.Close();
+                if (w.Lines != "Ctrl+C\r\nDown 3 times\r\nShift\r\nAlt+S") throw new Exception("recorded " + w.Lines.Replace("\r\n", " | "));
+                if (!MacroKit.Macros.PlainMacro.ToScript(w.Lines).Ok) throw new Exception("the recorded steps are not understood");
+            });
+            Check("the first-run question defaults to typing", () => new EditorChoiceWindow(null).Choice == EditorKinds.Text);
             Step("settings and macros are written and read back", () =>
             {
                 c.Settings.Playback.Speed = 2.5;
@@ -480,7 +609,7 @@ namespace MacroKit.App
                 AppSettings s = again.LoadSettings();
                 if (s.Playback.Speed != 2.5 || s.RecordHotkey != "Ctrl+Alt+9") throw new Exception("settings did not round-trip");
                 MacroDef m = again.LoadMacros().FirstOrDefault(x => x.Id == c.Macros[2].Id);
-                if (m == null || m.Script != "{{KEYPRESS:DOWN:5:100}}") throw new Exception("macro did not round-trip");
+                if (m == null || m.Script != c.Macros[2].Script || m.Script.Length == 0 || m.Plain != c.Macros[2].Plain || m.Plain.Length == 0) throw new Exception("macro did not round-trip");
                 c.Settings.RecordHotkey = "Ctrl+Shift+Alt+R";
                 c.MarkDirty(SaveParts.Settings);
                 c.Flush();

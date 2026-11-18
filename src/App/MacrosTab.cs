@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using MouseButton = MacroKit.Core.MouseButton;
 using System.Windows.Threading;
 using MacroKit.Core;
 using MacroKit.Macros;
@@ -38,6 +40,19 @@ namespace MacroKit.App
         ParseResult parsed;
         bool loading;
         bool stepsLoading;
+
+        // the plain editors (typed or key tiles), the Stream Deck code and the folded options
+        IPlainEditor editor;
+        PlainTextEditor textEditor;
+        KeyTileEditor tileEditor;
+        readonly Border editorHost = new Border();
+        readonly TextBlock plainSummary = Ui.Text("", "Muted", false, 12, true);
+        readonly CheckBox deckSwitch;
+        readonly Button editorSwitch, allCommands, optionsButton;
+        readonly TextBlock optionsSummary = Ui.Text("", "Muted", false, 12.5);
+        FrameworkElement palette, deckCard;
+        FrameworkElement[] optionCards;
+        bool syncing, codeDirty, codeTarget;
 
         // palette inputs
         readonly NumberBox pauseMs = new NumberBox(100, 0, 3600000, 70);
@@ -115,16 +130,24 @@ namespace MacroKit.App
             name.TextChanged += (s, e) => Edit(m => m.Name = name.Text, true);
             runButton = Ui.Button(Ui.Row(7, Ui.Shape("play", 11, "AccentFg"), new TextBlock { Text = "Run" }), () => { if (current != null) c.StartMacro(current, RunOrigin.MainWindow); }, "Primary", "Run this macro. Macro Kit steps aside and the macro runs in the window you chose below.");
             stopButton = Ui.Button(Ui.Row(7, Ui.Shape("stop", 11, "Text"), new TextBlock { Text = "Stop" }), () => c.Stop(), null, "Stop the running macro.");
+            deckSwitch = new CheckBox { Content = "Stream Deck", IsChecked = c.Settings.ShowStreamDeckCode, VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Show this macro as Super Macro text, to paste into a Super Macro action on an Elgato Stream Deck." };
+            Ui.Style(deckSwitch, "Switch");
+            deckSwitch.Margin = new Thickness(14, 0, 4, 0);
+            deckSwitch.Click += (s, e) => { c.Settings.ShowStreamDeckCode = deckSwitch.IsChecked == true; c.MarkDirty(SaveParts.Settings); ApplyLayout(); };
             var header = new Grid();
             header.ColumnDefinitions.Add(new ColumnDefinition());
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             header.Children.Add(name);
-            Grid.SetColumn(runButton, 1);
+            Grid.SetColumn(deckSwitch, 1);
+            header.Children.Add(deckSwitch);
+            Grid.SetColumn(runButton, 2);
             runButton.Margin = new Thickness(10, 0, 0, 0);
             runButton.MinWidth = 84;
             header.Children.Add(runButton);
-            Grid.SetColumn(stopButton, 2);
+            Grid.SetColumn(stopButton, 3);
             stopButton.Margin = new Thickness(6, 0, 0, 0);
             stopButton.MinWidth = 76;
             header.Children.Add(stopButton);
@@ -137,19 +160,48 @@ namespace MacroKit.App
                 SpellCheck = { IsEnabled = false },
                 ToolTip = "Super Macro text, for example {{CTRL}{C}}{{PAUSE:50}}{{ALT}{TAB}}. Anything outside {{ }} is typed as is."
             };
-            script.TextChanged += (s, e) => { Edit(m => m.Script = script.Text, false); parseTimer.Stop(); parseTimer.Start(); };
+            script.TextChanged += (s, e) =>
+            {
+                if (syncing || loading) return;
+                Edit(m => m.Script = script.Text, false);
+                codeDirty = true;
+                parseTimer.Stop();
+                parseTimer.Start();
+            };
+            script.GotKeyboardFocus += (s, e) => codeTarget = true;
             parseTimer = new DispatcherTimer(DispatcherPriority.Background, Application.Current.Dispatcher) { Interval = TimeSpan.FromMilliseconds(150) };
-            parseTimer.Tick += (s, e) => { parseTimer.Stop(); ShowSteps(); };
+            parseTimer.Tick += (s, e) => { parseTimer.Stop(); ShowSteps(); if (codeDirty) { codeDirty = false; PlainFromCode(); } };
 
             steps.SelectionChanged += (s, e) => SelectStepInScript();
             stepsEmpty = Ui.Para("Nothing yet. Add commands above or type a script.");
             stepsEmpty.FontSize = 12;
             stepsEmpty.Margin = new Thickness(8, 4, 0, 0);
 
-            var scriptCard = Ui.Card(Ui.Stack(10,
-                Ui.Heading("Script"),
-                BuildScriptAndSteps(),
-                BuildPalette()));
+            // ---- the steps, in the editor the user chose
+            editorHost.AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((s, e) => codeTarget = false));
+            editorSwitch = Ui.Button("", () => SwitchEditor(), "Link", "Switch between typing the steps and building them from key tiles. Settings has this too.");
+            allCommands = Ui.Button("", () => { c.Settings.ShowAllCommands = !c.Settings.ShowAllCommands; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }, "Link",
+                "Every command Macro Kit has, in groups, with boxes to fill in.");
+            palette = BuildPalette();
+            var stepsTitle = new DockPanel();
+            DockPanel.SetDock(editorSwitch, Dock.Right);
+            editorSwitch.VerticalAlignment = VerticalAlignment.Center;
+            stepsTitle.Children.Add(editorSwitch);
+            stepsTitle.Children.Add(Ui.Heading("What it does"));
+            var summaryRow = new DockPanel();
+            DockPanel.SetDock(allCommands, Dock.Right);
+            allCommands.VerticalAlignment = VerticalAlignment.Top;
+            allCommands.Margin = new Thickness(12, 0, 0, 0);
+            summaryRow.Children.Add(allCommands);
+            summaryRow.Children.Add(plainSummary);
+            var scriptCard = Ui.Card(Ui.Stack(10, stepsTitle, editorHost, summaryRow, palette));
+
+            // ---- Stream Deck code (only with the Stream Deck switch on)
+            var copyCode = Ui.Button("Copy", CopyCode, "Small", "Copy the Super Macro text, ready to paste into a Super Macro action on your Stream Deck.");
+            var deckTitle = new DockPanel();
+            DockPanel.SetDock(copyCode, Dock.Right);
+            deckTitle.Children.Add(copyCode);
+            deckTitle.Children.Add(Ui.Heading("Stream Deck code"));
 
             // ---- repeat
             once = new RadioButton { Content = "Once", GroupName = "macroRepeat" };
@@ -167,7 +219,7 @@ namespace MacroKit.App
             keyDelay.Changed += () => { Edit(m => m.KeyDelayMs = keyDelay.Value, false); ShowSteps(); };
             newLines = new CheckBox { Content = "New lines in the script press Enter" };
             newLines.ToolTip = "On is how Super Macro behaves. Off ignores line breaks, so you can lay a long script out over several lines.";
-            newLines.Click += (s, e) => { Edit(m => m.NewLineIsEnter = newLines.IsChecked == true, false); ShowSteps(); };
+            newLines.Click += (s, e) => { Edit(m => m.NewLineIsEnter = newLines.IsChecked == true, false); ShowSteps(); PlainFromCode(); };
             repeatTimes.Margin = new Thickness(2, 0, 7, 0);
             var timesRow = Ui.Row(0, times, repeatTimes, Ui.Text("times", null));
             var repeatRow = Ui.Row(18, once, timesRow, continuous);
@@ -175,7 +227,10 @@ namespace MacroKit.App
                 Ui.Text("·", "Muted"), keyDelay, Ui.Text("ms after each key or click", "Muted", false, 12));
             ((FrameworkElement)delays.Children[3]).Margin = new Thickness(12, 0, 0, 0);
             ((FrameworkElement)delays.Children[4]).Margin = new Thickness(12, 0, 0, 0);
-            var repeatCard = Ui.Card(Ui.Stack(8, Ui.Heading("Repeat"), repeatRow, delays, newLines));
+            var repeatCard = Ui.Card(Ui.Stack(8, Ui.Heading("Repeat"), repeatRow, delays));
+            deckCard = Ui.Card(Ui.Stack(10, deckTitle,
+                Ui.Para("The same macro as Super Macro text. Paste it into a Super Macro action on your Stream Deck, or change it here and the steps above follow.", "Muted", 12),
+                BuildScriptAndSteps(), newLines));
 
             // ---- where it runs
             targetEditor = new WindowMatchEditor(c);
@@ -214,11 +269,25 @@ namespace MacroKit.App
             var headerCard = Ui.Card(header);
             editorStack.Children.Add(headerCard);
             editorStack.Children.Add(scriptCard);
+            editorStack.Children.Add(deckCard);
+            // ---- options: one line saying how it runs; the cards open under it
+            optionsButton = Ui.Button("", () => { c.Settings.ShowMacroOptions = !c.Settings.ShowMacroOptions; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }, null,
+                "Repeat, which window it runs in, its hotkey and schedule.");
+            optionsButton.MinWidth = 110;
+            var optionsRow = new DockPanel();
+            DockPanel.SetDock(optionsButton, Dock.Right);
+            optionsRow.Children.Add(optionsButton);
+            var optionsLabel = Ui.Text("Options", "Text", true, 13);
+            optionsLabel.Margin = new Thickness(0, 0, 12, 0);
+            optionsRow.Children.Add(Ui.Row(0, optionsLabel, optionsSummary));
+            var optionsCard = Ui.Card(optionsRow);
+            editorStack.Children.Add(optionsCard);
             editorStack.Children.Add(repeatCard);
             editorStack.Children.Add(whereCard);
             editorStack.Children.Add(launchCard);
             schedule = new ScheduleEditor(c, () => owner);
             editorStack.Children.Add(schedule.Root);
+            optionCards = new FrameworkElement[] { repeatCard, whereCard, launchCard, schedule.Root };
             var scroll = new ScrollViewer { Content = editorStack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             editorPanel = scroll;
 
@@ -232,6 +301,10 @@ namespace MacroKit.App
 
             c.ActivityChanged += UpdateRunButtons;
             c.HotkeysChanged += ShowHotkeyError;
+            // Settings (or the first-run question) can change the editor.
+            c.Edited += parts => { if ((parts & SaveParts.Settings) != 0 && editor != null && EditorKinds.Normal(c.Settings.MacroEditor) != EditorKind) UseEditor(c.Settings.MacroEditor); };
+            UseEditor(c.Settings.MacroEditor);
+            ApplyLayout();
             Reload(null);
         }
 
@@ -294,7 +367,7 @@ namespace MacroKit.App
             var tools = Ui.Row(0, search, closeAll);
             DockPanel.SetDock(tools, Dock.Right);
             title.Children.Add(tools);
-            title.Children.Add(Ui.Text("Add commands at the cursor in the script", "Muted", false, 12));
+            title.Children.Add(Ui.Text("Add commands at the cursor", "Muted", false, 12));
 
             var frame = new Border { Padding = new Thickness(8, 8, 8, 6), CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1) };
             Ui.Ref(frame, Border.BackgroundProperty, "Card2");
@@ -585,6 +658,14 @@ namespace MacroKit.App
         void InsertBlock(string start, int separators, string end)
         {
             if (current == null) return;
+            if (!CodeIsTarget)
+            {
+                // The block in plain words: "repeat 3 times" ... "end repeat".
+                string[] words = PlainMacro.ToPlain(start + string.Concat(Enumerable.Repeat(MacroScript.Or, separators)) + end, true)
+                    .Split(new[] { "\r\n" }, StringSplitOptions.None);
+                editor.WrapBlock(words[0], separators, words[words.Length - 1]);
+                return;
+            }
             string gap = current.NewLineIsEnter ? "" : "\n";
             string inside = script.SelectedText;
             string text = start + gap + inside;
@@ -701,6 +782,7 @@ namespace MacroKit.App
         public void Insert(string token)
         {
             if (current == null || string.IsNullOrEmpty(token)) return;
+            if (!CodeIsTarget) { editor.InsertLines(PlainMacro.ToPlain(token, true)); return; }
             int at = Math.Min(script.SelectionStart, script.Text.Length);
             script.SelectedText = token;
             script.CaretIndex = at + token.Length;
@@ -828,6 +910,141 @@ namespace MacroKit.App
             script.ScrollToLine(script.GetLineIndexFromCharacterIndex(index));
         }
 
+        // ------------------------------------------------------------------ plain editors
+
+        string EditorKind { get { return editor != null && editor == tileEditor ? EditorKinds.Tiles : EditorKinds.Text; } }
+
+        /// <summary>Shows the typed editor or the key tiles editor; both edit the same plain text.</summary>
+        void UseEditor(string kind)
+        {
+            if (EditorKinds.Normal(kind) == EditorKinds.Tiles)
+            {
+                if (tileEditor == null) { tileEditor = new KeyTileEditor(() => owner); tileEditor.Changed += PlainEdited; }
+                editor = tileEditor;
+            }
+            else
+            {
+                if (textEditor == null) { textEditor = new PlainTextEditor(() => owner); textEditor.Changed += PlainEdited; }
+                editor = textEditor;
+            }
+            editorHost.Child = editor.Root;
+            if (current != null) ShowPlain(PlainMacro.PlainFor(current));
+            else ShowPlain("");
+            ApplyLayout();
+        }
+
+        void SwitchEditor()
+        {
+            c.Settings.MacroEditor = EditorKind == EditorKinds.Tiles ? EditorKinds.Text : EditorKinds.Tiles;
+            c.MarkDirty(SaveParts.Settings);
+            if (EditorKinds.Normal(c.Settings.MacroEditor) != EditorKind) UseEditor(c.Settings.MacroEditor);
+        }
+
+        /// <summary>Shows or hides the Stream Deck code, the full command list and the option cards, as saved in Settings.</summary>
+        void ApplyLayout()
+        {
+            if (deckCard == null || palette == null || optionCards == null) return;
+            bool deck = c.Settings.ShowStreamDeckCode;
+            deckSwitch.IsChecked = deck;
+            deckCard.Visibility = deck ? Visibility.Visible : Visibility.Collapsed;
+            palette.Visibility = c.Settings.ShowAllCommands ? Visibility.Visible : Visibility.Collapsed;
+            allCommands.Content = c.Settings.ShowAllCommands ? "Hide all commands" : "Show all commands";
+            foreach (FrameworkElement card in optionCards) card.Visibility = c.Settings.ShowMacroOptions ? Visibility.Visible : Visibility.Collapsed;
+            optionsButton.Content = c.Settings.ShowMacroOptions ? "Hide options" : "Change options";
+            editorSwitch.Content = EditorKind == EditorKinds.Tiles ? "Type it instead" : "Use key tiles";
+            if (deck) ShowSteps();
+        }
+
+        /// <summary>Puts plain text into the editor without counting it as an edit.</summary>
+        void ShowPlain(string text)
+        {
+            if (editor == null) return;
+            syncing = true;
+            editor.Text = text ?? "";
+            syncing = false;
+            PlainResult result = PlainMacro.ToScript(text ?? "");
+            editor.Show(result);
+            ShowPlainSummary(result);
+        }
+
+        /// <summary>The user changed the steps: the macro's Super Macro text follows.</summary>
+        void PlainEdited()
+        {
+            if (syncing || loading || current == null) return;
+            string text = editor.Text;
+            PlainResult result = PlainMacro.ToScript(text);
+            current.Plain = text;
+            current.Script = result.Script;
+            c.MarkDirty(SaveParts.Macros);
+            syncing = true;
+            script.Text = result.Script;
+            syncing = false;
+            codeDirty = false;
+            editor.Show(result);
+            ShowPlainSummary(result);
+            parseTimer.Stop();
+            parseTimer.Start();
+        }
+
+        /// <summary>The Stream Deck code was changed: the steps follow.</summary>
+        void PlainFromCode()
+        {
+            if (current == null) return;
+            ShowPlain(PlainMacro.ToPlain(current.Script, current.NewLineIsEnter));
+        }
+
+        void ShowPlainSummary(PlainResult result)
+        {
+            var problems = result.Lines.Where(l => l.Error != null).ToList();
+            int count = result.Lines.Count(l => l.Kind != PlainKind.Empty && l.Kind != PlainKind.Note);
+            if (problems.Count > 0)
+            {
+                PlainLine first = problems[0];
+                string source = first.Source.Length > 30 ? first.Source.Substring(0, 30) + "…" : first.Source;
+                string where = EditorKind == EditorKinds.Tiles ? "“" + source + "”" : "Line " + (first.Number + 1);
+                plainSummary.Text = (problems.Count == 1 ? "1 step needs" : problems.Count + " steps need") + " fixing before the macro can run.  " + where + ": " + first.Error;
+                Ui.Ref(plainSummary, TextBlock.ForegroundProperty, "Bad");
+                return;
+            }
+            Ui.Ref(plainSummary, TextBlock.ForegroundProperty, "Muted");
+            if (count == 0 || current == null) { plainSummary.Text = ""; return; }
+            ParseResult p = MacroParser.Parse(current.Script, current.NewLineIsEnter);
+            long pass = p.EstimatedMs(current);
+            string text = (count == 1 ? "1 step" : count + " steps") + "  ·  about " + AppController.FormatDuration(pass) + " per pass";
+            if (current.Repeat == RepeatMode.Times && current.RepeatTimes > 1)
+                text += ", about " + AppController.FormatDuration(pass * current.RepeatTimes + (long)current.RepeatDelayMs * (current.RepeatTimes - 1)) + " in all";
+            plainSummary.Text = text;
+        }
+
+        void UpdateOptionsSummary()
+        {
+            MacroDef m = current;
+            if (m == null) { optionsSummary.Text = ""; return; }
+            var parts = new List<string>();
+            parts.Add(m.Repeat == RepeatMode.Once ? "Runs once" : m.Repeat == RepeatMode.Times ? "Runs " + m.RepeatTimes + " times" : "Runs continuously");
+            if (m.Target == TargetKind.PreviousWindow) parts.Add("in the window you used before");
+            else
+            {
+                WindowMatch w = m.TargetWindow ?? new WindowMatch();
+                string which = !string.IsNullOrWhiteSpace(w.TitleContains) ? "“" + w.TitleContains.Trim() + "”" : !string.IsNullOrWhiteSpace(w.ProcessName) ? w.ProcessName.Trim() : "a window you choose";
+                parts.Add("in " + which);
+            }
+            parts.Add(string.IsNullOrEmpty(m.Hotkey) ? "no hotkey" : "hotkey " + m.Hotkey);
+            if (m.ShowOnDeck) parts.Add("on the Deck");
+            if (m.Schedule != null && m.Schedule.Kind != ScheduleKind.Off) parts.Add("on a schedule");
+            optionsSummary.Text = string.Join("  ·  ", parts);
+        }
+
+        void CopyCode()
+        {
+            if (current == null || string.IsNullOrEmpty(current.Script)) { c.SetStatus("There is no code to copy yet.", true); return; }
+            try { Clipboard.SetText(current.Script); c.SetStatus("Stream Deck code copied. Paste it into a Super Macro action.", false); }
+            catch (Exception ex) { c.SetStatus("Could not copy: " + ex.Message, true); }
+        }
+
+        /// <summary>The palette adds to the Stream Deck code only when that box was the last one you typed in; otherwise to the steps.</summary>
+        bool CodeIsTarget { get { return codeTarget && deckCard != null && deckCard.Visibility == Visibility.Visible; } }
+
         // ------------------------------------------------------------------ list and binding
 
         MacroDef Selected
@@ -889,6 +1106,7 @@ namespace MacroKit.App
                 name.Text = m.Name;
                 script.Text = m.Script;
                 script.CaretIndex = script.Text.Length;
+                ShowPlain(PlainMacro.PlainFor(m));
                 once.IsChecked = m.Repeat == RepeatMode.Once;
                 times.IsChecked = m.Repeat == RepeatMode.Times;
                 continuous.IsChecked = m.Repeat == RepeatMode.Continuous;
@@ -913,7 +1131,10 @@ namespace MacroKit.App
             {
                 name.Text = "";
                 script.Text = "";
+                ShowPlain("");
             }
+            codeDirty = false;
+            UpdateOptionsSummary();
             loading = false;
             ShowSteps();
             ShowHotkeyError();
@@ -934,6 +1155,7 @@ namespace MacroKit.App
             change(current);
             c.MarkDirty(SaveParts.Macros);
             if (refreshItem) RefreshItem(current);
+            UpdateOptionsSummary();
         }
 
         void TargetKindChanged(TargetKind kind)
@@ -1020,7 +1242,7 @@ namespace MacroKit.App
         /// <summary>Self test: types a repeat count.</summary>
         public void TypeRepeatCount(string text) { repeatTimes.Text = text; }
         public void SelectMacro(int index) { if (index >= 0 && index < list.Items.Count) list.SelectedIndex = index; }
-        public void SetScript(string text) { script.Text = text; ShowSteps(); }
+        public void SetScript(string text) { script.Text = text; ShowSteps(); if (codeDirty) { codeDirty = false; PlainFromCode(); } }
         /// <summary>Applies pending parse work immediately (the preview normally follows typing after 150 ms).</summary>
         public void RefreshPreview() { parseTimer.Stop(); ShowSteps(); }
         /// <summary>Self test: selects part of the script, as dragging over it would.</summary>
@@ -1029,10 +1251,24 @@ namespace MacroKit.App
         public void WrapInRepeat(int times) { InsertBlock(MacroScript.Loop(times), 0, MacroScript.EndLoop); }
         public void AddTakeTurns(int choices) { InsertBlock(MacroScript.Switch, choices - 1, MacroScript.EndSwitch); }
         /// <summary>Self test: types in the command search box.</summary>
-        public void SearchCommands(string text) { commandSearch.Text = text; }
+        public void SearchCommands(string text) { commandSearch.Text = text; if (text.Length == 0) ApplyLayout(); }
+        public string PlainText { get { return editor.Text; } }
+        /// <summary>Self test: replaces the steps as if they were typed.</summary>
+        public void SetPlain(string text) { editor.Text = text; PlainEdited(); }
+        public string PlainSummaryText { get { return plainSummary.Text; } }
+        public string CurrentEditor { get { return EditorKind; } }
+        public PlainTextEditor TextEditor { get { return textEditor; } }
+        public KeyTileEditor TileEditor { get { return tileEditor; } }
+        /// <summary>Self test: the palette adds to the Stream Deck code (true) or the steps (false).</summary>
+        public bool InsertIntoCode { get { return CodeIsTarget; } set { codeTarget = value; } }
+        public bool StreamDeckCodeVisible { get { return deckCard.Visibility == Visibility.Visible; } }
+        public bool OptionsVisible { get { return optionCards[0].Visibility == Visibility.Visible; } }
+        public void ToggleStreamDeck(bool on) { deckSwitch.IsChecked = on; c.Settings.ShowStreamDeckCode = on; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }
+        public void ToggleOptions(bool on) { c.Settings.ShowMacroOptions = on; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }
+        public void ToggleAllCommands(bool on) { c.Settings.ShowAllCommands = on; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }
         public int VisibleCommandGroups { get { return groups.Count(g => g.Root.Visibility == Visibility.Visible); } }
         public string[] OpenCommandGroups { get { return groups.Where(g => g.Open && g.Root.Visibility == Visibility.Visible).Select(g => g.Id).ToArray(); } }
         /// <summary>Self test: opens every group for a screenshot without saving it; SearchCommands("") puts the saved layout back.</summary>
-        public void OpenAllCommandGroups() { foreach (CommandGroup g in groups) SetOpen(g, true, false); RefreshProCommands(); }
+        public void OpenAllCommandGroups() { palette.Visibility = Visibility.Visible; foreach (CommandGroup g in groups) SetOpen(g, true, false); RefreshProCommands(); }
     }
 }

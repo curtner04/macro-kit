@@ -128,6 +128,7 @@ namespace MacroKit.Core
         public string Id { get; set; }
         public string Name { get; set; }
         public string Script { get; set; }
+        public string Plain { get; set; }                 // the plain-language text last typed; used while it still translates to Script
         public RepeatMode Repeat { get; set; }
         public int RepeatTimes { get; set; }
         public int RepeatDelayMs { get; set; }
@@ -146,6 +147,7 @@ namespace MacroKit.Core
             Id = Guid.NewGuid().ToString("N");
             Name = "New macro";
             Script = "";
+            Plain = "";
             Repeat = RepeatMode.Once;
             RepeatTimes = 5;
             RepeatDelayMs = 0;
@@ -232,6 +234,10 @@ namespace MacroKit.Core
         public bool ShowWindowAfterRun { get; set; }
         public bool StartWithWindows { get; set; }        // the Run value is the truth; this mirrors it
         public List<string> OpenCommandGroups { get; set; } // the Macros tab's command groups that are open ("keys", "multi"...)
+        public string MacroEditor { get; set; }           // "" = not chosen yet (asked once), "Text" = type it, "Tiles" = key tiles
+        public bool ShowStreamDeckCode { get; set; }      // the Macros tab shows the Super Macro text for Stream Deck
+        public bool ShowAllCommands { get; set; }         // the Macros tab shows the full command palette
+        public bool ShowMacroOptions { get; set; }        // the Macros tab shows the repeat, window, hotkey and schedule cards
 
         public AppSettings()
         {
@@ -265,6 +271,10 @@ namespace MacroKit.Core
             ShowWindowAfterRun = true;
             StartWithWindows = false;
             OpenCommandGroups = new List<string> { "keys", "multi" };
+            MacroEditor = "";
+            ShowStreamDeckCode = false;
+            ShowAllCommands = false;
+            ShowMacroOptions = false;
         }
     }
 

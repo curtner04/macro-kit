@@ -1,5 +1,14 @@
 # Macro Kit changelog
 
+## 1.5.0 - 2026-11-18
+
+- A simpler Macros tab. **Type it**: write each step on its own line the way you'd say it (`ctrl+c`, `wait 50ms`, `alt+tab`, `type "hello"`, `repeat 3 times` … `end repeat`). Macro Kit shows what each line does beside it, marks lines it doesn't understand, and suggests the rest as you type (Tab accepts).
+- **Key tiles**: build a macro from clean tiles such as **Ctrl + C**, **50 ms** and **“hello”**, with no key down and key up clutter. Press **+** to record keystrokes, add text, an action, a program to launch, a system action (media keys, volume, lock the PC) or a delay. Click a tile to change, move or delete it.
+- **Record keys** turns the shortcuts you press into steps, one per shortcut (Ctrl+C, Alt+S), and can also record the pauses between them.
+- The first time Macro Kit opens it asks which editor you'd like. Switch any time in Settings, or with the link at the top of the steps.
+- The Super Macro code now hides behind the **Stream Deck** switch at the top of a macro. Turn it on to copy the code into a Super Macro action, or to edit it there; the steps follow your changes.
+- The full list of commands is one click away (**Show all commands**), and Repeat, Where it runs, Start it with and Schedule fold into one **Options** line that sums them up.
+
 ## 1.4.0 - 2026-11-17
 
 - Multi action, like Stream Deck's: repeat blocks are now free. Select steps in the script and press **Repeat** to run them a number of times, then repeat other steps another number of times (`{{LOOP:3}}…{{ENDLOOP}}`).
