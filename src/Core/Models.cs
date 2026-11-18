@@ -238,6 +238,7 @@ namespace MacroKit.Core
         public bool ShowStreamDeckCode { get; set; }      // the Macros tab shows the Super Macro text for Stream Deck
         public bool ShowAllCommands { get; set; }         // the Macros tab shows the full command palette
         public bool ShowMacroOptions { get; set; }        // the Macros tab shows the repeat, window, hotkey and schedule cards
+        public string RecordKeyDelays { get; set; }       // Record keystrokes: "None", "Standard" (50 ms) or "Real" (the pauses as pressed)
 
         public AppSettings()
         {
@@ -275,6 +276,7 @@ namespace MacroKit.Core
             ShowStreamDeckCode = false;
             ShowAllCommands = false;
             ShowMacroOptions = false;
+            RecordKeyDelays = "Standard";
         }
     }
 

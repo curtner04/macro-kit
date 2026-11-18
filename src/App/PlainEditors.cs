@@ -11,6 +11,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using MacroKit.Core;
 using MacroKit.Macros;
+using MacroKit.Win32;
 
 namespace MacroKit.App
 {
@@ -827,19 +828,46 @@ namespace MacroKit.App
         }
     }
 
+    /// <summary>How Record keystrokes spaces the steps it records.</summary>
+    public static class RecordDelays
+    {
+        public const string None = "None", Standard = "Standard", Real = "Real";
+        public const int StandardMs = 50;
+
+        public static string Normal(string kind) { return kind == None || kind == Real ? kind : Standard; }
+    }
+
     /// <summary>
-    /// Records keys pressed in this window as steps: Ctrl+C becomes one "Ctrl+C" step, never a key down and a key up.
-    /// Keys Windows keeps for itself (Alt+Tab, Win+L, Ctrl+Alt+Del) never reach it; type those steps instead.
+    /// Records keys pressed in this window as steps: Ctrl+C becomes one "Ctrl+C" step, never a key down and a key up. With input on,
+    /// a <see cref="KeyCapture"/> hook takes the keys while the window is in front, so Alt+Tab, Win, PrtSc and keys other apps use
+    /// as hotkeys are recorded instead of acted on. Only Ctrl+Alt+Delete and Win+L stay with Windows. Without input (tests) it
+    /// records the keys WPF delivers. The delays between steps are none, a standard 50 ms, or the pauses as they were pressed.
     /// </summary>
     public sealed class KeyRecorderWindow : Window
     {
-        readonly List<string> steps = new List<string>();
+        /// <summary>Set by the app shell: false in sessions without input, where only the keys sent to the window are seen.</summary>
+        public static bool UseKeyboardHook;
+        /// <summary>The delay choice to start with, and where a new choice is saved (the app shell wires these to the settings).</summary>
+        public static Func<string> LoadDelays = () => RecordDelays.Standard;
+        public static Action<string> SaveDelays = kind => { };
+
+        sealed class Rec
+        {
+            public string Line;
+            public uint Time;     // when its key went down, in ms on the GetTickCount clock
+        }
+
+        readonly List<Rec> steps = new List<Rec>();
         readonly List<ushort> held = new List<ushort>();
+        readonly HashSet<ushort> pressed = new HashSet<ushort>();   // keys down now, so the hook can tell Windows' auto-repeat
         readonly WrapPanel preview = new WrapPanel();
-        readonly CheckBox withPauses = new CheckBox { Content = "Also record the pauses between keys", Focusable = false };
         readonly TextBlock empty = Ui.Text("Press the keys now…", "Muted", false, 13);
+        readonly Dictionary<string, RadioButton> delayButtons = new Dictionary<string, RadioButton>();
+        string delays;
         ushort lone;              // a modifier pressed with no other key yet
-        DateTime last = DateTime.MinValue;
+        uint loneTime;
+        KeyCapture capture;
+        bool hotkeysSuspended;
         bool closing;
 
         /// <summary>The recorded steps, one per line.</summary>
@@ -848,6 +876,7 @@ namespace MacroKit.App
         public KeyRecorderWindow(Window owner)
         {
             Lines = "";
+            delays = RecordDelays.Normal(LoadDelays());
             Title = "Record keystrokes";
             Width = 560;
             SizeToContent = SizeToContent.Height;
@@ -859,32 +888,60 @@ namespace MacroKit.App
 
             var dot = Ui.Shape("record", 12, "Rec");
             var title = Ui.Row(9, dot, Ui.Text("Recording keys", "Text", true, 15));
-            var help = Ui.Para("Press keys and shortcuts the way you want the macro to. Each shortcut becomes one step, such as Ctrl + C. " +
-                "Click Done when you have finished. Shortcuts Windows keeps for itself, like Alt+Tab or Win+L, can't be recorded here; add those by typing them.", "Muted", 12);
+            var help = Ui.Para(UseKeyboardHook
+                ? "Press keys and shortcuts the way you want the macro to, including Alt+Tab, the Windows key and PrtSc. Each shortcut becomes one step, such as Ctrl + C. " +
+                  "Click Done when you have finished. Only Ctrl+Alt+Delete and Win+L stay with Windows; add those by typing them."
+                : "Press keys and shortcuts the way you want the macro to. Each shortcut becomes one step, such as Ctrl + C. " +
+                  "Click Done when you have finished. Shortcuts Windows keeps for itself, like Alt+Tab or Win+L, can't be recorded here; add those by typing them.", "Muted", 12);
             var frame = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Padding = new Thickness(10, 10, 4, 4), MinHeight = 86 };
             Ui.Ref(frame, Border.BackgroundProperty, "Input");
             Ui.Ref(frame, Border.BorderBrushProperty, "Border");
             frame.Child = new ScrollViewer { Content = preview, MaxHeight = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             preview.Children.Add(empty);
-            var clear = Button("Clear", () => { steps.Clear(); held.Clear(); lone = 0; ShowSteps(); }, null);
+
+            var delayRow = new WrapPanel();
+            var delayLabel = Ui.Text("Delays", "Text", true, 12.5);
+            delayLabel.Margin = new Thickness(0, 0, 14, 0);
+            delayLabel.VerticalAlignment = VerticalAlignment.Center;
+            delayRow.Children.Add(delayLabel);
+            DelayOption(delayRow, RecordDelays.None, "No delays", "Each step runs straight after the one before. Keys pressed several times in a row become one step, like Down 3 times.");
+            DelayOption(delayRow, RecordDelays.Standard, "Standard delays (50 ms)", "A 50 ms wait between steps, which most programs keep up with.");
+            DelayOption(delayRow, RecordDelays.Real, "Real-time delays", "Waits as long as you paused between keys while recording.");
+
+            var clear = Button("Clear", () => { steps.Clear(); held.Clear(); pressed.Clear(); lone = 0; ShowSteps(); }, null);
             var cancel = Button("Cancel", () => { closing = true; DialogResult = false; }, null);
             var done = Button("Done", Done, "Primary");
             done.MinWidth = 84;
             var buttons = new DockPanel { LastChildFill = false };
-            buttons.Children.Add(withPauses);
-            withPauses.VerticalAlignment = VerticalAlignment.Center;
             var right = Ui.Row(8, clear, cancel, done);
             DockPanel.SetDock(right, Dock.Right);
             buttons.Children.Add(right);
-            var body = Ui.Stack(12, title, help, frame, buttons);
+            var body = Ui.Stack(12, title, help, frame, delayRow, buttons);
             body.Margin = new Thickness(22, 18, 22, 18);
             body.Focusable = true;
             Content = body;
             Loaded += (s, e) => body.Focus();
+            SourceInitialized += (s, e) => StartCapture();
+            Closed += (s, e) => StopCapture();
             PreviewKeyDown += RecordDown;
             PreviewKeyUp += RecordUp;
-            // Alt+F4 is a key to record here, not a way to close the window.
+            // Alt+F4 is a key to record here, not a way to close the window (the hook takes it first when it runs).
             Closing += (s, e) => { if (!closing && (Keyboard.Modifiers & ModifierKeys.Alt) != 0 && Keyboard.IsKeyDown(Key.F4)) e.Cancel = true; };
+        }
+
+        void DelayOption(Panel row, string kind, string label, string tip)
+        {
+            var b = new RadioButton { Content = label, Focusable = false, IsChecked = delays == kind, Margin = new Thickness(0, 4, 16, 4), ToolTip = tip, VerticalAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(b, label);
+            b.Checked += (s, e) =>
+            {
+                if (delays == kind) return;
+                delays = kind;
+                SaveDelays(kind);
+                ShowSteps();
+            };
+            delayButtons[kind] = b;
+            row.Children.Add(b);
         }
 
         static Button Button(string label, Action click, string style)
@@ -895,13 +952,36 @@ namespace MacroKit.App
             return b;
         }
 
-        static ushort Vk(KeyEventArgs e)
+        // ------------------------------------------------------------------ the hook
+
+        void StartCapture()
         {
-            Key k = e.Key == Key.System ? e.SystemKey : e.Key == Key.ImeProcessed ? e.ImeProcessedKey : e.Key == Key.DeadCharProcessed ? e.DeadCharProcessedKey : e.Key;
-            int vk = KeyInterop.VirtualKeyFromKey(k);
+            if (!UseKeyboardHook) return;
+            try
+            {
+                IntPtr handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                capture = new KeyCapture(handle, (vk, down, time) =>
+                    Dispatcher.BeginInvoke(new Action(() => { if (down) KeyPressed(vk, time, pressed.Contains(Normal(vk))); else KeyReleased(vk); })));
+                // Macro Kit's own hotkeys are released too, so pressing one records it.
+                HotkeyBox.CaptureStarted();
+                hotkeysSuspended = true;
+            }
+            catch (Exception ex) { Log.Warn("The key recorder could not take Alt+Tab and the other system keys; it records the keys the window gets.", ex); }
+        }
+
+        void StopCapture()
+        {
+            if (capture != null) { capture.Dispose(); capture = null; }
+            if (hotkeysSuspended) { hotkeysSuspended = false; HotkeyBox.CaptureEnded(); }
+        }
+
+        // ------------------------------------------------------------------ keys
+
+        /// <summary>Left and right modifiers both record as the plain Shift, Ctrl, Alt and Win (the left keys, as Super Macro's CTRL is).</summary>
+        static ushort Normal(int vk)
+        {
             switch (vk)
             {
-                // Left and right modifiers both record as the plain Shift, Ctrl, Alt and Win (the left keys, as Super Macro's CTRL is).
                 case 0x10: case 0xA0: case 0xA1: return 0xA0;   // Shift
                 case 0x11: case 0xA2: case 0xA3: return 0xA2;   // Ctrl
                 case 0x12: case 0xA4: case 0xA5: return 0xA4;   // Alt
@@ -910,54 +990,96 @@ namespace MacroKit.App
             return (ushort)vk;
         }
 
+        static ushort Vk(KeyEventArgs e)
+        {
+            Key k = e.Key == Key.System ? e.SystemKey : e.Key == Key.ImeProcessed ? e.ImeProcessedKey : e.Key == Key.DeadCharProcessed ? e.DeadCharProcessedKey : e.Key;
+            return Normal(KeyInterop.VirtualKeyFromKey(k));
+        }
+
         static readonly ushort[] ModifierOrder = { 0xA2, 0xA0, 0xA4, 0x5B };
 
         void RecordDown(object sender, KeyEventArgs e)
         {
             e.Handled = true;
-            if (e.IsRepeat) return;
-            ushort vk = Vk(e);
-            if (vk == 0) return;
-            if (KeyNames.IsModifier(vk))
-            {
-                if (!held.Contains(vk)) held.Add(vk);
-                lone = vk;
-                return;
-            }
-            lone = 0;
-            var keys = ModifierOrder.Where(held.Contains).ToList();
-            keys.Add(vk);
-            Add(keys);
+            if (capture != null) return;   // the hook records the keys
+            KeyPressed(Vk(e), unchecked((uint)e.Timestamp), e.IsRepeat);
         }
 
         void RecordUp(object sender, KeyEventArgs e)
         {
             e.Handled = true;
-            ushort vk = Vk(e);
+            if (capture != null) return;
+            KeyReleased(Vk(e));
+        }
+
+        void KeyPressed(ushort key, uint time, bool repeat)
+        {
+            ushort vk = Normal(key);
+            if (vk == 0) return;
+            pressed.Add(vk);
+            if (repeat) return;   // a key held down: Windows repeats it, the macro presses it once
+            if (KeyNames.IsModifier(vk))
+            {
+                if (!held.Contains(vk)) held.Add(vk);
+                lone = vk;
+                loneTime = time;
+                return;
+            }
+            lone = 0;
+            var keys = ModifierOrder.Where(held.Contains).ToList();
+            keys.Add(vk);
+            Add(keys, time);
+        }
+
+        void KeyReleased(ushort key)
+        {
+            ushort vk = Normal(key);
+            pressed.Remove(vk);
             if (!KeyNames.IsModifier(vk)) return;
-            if (lone == vk) Add(new List<ushort> { vk });
+            if (lone == vk) Add(new List<ushort> { vk }, loneTime);
             lone = 0;
             held.Remove(vk);
         }
 
-        void Add(List<ushort> keys)
+        void Add(List<ushort> keys, uint time)
         {
-            DateTime now = DateTime.UtcNow;
-            if (withPauses.IsChecked == true && steps.Count > 0)
-            {
-                int ms = (int)Math.Round((now - last).TotalMilliseconds / 10.0) * 10;
-                if (ms >= 10) steps.Add("wait " + PlainMacro.Ms(Math.Min(ms, 3600000)));
-            }
-            last = now;
-            steps.Add(PlainMacro.KeysLine(keys));
+            steps.Add(new Rec { Line = PlainMacro.KeysLine(keys), Time = time });
             ShowSteps();
+        }
+
+        /// <summary>The steps with the chosen delays: none, a standard wait between steps, or the pauses as pressed.</summary>
+        List<string> Output()
+        {
+            var lines = new List<string>();
+            if (delays == RecordDelays.Real)
+            {
+                for (int i = 0; i < steps.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        uint gap = unchecked(steps[i].Time - steps[i - 1].Time);
+                        int ms = (int)Math.Min(3600000, Math.Round(gap / 10.0) * 10);
+                        if (ms >= 10) lines.Add("wait " + PlainMacro.Ms(ms));
+                    }
+                    lines.Add(steps[i].Line);
+                }
+                return lines;
+            }
+            bool standard = delays == RecordDelays.Standard;
+            List<string> squashed = Squash(steps.Select(s => s.Line).ToList(), standard ? " every " + PlainMacro.Ms(RecordDelays.StandardMs) : "");
+            for (int i = 0; i < squashed.Count; i++)
+            {
+                if (i > 0 && standard) lines.Add("wait " + PlainMacro.Ms(RecordDelays.StandardMs));
+                lines.Add(squashed[i]);
+            }
+            return lines;
         }
 
         void ShowSteps()
         {
             preview.Children.Clear();
             if (steps.Count == 0) { preview.Children.Add(empty); return; }
-            PlainResult r = PlainMacro.ToScript(string.Join("\n", steps));
+            PlainResult r = PlainMacro.ToScript(string.Join("\n", Output()));
             foreach (PlainLine line in r.Lines)
             {
                 bool wait = line.Kind == PlainKind.Wait;
@@ -975,8 +1097,8 @@ namespace MacroKit.App
             DialogResult = true;
         }
 
-        /// <summary>The same key pressed several times in a row becomes one "Down 5 times" step.</summary>
-        static List<string> Squash(List<string> steps)
+        /// <summary>The same key pressed several times in a row becomes one "Down 5 times" step (with <paramref name="every"/>, "Down 5 times every 50ms").</summary>
+        static List<string> Squash(List<string> steps, string every)
         {
             var result = new List<string>();
             for (int i = 0; i < steps.Count; )
@@ -984,30 +1106,39 @@ namespace MacroKit.App
                 int j = i + 1;
                 while (j < steps.Count && steps[j] == steps[i]) j++;
                 int count = j - i;
-                result.Add(count > 1 && !steps[i].StartsWith("{{", StringComparison.Ordinal) ? steps[i] + " " + count + " times" : steps[i]);
+                result.Add(count > 1 && !steps[i].StartsWith("{{", StringComparison.Ordinal) ? steps[i] + " " + count + " times" + every : steps[i]);
                 if (count > 1 && steps[i].StartsWith("{{", StringComparison.Ordinal)) for (int k = 1; k < count; k++) result.Add(steps[i]);
                 i = j;
             }
             return result;
         }
 
+        string Collect() { return string.Join("\r\n", Output()); }
+
         // self test
-        public void Press(params Key[] keys)
+        public void Press(params Key[] keys) { PressAt(0, keys); }
+
+        /// <summary>Self test: presses a shortcut as if at <paramref name="timestamp"/> ms (modifiers down first, up last).</summary>
+        public void PressAt(int timestamp, params Key[] keys)
         {
-            // Modifiers go down first and come up last, as a person presses a shortcut.
-            foreach (Key k in keys) PressKey(k, true);
-            foreach (Key k in keys.Reverse()) PressKey(k, false);
+            foreach (Key k in keys) PressKey(k, true, timestamp);
+            foreach (Key k in keys.Reverse()) PressKey(k, false, timestamp);
         }
 
-        void PressKey(Key k, bool down)
+        void PressKey(Key k, bool down, int timestamp)
         {
             var source = PresentationSource.FromVisual(this);
             if (source == null) return;
-            var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, k) { RoutedEvent = down ? Keyboard.PreviewKeyDownEvent : Keyboard.PreviewKeyUpEvent };
+            var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, timestamp, k) { RoutedEvent = down ? Keyboard.PreviewKeyDownEvent : Keyboard.PreviewKeyUpEvent };
             if (down) RecordDown(this, args); else RecordUp(this, args);
         }
 
-        string Collect() { return string.Join("\r\n", withPauses.IsChecked == true ? steps : Squash(steps)); }
+        /// <summary>Self test: the delay choice, as the radio buttons set it.</summary>
+        public string Delays
+        {
+            get { return delays; }
+            set { RadioButton b; if (delayButtons.TryGetValue(RecordDelays.Normal(value), out b)) b.IsChecked = true; }
+        }
 
         /// <summary>Self test: what Done gives, without closing (the window is not a dialog in the test).</summary>
         public void Finish() { Lines = Collect(); }

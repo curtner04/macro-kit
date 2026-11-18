@@ -43,6 +43,9 @@ namespace MacroKit.App
             c.Flash += (title, message, error) => pill.Flash(title, message, error ? "Bad" : "Warn");
             HotkeyBox.CaptureStarted = c.SuspendHotkeys;
             HotkeyBox.CaptureEnded = c.ResumeHotkeys;
+            KeyRecorderWindow.UseKeyboardHook = c.InputEnabled;
+            KeyRecorderWindow.LoadDelays = () => c.Settings.RecordKeyDelays;
+            KeyRecorderWindow.SaveDelays = kind => { c.Settings.RecordKeyDelays = kind; c.MarkDirty(SaveParts.Settings); };
             foreach (Window w in new Window[] { Main, deck, pill })
             {
                 Window window = w;

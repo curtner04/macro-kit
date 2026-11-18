@@ -1,5 +1,10 @@
 # Macro Kit changelog
 
+## 1.5.1 - 2026-11-18
+
+- **Record keystrokes** now records Alt+Tab, the Windows key, PrtSc, Alt+F4 and keys other programs use as hotkeys. While the recorder is in front it takes those keys before Windows does, so they become steps instead of switching windows or taking a screenshot. Only Ctrl+Alt+Delete and Win+L stay with Windows.
+- The recorder's pauses checkbox is now a choice of three: **No delays**, **Standard delays (50 ms)** between steps, or **Real-time delays**, the pauses as you pressed them. Macro Kit remembers your choice.
+
 ## 1.5.0 - 2026-11-18
 
 - A simpler Macros tab. **Type it**: write each step on its own line the way you'd say it (`ctrl+c`, `wait 50ms`, `alt+tab`, `type "hello"`, `repeat 3 times` … `end repeat`). Macro Kit shows what each line does beside it, marks lines it doesn't understand, and suggests the rest as you type (Tab accepts).
