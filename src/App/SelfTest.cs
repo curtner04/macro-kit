@@ -342,6 +342,33 @@ namespace MacroKit.App
                 Settle(main);
                 if (!main.IsVisible || main.WindowState != WindowState.Normal) throw new Exception("normal restore gave " + main.WindowState + ", visible " + main.IsVisible);
             });
+            Step("a maximized main window returns maximized after a recording, without taking the focus", () =>
+            {
+                // WPF throws when a maximized window is shown with ShowActivated false (1.7.0 crashed here after a recording).
+                var front = new Window { Width = 200, Height = 120, Left = 40, Top = 40, ShowInTaskbar = false, Title = "front" };
+                front.Show();
+                front.Activate();
+                Settle(front);
+                main.WindowState = WindowState.Maximized;
+                Settle(main);
+                main.Hide();
+                Settle(main);
+                front.Activate();
+                Settle(front);
+                main.RestoreQuietly(false, true);
+                Settle(main);
+                string got = main.WindowState + ", native maximized " + NativeUi.IsMaximized(main) + ", visible " + main.IsVisible + ", active " + main.IsActive + ", front active " + front.IsActive;
+                bool ok = main.IsVisible && main.WindowState == WindowState.Maximized && NativeUi.IsMaximized(main) && !main.IsActive;
+                main.Hide();
+                main.Reveal(false);
+                Settle(main);
+                got += "; reveal: " + main.WindowState + ", native maximized " + NativeUi.IsMaximized(main) + ", visible " + main.IsVisible + ", active " + main.IsActive;
+                ok = ok && main.IsVisible && main.WindowState == WindowState.Maximized && NativeUi.IsMaximized(main) && !main.IsActive;
+                main.WindowState = WindowState.Normal;
+                Settle(main);
+                front.Close();
+                if (!ok) throw new Exception(got);
+            });
             Step("closing the window with the close button leaves without a nested close", () =>
             {
                 main.Close();      // OnClosing cancels and queues the exit; it must not close the window from inside Closing

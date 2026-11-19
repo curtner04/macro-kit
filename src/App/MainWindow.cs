@@ -248,9 +248,9 @@ namespace MacroKit.App
         public void Reveal(bool activate)
         {
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
-            ShowActivated = activate;
+            if (!activate) { ShowWithoutActivating(); return; }
+            ShowActivated = true;
             Show();
-            if (!activate) return;
             bool ok = false;
             try { ok = c.Windows.Activate(new WindowInteropHelper(this).Handle, 600); }
             catch (Exception ex) { Log.Warn("Bringing Macro Kit forward failed: " + ex.Message); }
@@ -264,10 +264,29 @@ namespace MacroKit.App
         /// </summary>
         public void RestoreQuietly(bool wasMinimized, bool behindForeground)
         {
-            ShowActivated = false;
-            Show();
+            ShowWithoutActivating();
             if (wasMinimized) NativeUi.ShowMinimizedNoActivate(this);
             else NativeUi.PlaceBehind(this, behindForeground);
+        }
+
+        /// <summary>
+        /// Shows the window without taking the focus. WPF refuses that for a maximized window ("Cannot show Window when
+        /// ShowActivated is false and WindowState is set to Maximized"), so a maximized window is shown as Normal: the hidden
+        /// window keeps its maximized frame, Windows shows it as it is (SW_SHOWNA), and WPF reads Maximized back from it.
+        /// If it did not come back maximized it is maximized again; that one step may take the focus, which is better than a crash.
+        /// </summary>
+        void ShowWithoutActivating()
+        {
+            bool maximized = WindowState == WindowState.Maximized && !IsVisible;
+            if (maximized) WindowState = WindowState.Normal;
+            ShowActivated = false;
+            Show();
+            if (maximized && WindowState != WindowState.Maximized)
+            {
+                Log.Warn("The window did not come back maximized by itself; maximizing it again.");
+                WindowState = WindowState.Maximized;
+            }
+            ShowActivated = true;
         }
 
         void OnClosing(object sender, CancelEventArgs e)

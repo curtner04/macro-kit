@@ -49,6 +49,15 @@ namespace MacroKit.App
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
 
+        [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hwnd);
+
+        /// <summary>True when Windows itself has the window maximized.</summary>
+        public static bool IsMaximized(Window window)
+        {
+            IntPtr hwnd = new WindowInteropHelper(window).Handle;
+            return hwnd != IntPtr.Zero && IsZoomed(hwnd);
+        }
+
         /// <summary>Shows a window minimized without activating it (SW_SHOWMINNOACTIVE); its restored size and position are kept.</summary>
         public static void ShowMinimizedNoActivate(Window window)
         {

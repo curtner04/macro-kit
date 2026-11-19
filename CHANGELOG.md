@@ -1,5 +1,9 @@
 # Macro Kit changelog
 
+## 1.7.1 - 2026-11-19
+
+- Fixed: stopping a recording (or the end of a playback or macro) while the Macro Kit window was maximized showed "Cannot show Window when ShowActivated is false and WindowState is set to Maximized". The window now comes back maximized, behind the program you are working in, without taking the focus.
+
 ## 1.7.0 - 2026-11-19
 
 - **Recorder bar**: while it records, Macro Kit no longer disappears completely. A small bar at the top of where its window was shows a blinking dot and the time, with **Stop** (keep the take), **Restart** (throw it away and start again) and **Discard**. Clicks on the bar are never recorded; drag it and it stays there.
