@@ -527,7 +527,10 @@ namespace MacroKit.Macros
                         else
                         {
                             IntPtr before = Windows.Foreground;
+                            bool copies = IsCopyCombo(step);
+                            uint clipboardBefore = copies ? ClipboardSequence() : 0;
                             PressCombo(step.Keys);
+                            if (copies) WaitForClipboardChange(clipboardBefore);
                             if (IsAltTabCombo(step))
                             {
                                 if (GuardsSpecificWindowWithoutPartner() && otherWindow == IntPtr.Zero) awaitingOtherWindow = true;
@@ -687,6 +690,33 @@ namespace MacroKit.Macros
                     Wait(macro.KeyDelayMs);
                     WaitForReady();
                 });
+            }
+
+            const int CopyWaitMs = 1000;
+
+            // Ctrl+C, Ctrl+X, Ctrl+Insert and Shift+Delete put something on the clipboard; the next step (a paste, usually)
+            // waits until it is really there.
+            static bool IsCopyCombo(MacroStep step)
+            {
+                if (step.Kind != StepKind.Keys || step.IsDynamic || step.Keys.Length != 2) return false;
+                ushort first = KeyNames.BaseVk(step.Keys[0]), second = KeyNames.BaseVk(step.Keys[1]);
+                bool ctrl = first == 0x11 || first == 0xA2 || first == 0xA3;
+                bool shift = first == 0x10 || first == 0xA0 || first == 0xA1;
+                return (ctrl && (second == 'C' || second == 'X' || second == 0x2D)) || (shift && second == 0x2E);
+            }
+
+            uint ClipboardSequence()
+            {
+                try { return owner.clipboard == null ? 0 : owner.clipboard.SequenceNumber; }
+                catch (Exception) { return 0; }
+            }
+
+            // At most a second: with nothing selected, many programs leave the clipboard alone and the run goes on.
+            void WaitForClipboardChange(uint before)
+            {
+                if (owner.clipboard == null) return;
+                long deadline = Clock.NowMs + CopyWaitMs;
+                while (ClipboardSequence() == before && Clock.NowMs < deadline) Clock.Sleep(PollMs, token);
             }
 
             // A real Alt+Tab: wait for the switch to happen and for the new window to be ready, instead of a fixed pause.

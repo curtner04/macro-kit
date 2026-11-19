@@ -171,14 +171,14 @@ namespace MacroKit.Tests
         }
 
         [Test]
-        public static void PacedTextGoesEightCharactersAtATimeWithoutSplittingAPair()
+        public static void PacedTextGoesOneCharacterAtATimeWithoutSplittingAPair()
         {
-            List<Native.INPUT[]> batches = InputPackets.TextBatches("Hello, World!", FakeScan, InputPackets.PacedTextBatch);
-            Assert.Equal(2, batches.Count);
-            Assert.Equal(16, batches[0].Length);
-            Assert.Equal((ushort)'!', batches[1][batches[1].Length - 2].ki.wScan);
-            // Seven letters then an emoji (a surrogate pair): the pair moves whole into the next batch.
-            List<Native.INPUT[]> pair = InputPackets.TextBatches("abcdefg\U0001F600", FakeScan, InputPackets.PacedTextBatch);
+            Assert.Equal(1, InputPackets.PacedTextBatch);
+            List<Native.INPUT[]> batches = InputPackets.KeyTextBatches("Hi!", c => 0, FakeScan, InputPackets.PacedTextBatch);
+            Assert.Equal(3, batches.Count);
+            Assert.Equal((ushort)'!', batches[2][0].ki.wScan);
+            // An emoji is a surrogate pair: it stays whole in one batch.
+            List<Native.INPUT[]> pair = InputPackets.KeyTextBatches("a\U0001F600", c => 0, FakeScan, InputPackets.PacedTextBatch);
             Assert.Equal(2, pair.Count);
             Assert.Equal(4, pair[1].Length);
         }

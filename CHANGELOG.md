@@ -1,5 +1,10 @@
 # Macro Kit changelog
 
+## 1.5.6 - 2026-11-19
+
+- Macros type one character at a time, like a person, with the key delay (**ms after each key or click**, 10 ms unless you change it) and the ready check after each one. The Windows 11 Notepad lost whole stretches of text, and the shortcuts after it, when several keys arrived at once. A long text now takes a few seconds; set the key delay to 0 for programs that keep up.
+- **Copy** and **Cut** (Ctrl+C, Ctrl+X, Ctrl+Insert, Shift+Delete) wait until the copy is really on the clipboard before the next step, for at most a second, so a paste right after them pastes the new text instead of what was there before.
+
 ## 1.5.5 - 2026-11-19
 
 - Macros type text with real key presses, the way a keyboard does: each character on your keyboard layout is its own key, with Shift when needed ("!" is Shift+1), and Caps Lock is taken into account. Before, every character went as a special Unicode-only event, which the Windows 11 Notepad could repeat over and over ("tttt", "!!!!") or drop, and which left it so far behind that a later Ctrl+A arrived as a plain "a". Characters that aren't on your layout (emoji, é on a US keyboard) and keys that would combine with the next letter (dead keys) still go as Unicode.

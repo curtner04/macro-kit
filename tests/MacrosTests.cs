@@ -1001,6 +1001,29 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void CopyWaitsUntilTheClipboardChanges()
+        {
+            var rig = new Rig();
+            // The program puts the copy on the clipboard 200 ms after Ctrl+C.
+            rig.Input.OnCall = line => { if (line == "combo LCONTROL+C") rig.Clock.After(200, () => rig.Clipboard.SetText("copied")); };
+            long pasteAt = -1;
+            rig.Input.OnCall += line => { if (line == "combo LCONTROL+V") pasteAt = rig.Clock.NowMs; };
+            RunResult result = rig.Run("{{CTRL}{C}}{{CTRL}{V}}", m => m.KeyDelayMs = 0);
+            Assert.True(result.Completed, result.Error);
+            Assert.True(pasteAt >= 200 && pasteAt < 400, "pasted after the copy landed, at " + pasteAt);
+        }
+
+        [Test]
+        public static void CopyWithNothingToCopyGivesUpAfterASecond()
+        {
+            var rig = new Rig();
+            RunResult result = rig.Run("{{CTRL}{C}}{{CTRL}{V}}", m => m.KeyDelayMs = 0);
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal("combo LCONTROL+C|combo LCONTROL+V", rig.Log);
+            Assert.True(rig.Clock.NowMs >= 1000 && rig.Clock.NowMs < 1200, "waited about a second: " + rig.Clock.NowMs);
+        }
+
+        [Test]
         public static void ARealAltTabWaitsForTheNewWindow()
         {
             var rig = new Rig();
@@ -1306,6 +1329,8 @@ namespace MacroKit.Tests
         public static void ExampleScriptRunsFivePasses()
         {
             var rig = new Rig();
+            // The program copies at once, so the copy wait ends straight away.
+            rig.Input.OnCall = line => { if (line == "combo LCONTROL+C") rig.Clipboard.SetText("cell"); };
             RunResult result = rig.Run(ExampleScript, m => { m.Repeat = RepeatMode.Times; m.RepeatTimes = 5; m.AltTabPartner = Rig.Match("Chrome.exe"); });
             Assert.True(result.Completed, result.Error);
             Assert.Equal(5, result.PassesDone);

@@ -14,8 +14,11 @@ namespace MacroKit.Win32
         /// <summary>Most characters typed per SendInput call, so a long phrase never monopolises the input queue in one go.</summary>
         public const int MaxTextBatch = 64;
 
-        /// <summary>Characters per SendInput call when a macro types text and waits for the window between calls.</summary>
-        public const int PacedTextBatch = 8;
+        /// <summary>
+        /// Characters per SendInput call when a macro types text and waits for the window between calls: one, like a person
+        /// typing. The Windows 11 Notepad loses keys that arrive several at once.
+        /// </summary>
+        public const int PacedTextBatch = 1;
 
         /// <summary>Layout-dependent VK to scan code (MapVirtualKey). Extended keys come back without their 0xE0 prefix; the flag carries that.</summary>
         public static ushort ScanFor(ushort vk)
