@@ -48,12 +48,31 @@ namespace MacroKit.Win32
         public void TypeTextPaced(string text, Action betweenBatches)
         {
             bool first = true;
-            foreach (Native.INPUT[] batch in InputPackets.TextBatches(text, scanFor, InputPackets.PacedTextBatch))
+            foreach (Native.INPUT[] batch in InputPackets.KeyTextBatches(text, KeyLookup(), scanFor, InputPackets.PacedTextBatch))
             {
                 if (!first && betweenBatches != null) betweenBatches();
                 first = false;
                 Send(batch);
             }
+        }
+
+        /// <summary>Which key types each character, on the keyboard layout of the window in front (each window can have its own).</summary>
+        static Func<char, ushort> KeyLookup()
+        {
+            uint pid;
+            IntPtr layout = Native.GetKeyboardLayout(Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out pid));
+            bool capsLock = (Native.GetKeyState(Native.VK_CAPITAL) & 1) != 0;
+            var cache = new Dictionary<char, ushort>();
+            return c =>
+            {
+                ushort key;
+                if (cache.TryGetValue(c, out key)) return key;
+                short scan = Native.VkKeyScanExW(c, layout);
+                bool dead = scan != -1 && (Native.MapVirtualKeyExW((uint)(scan & 0xFF), Native.MAPVK_VK_TO_CHAR, layout) & 0x80000000) != 0;
+                key = InputPackets.KeyFromScan(scan, dead, capsLock);
+                cache[c] = key;
+                return key;
+            };
         }
 
         /// <summary>

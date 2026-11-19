@@ -1,5 +1,9 @@
 # Macro Kit changelog
 
+## 1.5.5 - 2026-11-19
+
+- Macros type text with real key presses, the way a keyboard does: each character on your keyboard layout is its own key, with Shift when needed ("!" is Shift+1), and Caps Lock is taken into account. Before, every character went as a special Unicode-only event, which the Windows 11 Notepad could repeat over and over ("tttt", "!!!!") or drop, and which left it so far behind that a later Ctrl+A arrived as a plain "a". Characters that aren't on your layout (emoji, é on a US keyboard) and keys that would combine with the next letter (dead keys) still go as Unicode.
+
 ## 1.5.4 - 2026-11-19
 
 - Macros wait for the window to catch up instead of rushing on. After every step, and after switching windows, Macro Kit waits (up to a second) until the window's program is responding and ready for keys before sending the next step. Most `wait` lines between steps are no longer needed.

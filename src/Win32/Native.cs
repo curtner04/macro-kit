@@ -192,6 +192,14 @@ namespace MacroKit.Win32
         [DllImport("user32.dll")]
         public static extern uint MapVirtualKeyW(uint uCode, uint uMapType);
 
+        public const uint MAPVK_VK_TO_CHAR = 2;
+
+        [DllImport("user32.dll")]
+        public static extern uint MapVirtualKeyExW(uint uCode, uint uMapType, IntPtr dwhkl);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern short VkKeyScanExW(char ch, IntPtr dwhkl);
+
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
 

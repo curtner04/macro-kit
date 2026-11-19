@@ -121,6 +121,69 @@ namespace MacroKit.Win32
             return batches;
         }
 
+        /// <summary>The <see cref="KeyFor"/> flag for a character typed with Shift held.</summary>
+        public const ushort ShiftFlag = 0x100;
+
+        /// <summary>
+        /// Text typed the way a keyboard types it: each character the layout has becomes its own key press (with Shift
+        /// around it when needed), and only the rest (emoji, letters from other alphabets) go as Unicode packets.
+        /// keyFor returns the key for a character, as vk | ShiftFlag, or 0 for "send it as Unicode". Programs built on
+        /// the Windows 11 text stack, such as the new Notepad, can repeat or lose Unicode packets, but not real keys.
+        /// </summary>
+        public static List<Native.INPUT[]> KeyTextBatches(string text, Func<char, ushort> keyFor, Func<ushort, ushort> scanFor, int maxBatch)
+        {
+            var batches = new List<Native.INPUT[]>();
+            if (string.IsNullOrEmpty(text)) return batches;
+            var current = new List<Native.INPUT>();
+            int characters = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c == '\r') continue;
+                bool pair = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
+                int units = pair ? 2 : 1;
+                if (characters + units > maxBatch && characters > 0)
+                {
+                    batches.Add(current.ToArray());
+                    current.Clear();
+                    characters = 0;
+                }
+                ushort key = c == '\n' ? Native.VK_RETURN : c == '\t' ? Native.VK_TAB : pair || char.IsSurrogate(c) ? (ushort)0 : keyFor(c);
+                if (key == 0)
+                {
+                    AddUnicode(current, c);
+                    if (pair) AddUnicode(current, text[++i]);
+                }
+                else
+                {
+                    ushort vk = (ushort)(key & 0xFF);
+                    bool shift = (key & ShiftFlag) != 0;
+                    if (shift) current.Add(Key(Native.VK_LSHIFT, true, scanFor(Native.VK_LSHIFT)));
+                    current.Add(Key(vk, true, scanFor(vk)));
+                    current.Add(Key(vk, false, scanFor(vk)));
+                    if (shift) current.Add(Key(Native.VK_LSHIFT, false, scanFor(Native.VK_LSHIFT)));
+                }
+                characters += units;
+            }
+            if (current.Count > 0) batches.Add(current.ToArray());
+            return batches;
+        }
+
+        /// <summary>
+        /// Reads one VkKeyScanEx answer: the key, with ShiftFlag when Shift is needed, or 0 when the character needs Ctrl or
+        /// Alt (AltGr characters such as € on many layouts), is not on the layout, or sits on a dead key (which would combine
+        /// with the next letter). Caps Lock flips Shift for letters.
+        /// </summary>
+        public static ushort KeyFromScan(short scan, bool deadKey, bool capsLock)
+        {
+            if (scan == -1 || deadKey) return 0;
+            int vk = scan & 0xFF, mods = (scan >> 8) & 0xFF;
+            if ((mods & ~1) != 0 || vk == 0) return 0;
+            bool shift = (mods & 1) != 0;
+            if (capsLock && vk >= 'A' && vk <= 'Z') shift = !shift;
+            return (ushort)(vk | (shift ? ShiftFlag : 0));
+        }
+
         /// <summary>A mouse button press or release. The side buttons use XDOWN/XUP with the button number in mouseData.</summary>
         public static Native.INPUT MouseButtonEvent(Button button, bool down)
         {

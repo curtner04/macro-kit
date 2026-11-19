@@ -183,6 +183,51 @@ namespace MacroKit.Tests
             Assert.Equal(4, pair[1].Length);
         }
 
+        // A tiny US layout: letters, digits, space, and "!" as Shift+1. Everything else is "not on the layout".
+        static ushort UsKey(char c)
+        {
+            if (c >= 'a' && c <= 'z') return (ushort)char.ToUpperInvariant(c);
+            if (c >= 'A' && c <= 'Z') return (ushort)(c | InputPackets.ShiftFlag);
+            if (c >= '0' && c <= '9' || c == ' ') return c;
+            if (c == '!') return (ushort)('1' | InputPackets.ShiftFlag);
+            return 0;
+        }
+
+        [Test]
+        public static void MacroTextIsTypedWithRealKeysAndShift()
+        {
+            Native.INPUT[] p = InputPackets.KeyTextBatches("Hi!", UsKey, FakeScan, 8).Single();
+            // Shift down, H down, H up, Shift up, I down, I up, Shift down, 1 down, 1 up, Shift up
+            Assert.Equal(10, p.Length);
+            Assert.SequenceEqual(new ushort[] { Native.VK_LSHIFT, 'H', 'H', Native.VK_LSHIFT, 'I', 'I', Native.VK_LSHIFT, '1', '1', Native.VK_LSHIFT }, p.Select(x => x.ki.wVk));
+            Assert.True(p.All(x => (x.ki.dwFlags & Native.KEYEVENTF_UNICODE) == 0), "no Unicode packets for keys on the layout");
+            Assert.Equal(Native.KEYEVENTF_KEYUP, p[9].ki.dwFlags);
+        }
+
+        [Test]
+        public static void CharactersOffTheLayoutFallBackToUnicode()
+        {
+            Native.INPUT[] p = InputPackets.KeyTextBatches("aé\U0001F600\n", UsKey, FakeScan, 8).Single();
+            // a(2 keys) é(2 Unicode) emoji(4 Unicode) Enter(2 keys)
+            Assert.Equal(10, p.Length);
+            Assert.Equal((ushort)'A', p[0].ki.wVk);
+            Assert.Equal((ushort)0xE9, p[2].ki.wScan);
+            Assert.True((p[4].ki.dwFlags & Native.KEYEVENTF_UNICODE) != 0, "the emoji goes as Unicode");
+            Assert.Equal((ushort)Native.VK_RETURN, p[8].ki.wVk);
+        }
+
+        [Test]
+        public static void KeyFromScanHandlesShiftCapsLockAltGrAndDeadKeys()
+        {
+            Assert.Equal((ushort)'A', InputPackets.KeyFromScan(0x0041, false, false));                              // a
+            Assert.Equal((ushort)('A' | InputPackets.ShiftFlag), InputPackets.KeyFromScan(0x0141, false, false));   // A
+            Assert.Equal((ushort)('A' | InputPackets.ShiftFlag), InputPackets.KeyFromScan(0x0041, false, true));    // a with Caps Lock on
+            Assert.Equal((ushort)'1', InputPackets.KeyFromScan(0x0031, false, true));                               // Caps Lock leaves digits alone
+            Assert.Equal((ushort)0, InputPackets.KeyFromScan(0x0645, false, false));                                // € on AltGr (Ctrl+Alt+E)
+            Assert.Equal((ushort)0, InputPackets.KeyFromScan(0x00DE, true, false));                                 // a dead key
+            Assert.Equal((ushort)0, InputPackets.KeyFromScan(-1, false, false));                                    // not on the layout
+        }
+
         [Test]
         public static void NewlineAndTabArePressedAsRealKeysAndCarriageReturnIsDropped()
         {
