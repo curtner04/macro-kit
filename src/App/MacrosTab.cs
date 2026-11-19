@@ -21,7 +21,12 @@ namespace MacroKit.App
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
         readonly TextBox listSearch = new TextBox();
-        readonly Button duplicateButton, deleteButton, runButton, stopButton;
+        readonly Button duplicateButton, deleteButton, undoButton, runButton, stopButton;
+        MacroDef undoMacro;
+        int undoIndex;
+        readonly ComboBox deckColor;
+        readonly TextBox deckIcon;
+        readonly FrameworkElement deckLook;
         readonly FrameworkElement editorPanel;
         readonly TextBox name;
         readonly TextBox script;
@@ -31,7 +36,7 @@ namespace MacroKit.App
         readonly TextBlock stepsEmpty;
         readonly RadioButton once, times, continuous, runPrevious, runSpecific, altWindows, altSpecific;
         readonly NumberBox repeatTimes, repeatDelay, keyDelay;
-        readonly CheckBox newLines, stopIfFocusLeaves, showOnDeck;
+        readonly CheckBox newLines, pasteText, stopIfFocusLeaves, showOnDeck;
         readonly HotkeyBox hotkey;
         readonly TextBlock hotkeyError = Ui.Text("", "Bad", false, 12);
         readonly WindowMatchEditor targetEditor, partnerEditor;
@@ -102,13 +107,16 @@ namespace MacroKit.App
             listEmpty = Ui.Para("No macros yet. Press New macro to make one.");
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
             list.SelectionChanged += (s, e) => { if (!loading) Bind((list.SelectedItem as ListBoxItem) == null ? null : (MacroDef)((ListBoxItem)list.SelectedItem).Tag); };
-            var newButton = Ui.Button("New macro", NewMacro, "Small", "Add an empty macro.");
-            duplicateButton = Ui.Button("Duplicate", Duplicate, "Small", "Copy the selected macro.");
-            deleteButton = Ui.Button("Delete", Delete, "Small", "Delete the selected macro.");
+            var newButton = Ui.Button("New macro", NewMacro, null, "Add an empty macro.");
+            duplicateButton = Ui.Button("Duplicate", Duplicate, null, "Copy the selected macro.");
+            deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected macro. You can undo it.");
+            undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the macro you just deleted.");
+            undoButton.Visibility = Visibility.Collapsed;
             var libraryButton = Ui.Button("Library", () => new LibraryWindow(owner, c).ShowDialog(), "Small", "Ready-made macros and phrases to add with one click.");
             c.LibraryAdded += (macro, phrase) => { if (macro != null) { listSearch.Text = ""; Reload(macro); } };
-            var listButtons = Ui.Wrap(newButton, duplicateButton, deleteButton);
+            var listButtons = Ui.Wrap(newButton, duplicateButton, undoButton, deleteButton);
             foreach (UIElement b in listButtons.Children) ((FrameworkElement)b).Margin = new Thickness(0, 0, 6, 6);
+            deleteButton.Margin = new Thickness(10, 0, 6, 6);   // kept apart from New and Duplicate
             var listGrid = new Grid();
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -239,7 +247,10 @@ namespace MacroKit.App
                 Ui.Text("·", "Muted"), keyDelay, Ui.Text("ms after each key or click", "Muted", false, 12));
             ((FrameworkElement)delays.Children[3]).Margin = new Thickness(12, 0, 0, 0);
             ((FrameworkElement)delays.Children[4]).Margin = new Thickness(12, 0, 0, 0);
-            var repeatCard = Ui.Card(Ui.Stack(8, Ui.Heading("Repeat"), repeatRow, delays));
+            pasteText = new CheckBox { Content = "Paste text instead of typing it (much faster)" };
+            pasteText.ToolTip = "A whole block of text appears at once, through the clipboard, and your clipboard is put back afterwards. Short text (under 4 characters) is still typed. Turn it off for games, remote desktops or boxes that don't accept pasting.";
+            pasteText.Click += (s, e) => Edit(m => m.PasteText = pasteText.IsChecked == true, false);
+            var repeatCard = Ui.Card(Ui.Stack(8, Ui.Heading("Repeat and speed"), repeatRow, delays, pasteText));
             deckCard = Ui.Card(Ui.Stack(10, deckTitle,
                 Ui.Para("The same macro as Super Macro text. Paste it into a Super Macro action on your Stream Deck, or change it here and the steps above follow.", "Muted", 12),
                 BuildScriptAndSteps(), newLines));
@@ -274,12 +285,21 @@ namespace MacroKit.App
             hotkey.Changed += () => Edit(m => m.Hotkey = hotkey.Value.IsEmpty ? "" : hotkey.Value.ToString(), true);
             if (!c.InputEnabled) hotkey.ToolTip = "Hotkeys are off in this session (input is turned off).";
             showOnDeck = new CheckBox { Content = "Show this macro as a button on the Deck" };
-            showOnDeck.Click += (s, e) => Edit(m => m.ShowOnDeck = showOnDeck.IsChecked == true, true);
+            showOnDeck.Click += (s, e) => { Edit(m => m.ShowOnDeck = showOnDeck.IsChecked == true, true); deckLook.IsEnabled = showOnDeck.IsChecked == true; };
+            deckColor = new ComboBox { Width = 110, ToolTip = "A coloured stripe on the macro's Deck button, so it is quick to find." };
+            deckColor.Items.Add("No colour");
+            foreach (string name in DeckWindow.Colors) deckColor.Items.Add(name);
+            deckColor.SelectionChanged += (s, e) => Edit(m => m.DeckColor = deckColor.SelectedIndex <= 0 ? "" : (string)deckColor.SelectedItem, false);
+            deckIcon = new TextBox { Width = 52, MaxLength = 4, ToolTip = "An emoji or symbol shown before the name on the Deck, such as 📋 or ★. Press Win+. for emoji." };
+            deckIcon.TextChanged += (s, e) => Edit(m => m.DeckIcon = deckIcon.Text.Trim(), false);
+            deckLook = Ui.Row(10, Ui.Text("Colour", "Muted", false, 12), deckColor, Ui.Text("Icon", "Muted", false, 12), deckIcon);
+            deckLook.Margin = new Thickness(26, 0, 0, 0);
             var launchCard = Ui.Card(Ui.Stack(8,
                 Ui.Heading("Start it with"),
                 Ui.Row(10, Ui.Text("Hotkey", "Muted", false, 12), hotkey.WithClear()),
                 hotkeyError,
-                showOnDeck));
+                showOnDeck,
+                deckLook));
             hotkeyError.TextWrapping = TextWrapping.Wrap;
 
             var editorStack = new StackPanel();
@@ -392,7 +412,9 @@ namespace MacroKit.App
             title.Margin = new Thickness(4, 0, 0, 6);
             frame.Child = Ui.Stack(0, title, list);
 
-            var open = c.Settings.OpenCommandGroups ?? new List<string>();
+            // Only the first saved open group opens (earlier versions could keep several open at once).
+            var open = (c.Settings.OpenCommandGroups ?? new List<string>()).Take(1).ToList();
+            if (c.Settings.OpenCommandGroups != null && c.Settings.OpenCommandGroups.Count > 1) c.Settings.OpenCommandGroups = open;
             foreach (CommandGroup g in groups) SetOpen(g, open.Contains(g.Id), false);
             RefreshProCommands();
             return frame;
@@ -625,7 +647,16 @@ namespace MacroKit.App
             header.Padding = new Thickness(6, 5, 8, 5);
             header.HorizontalAlignment = HorizontalAlignment.Stretch;
             System.Windows.Automation.AutomationProperties.SetName(header, title);
-            header.Click += (s, e) => { SetOpen(g, !g.Open, true); if (g.Open && id == "conditions") RefreshProCommands(); };
+            header.Click += (s, e) =>
+            {
+                bool opening = !g.Open;
+                // One group at a time, so the commands never grow into a page of their own. A search can still show several.
+                if (opening && commandSearch.Text.Trim().Length == 0)
+                    foreach (CommandGroup other in groups) if (!ReferenceEquals(other, g) && other.Open) SetOpen(other, false, false);
+                SetOpen(g, opening, true);
+                if (g.Open && id == "conditions") RefreshProCommands();
+                if (g.Open) header.BringIntoView();
+            };
             body.Margin = new Thickness(28, 4, 6, 10);
             g.Root = Ui.Stack(0, header, body);
             groups.Add(g);
@@ -1047,6 +1078,7 @@ namespace MacroKit.App
                 parts.Add("in " + which);
             }
             parts.Add(string.IsNullOrEmpty(m.Hotkey) ? "no hotkey" : "hotkey " + m.Hotkey);
+            if (m.PasteText) parts.Add("pastes text");
             if (m.ShowOnDeck) parts.Add("on the Deck");
             if (m.Schedule != null && m.Schedule.Kind != ScheduleKind.Off) parts.Add("on a schedule");
             optionsSummary.Text = string.Join("  ·  ", parts);
@@ -1157,6 +1189,7 @@ namespace MacroKit.App
                 repeatDelay.Value = m.RepeatDelayMs;
                 keyDelay.Value = m.KeyDelayMs;
                 newLines.IsChecked = m.NewLineIsEnter;
+                pasteText.IsChecked = m.PasteText;
                 runPrevious.IsChecked = m.Target == TargetKind.PreviousWindow;
                 runSpecific.IsChecked = m.Target == TargetKind.SpecificWindow;
                 stopIfFocusLeaves.IsChecked = m.StopIfFocusLeaves;
@@ -1166,6 +1199,10 @@ namespace MacroKit.App
                 altWindows.IsChecked = m.AltTabPartner.IsEmpty;
                 hotkey.SetText(m.Hotkey);
                 showOnDeck.IsChecked = m.ShowOnDeck;
+                deckLook.IsEnabled = m.ShowOnDeck;
+                int colorIndex = Array.FindIndex(DeckWindow.Colors, x => string.Equals(x, m.DeckColor, StringComparison.OrdinalIgnoreCase));
+                deckColor.SelectedIndex = colorIndex + 1;
+                deckIcon.Text = m.DeckIcon ?? "";
                 schedule.Bind(m, () => Edit(x => { }, false));
                 UpdateEditorEnabled();
                 RefreshProCommands();
@@ -1247,12 +1284,34 @@ namespace MacroKit.App
         {
             MacroDef m = Selected;
             if (m == null) return;
-            if (!Ui.Confirm(owner, "Delete “" + m.Name + "”? This can't be undone.")) return;
             int index = c.Macros.IndexOf(m);
             c.Macros.Remove(m);
             c.MarkDirty(SaveParts.Macros);
+            undoMacro = m;
+            undoIndex = index;
+            undoButton.Visibility = Visibility.Visible;
             Reload(c.Macros.Count == 0 ? null : c.Macros[Math.Min(index, c.Macros.Count - 1)]);
+            c.SetStatus("Deleted “" + m.Name + "”. Press Undo delete to put it back.", false);
         }
+
+        void UndoDelete()
+        {
+            MacroDef m = undoMacro;
+            undoMacro = null;
+            undoButton.Visibility = Visibility.Collapsed;
+            if (m == null) return;
+            c.Macros.Insert(Math.Min(Math.Max(0, undoIndex), c.Macros.Count), m);
+            c.MarkDirty(SaveParts.Macros);
+            listSearch.Text = "";
+            Reload(m);
+            c.SetStatus("Put back “" + m.Name + "”.", false);
+        }
+
+        /// <summary>Self-test: deletes the selected macro; true when Undo delete is offered.</summary>
+        public bool DeleteSelected() { Delete(); return undoButton.Visibility == Visibility.Visible; }
+
+        /// <summary>Self-test: presses Undo delete.</summary>
+        public void UndoLastDelete() { UndoDelete(); }
 
         void UpdateRunButtons()
         {

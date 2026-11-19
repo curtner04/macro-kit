@@ -160,6 +160,7 @@ namespace MacroKit.App
             }
             engine = new ExpansionEngine(input, clipboard, clock);
             engine.ExpansionFailed += message => Post(() => { SetStatus(message, true); Flash("Phrase not inserted", message, true); });
+            engine.AskForFields = AskPhraseFields;
             recorder = new Recorder(clock);
             ApplyEngineSettings();
             engine.SetPhrases(Phrases);
@@ -807,6 +808,40 @@ namespace MacroKit.App
             }
             catch (Exception) { return; }   // the dispatcher is shutting down
             hidden.Wait(1000, token);
+        }
+
+        // Worker thread (the expansion engine). Shows the {fill:Name} prompt on the UI thread and waits for it, then puts the focus
+        // back on the window the phrase was typed in. It posts and waits on an event, like HideForRun, so Exit never waits on it.
+        IDictionary<string, string> AskPhraseFields(PhraseDef phrase, IList<string> names)
+        {
+            if (disposed) return null;
+            IntPtr back = windows.Foreground;
+            IDictionary<string, string> answers = null;
+            var done = new ManualResetEventSlim(false);
+            try
+            {
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (!disposed) answers = Dialogs.Fill(phrase.Trigger, names, w =>
+                        {
+                            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(w).Handle;
+                            try { windows.Activate(hwnd, 500); } catch (Exception ex) { Log.Warn("Could not bring the fill-in prompt forward: " + ex.Message); }
+                        });
+                    }
+                    catch (Exception ex) { Log.Warn("The fill-in prompt failed: " + ex.Message); }
+                    finally { done.Set(); }
+                }));
+            }
+            catch (Exception) { return null; }   // the dispatcher is shutting down
+            while (!done.Wait(250)) { if (disposed) return null; }
+            if (back != IntPtr.Zero)
+            {
+                try { windows.Activate(back, 1000); windows.WaitUntilReady(back, 1000); }
+                catch (Exception ex) { Log.Warn("Could not go back to the window after the fill-in prompt: " + ex.Message); }
+            }
+            return answers;
         }
 
         // ---- recordings

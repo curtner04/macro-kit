@@ -43,8 +43,10 @@ Closing the window keeps Macro Kit running in the notification area (tray), beca
   - **After a space, Enter, Tab or punctuation**: the trigger only counts at the start of a word, and the key you pressed is typed after the text.
   - **Type** or **Paste** the text. Paste is faster for long text. Pasting keeps whatever you had copied: Macro Kit remembers the whole clipboard (text, formatted text, pictures, files), pastes the phrase and puts everything back afterwards, unless you copied something else in the meantime. The pasted phrase is kept out of the Windows clipboard history (Win+V) and cloud clipboard sync, so addresses or other private text do not pile up there. Very large clipboard contents (over 64 MB) and a few special kinds are restored as text only. If the clipboard cannot be used at that moment, nothing is erased: the key you typed is typed normally and the status bar says the phrase was not inserted.
   - **Match case** and a per-phrase on/off switch.
-- The replacement can hold **placeholders**, filled in when the phrase expands: `{date}` and `{time}` (in this PC's short format), a format of your own such as `{date:dd MMM yyyy}` or `{time:HH:mm}`, and `{clipboard}` (the text you last copied). Other text in braces is typed as it is.
-- **Search phrases** above the list shows only the phrases whose trigger or text hold the words you type.
+- The replacement can hold **placeholders**, filled in when the phrase expands: `{date}` and `{time}` (in this PC's short format), a format of your own such as `{date:dd MMM yyyy}` or `{time:HH:mm}`, `{clipboard}` (the text you last copied), `{cursor}` (the caret ends up there instead of at the end) and `{fill:Name}`. A phrase with `{fill:…}` opens a small **Fill in** window with one box per name before it expands, such as `Hi {fill:Name}, thanks for {fill:What}.`; the same name used twice is asked once. Enter inserts the phrase and Esc leaves what you typed as it was. Other text in braces is typed as it is.
+- **Group** (optional) lists phrases together under a heading, such as *Work* or *Email*. Phrases without a group come first. **New phrase** puts the new one in the group of the phrase you had selected.
+- **Search phrases** above the list shows only the phrases whose trigger, text or group hold the words you type.
+- **Delete** removes a phrase at once; **Undo delete** beside **New phrase** puts it back.
 - Phrases never expand inside Macro Kit itself, or in programs listed under *Programs where phrases never expand* in Settings.
 - If PhraseExpress is running, a warning appears: both programs could expand the same trigger.
 - The seeded phrase `/shrug` is there on first start.
@@ -57,13 +59,14 @@ A macro is a list of steps plus where and how it runs. Macros start in **Type it
 - **Record keys** (also **+**, *Record keystrokes…* on the tiles) turns each shortcut you press into one step. While its window is in front it takes the keys before Windows and other programs do, so Alt+Tab, the Windows key, PrtSc, Alt+F4 and other apps' hotkeys are recorded instead of acted on; only Ctrl+Alt+Delete and Win+L stay with Windows. **Delays**: *No delays*, *Standard delays (50 ms)* between steps, or *Real-time delays* (the pauses as you pressed them). Macro Kit remembers the choice.
 - **Key tiles**: the same steps as tiles (**Ctrl + C**, **50 ms**, **“hello”**), without key down and key up markers. **+** adds Record keystrokes, Text, Action, Launch application, System (media keys, volume, show desktop, lock the PC) or Delay after the selected tile. Click a tile to retype it, move it with ◀ ▶ or delete it.
 - Both editors store the same Super Macro text (see the reference below), so a macro made in one opens in the other.
-- **Show code** (the switch beside Run) shows the macro as Super Macro code to copy into BarRaider's Super Macro action, with the commands list and *New lines in the script press Enter*. Editing the code updates the steps. **Show all commands** opens the full command list below the steps without turning the switch on.
+- **Show code** (the switch beside Run) shows the macro as Super Macro code to copy into BarRaider's Super Macro action, with the commands list and *New lines in the script press Enter*. Editing the code updates the steps. **Show all commands** opens the command list below the steps without turning the switch on.
+- **Paste text instead of typing it** (under *Repeat and speed*) puts each `type` line's text in with one paste instead of key by key, so a paragraph appears at once. Your clipboard is put back afterwards, unless something else copied in the meantime, and the pasted text is kept out of Win+V history. Text under 4 characters is still typed, and so is text while the script holds a key down. Turn it off for programs that don't accept pasting, such as some games and remote desktops.
 - **Options** sums up Repeat, Where it runs, Start it with and the schedule in one line; **Change options** opens them.
 
 With **Show code** on:
 
 - **Script text** is what runs. The **Steps** list beside it shows what Macro Kit understood, with the estimated time per pass. Problems appear in red with line and column; click one to select it in the script. A script with problems will not run.
-- **Add commands** inserts at the cursor so you never have to remember the syntax. The commands sit in groups that fold open and closed (Macro Kit remembers which are open), and **Find a command** shows only the groups that match a word such as *copy*, *loop* or *volume*:
+- **Add commands** inserts at the cursor so you never have to remember the syntax. The commands sit in groups that fold open and closed, one at a time (Macro Kit remembers which is open), and **Find a command** shows only the groups that match a word such as *copy*, *loop* or *volume*:
   - **Keys**: keys grouped by kind, each in its own colour (Clipboard, Switch, Edit, Arrows, Jump, any F key), **Your own shortcut** and **Hold or release a key**.
   - **Multi action** (like Stream Deck's Multi Action): **Repeat** the steps you selected N times, **Run the macro** (another of your macros), and **Take turns** or **Pick at random** between 2 or more choices. Select steps in the script first and the block goes around them; with nothing selected an empty block goes in at the cursor.
   - **Wait and repeat a key**: **Pause** (box or 50/100/250/500/1000 ms) and **Repeat a key** (key × count, delay).
@@ -75,8 +78,8 @@ With **Show code** on:
 - The **Steps** list indents the steps inside a block, so you can see what repeats or takes turns.
 - **Repeat**: once, a number of times, or continuously, with a wait between repeats and a delay after every key or click. *New lines in the script press Enter* matches Super Macro; turn it off to lay a long script out over several lines.
 - **Where it runs** (*Type into* and *When the script presses Alt+Tab, go to*): see the next section.
-- **Start it with** gives the macro its own global hotkey (pressing it while that macro runs stops it) and chooses whether it appears on the Deck.
-- **Search macros** above the list shows only the macros whose name, steps or hotkey hold the words you type. **New macro**, **Duplicate** and **Delete** manage the list; **Library** (beside the heading) adds ready-made macros and phrases.
+- **Start it with** gives the macro its own global hotkey (pressing it while that macro runs stops it) and chooses whether it appears on the Deck, with an optional **Colour** stripe and **Icon** (an emoji or symbol; Win+. opens the emoji panel).
+- **Search macros** above the list shows only the macros whose name, steps or hotkey hold the words you type. **New macro**, **Duplicate** and **Delete** manage the list; **Delete** removes a macro at once and **Undo delete** puts it back. **Library** (beside the heading) adds ready-made macros and phrases.
 
 ### Global Keybinds
 
@@ -109,6 +112,8 @@ The four global hotkeys, whether Esc stops playback and macros, whether Macro Ki
 ## The Deck
 
 The Deck is a small always-on-top panel of buttons, like a virtual Stream Deck: one button per macro that has *Show this macro as a button on the Deck* turned on, a button that plays the selected recording, and a **Stop** button. Show or hide it with the **Deck** button in the header, the tray menu or the Deck hotkey. Drag it by its title strip; it remembers where you left it.
+
+Each button shows the macro's icon and name, its hotkey underneath, and its colour stripe. A macro that can't run yet (a step needs fixing, or it has no steps) shows **⚠ needs fixing**, and its tooltip says what is wrong. **Compact** in the title strip shows smaller buttons in one row; **Bigger** goes back.
 
 **Clicking a Deck button never takes focus**, exactly like the virtual Stream Deck. A macro started from the Deck runs in whichever window had focus a moment ago.
 

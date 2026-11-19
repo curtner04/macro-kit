@@ -134,12 +134,15 @@ namespace MacroKit.Core
         public int RepeatDelayMs { get; set; }
         public int KeyDelayMs { get; set; }               // pause after every command that sends input
         public bool NewLineIsEnter { get; set; }          // Super Macro default; off = line breaks are ignored
+        public bool PasteText { get; set; }               // longer text goes in with one paste (Ctrl+V) instead of key by key
         public TargetKind Target { get; set; }
         public WindowMatch TargetWindow { get; set; }
         public WindowMatch AltTabPartner { get; set; }    // empty = normal Windows Alt+Tab
         public bool StopIfFocusLeaves { get; set; }       // applies when Target = SpecificWindow
         public string Hotkey { get; set; }                // "" = none
         public bool ShowOnDeck { get; set; }
+        public string DeckColor { get; set; }             // "" = none, or Blue, Green, Orange, Red, Purple: a stripe on its Deck button
+        public string DeckIcon { get; set; }              // "" = none, or a short emoji or symbol shown before the name on the Deck
         public MacroSchedule Schedule { get; set; }      // Pro; Off by default
 
         public MacroDef()
@@ -159,6 +162,8 @@ namespace MacroKit.Core
             StopIfFocusLeaves = true;
             Hotkey = "";
             ShowOnDeck = true;
+            DeckColor = "";
+            DeckIcon = "";
             Schedule = new MacroSchedule();
         }
     }
@@ -172,10 +177,12 @@ namespace MacroKit.Core
         public bool MatchCase { get; set; }
         public ExpandWhen When { get; set; }
         public InsertMethod Method { get; set; }
+        public string Group { get; set; }                 // "" = not in a group; the Phrases list shows phrases under their group
 
         public PhraseDef()
         {
             Id = Guid.NewGuid().ToString("N");
+            Group = "";
             Trigger = "";
             Replacement = "";
             Enabled = true;
@@ -219,6 +226,7 @@ namespace MacroKit.Core
         public double DeckLeft { get; set; }
         public double DeckTop { get; set; }
         public int DeckColumns { get; set; }
+        public bool DeckCompact { get; set; }              // the Deck shows smaller buttons in one row
         // Where the status popup was dragged to (its outer edges, physical pixels); NaN = bottom-right of the screen being worked on.
         public double PillLeft { get; set; }
         public double PillTop { get; set; }

@@ -35,7 +35,9 @@ namespace MacroKit.App
             // ---- hotkeys
             var hotkeys = new StackPanel();
             hotkeys.Children.Add(Ui.Heading("Hotkeys"));
-            var note = Ui.Para(c.InputEnabled ? "These work from any program. Click a box, then press the keys." : "Hotkeys are off in this session because input is turned off.", "Muted", 12);
+            var note = Ui.Para(c.InputEnabled
+                ? "These work from any program. Click a box, then press the keys. Shorter ones such as Ctrl+Alt+1 work too, and so does a lone F13 to F24 key from a programmable keyboard or mouse."
+                : "Hotkeys are off in this session because input is turned off.", "Muted", 12);
             note.Margin = new Thickness(0, 3, 0, 8);
             hotkeys.Children.Add(note);
             AddHotkey(hotkeys, "Record", "Record / stop recording", () => c.Settings.RecordHotkey, v => c.Settings.RecordHotkey = v);
@@ -102,10 +104,14 @@ namespace MacroKit.App
                 excluded));
 
             // ---- about
-            var data = Ui.Text(c.Storage.DataRoot, "Text", false, 12);
+            // The folder's own name, with the full path in the tooltip and behind Open data folder; a long path wrapped over several lines.
+            string root = c.Storage.DataRoot ?? "";
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string shortRoot = local.Length > 0 && root.StartsWith(local, StringComparison.OrdinalIgnoreCase) ? "%LOCALAPPDATA%" + root.Substring(local.Length) : root;
+            var data = Ui.Text(shortRoot, "Text", false, 12);
             data.FontFamily = Ui.MonoFont;
-            data.TextWrapping = TextWrapping.Wrap;
-            data.TextTrimming = TextTrimming.None;
+            data.TextTrimming = TextTrimming.CharacterEllipsis;
+            data.ToolTip = root;
             var links = Ui.Row(8, Ui.Button("Open data folder", openDataFolder, "Small", "Show the folder where your settings, phrases, macros and recordings are kept."),
                 Ui.Button("Changelog", showChangelog, "Small", "What changed in each version."),
                 Ui.Button("Check input", () => new InputCheckWindow(Window.GetWindow(Root), c).ShowDialog(), "Small", "Checks that Windows lets Macro Kit send keys and see your typing on this PC."));

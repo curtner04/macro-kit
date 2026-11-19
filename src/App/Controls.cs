@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using MacroKit.Core;
@@ -466,6 +467,61 @@ namespace MacroKit.App
             w.Content = panel;
             w.Loaded += (s, e) => { box.Focus(); box.SelectAll(); };
             ok.IsEnabled = box.Text.Trim().Length > 0;
+            return w.ShowDialog() == true ? result : null;
+        }
+
+        /// <summary>
+        /// The prompt a phrase with {fill:Name} shows as it expands: one box per name, on top of everything. Returns the answers,
+        /// or null when cancelled. <paramref name="shown"/> gets the window once it is up (to bring it to the front).
+        /// </summary>
+        public static Dictionary<string, string> Fill(string trigger, IList<string> names, Action<Window> shown)
+        {
+            var w = new Window
+            {
+                Title = "Fill in the phrase", Width = 420, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = true, Topmost = true, WindowStartupLocation = WindowStartupLocation.CenterScreen
+            };
+            Theme.Style(w);
+            var panel = new StackPanel { Margin = new Thickness(22, 20, 22, 18) };
+            panel.Children.Add(Ui.Heading("Fill in " + trigger));
+            var boxes = new List<TextBox>();
+            foreach (string name in names)
+            {
+                var label = Ui.Text(name, "Muted", false, 12);
+                label.Margin = new Thickness(0, 10, 0, 3);
+                panel.Children.Add(label);
+                var box = new TextBox();
+                AutomationProperties.SetName(box, name);
+                boxes.Add(box);
+                panel.Children.Add(box);
+            }
+            Dictionary<string, string> result = null;
+            Button ok = Ui.Button("Insert", () =>
+            {
+                result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < names.Count; i++) result[names[i]] = boxes[i].Text;
+                w.DialogResult = true;
+            }, "Primary");
+            ok.MinWidth = 84;
+            ok.IsDefault = true;
+            Button cancel = Ui.Button("Cancel", () => w.DialogResult = false, "Ghost");
+            cancel.MinWidth = 84;
+            cancel.IsCancel = true;
+            cancel.Margin = new Thickness(8, 0, 0, 0);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+            panel.Children.Add(buttons);
+            var hint = Ui.Para("Enter inserts the phrase. Esc leaves what you typed as it was.", "Muted", 11.5);
+            hint.Margin = new Thickness(0, 10, 0, 0);
+            panel.Children.Add(hint);
+            w.Content = panel;
+            w.Loaded += (s, e) =>
+            {
+                if (shown != null) shown(w);
+                w.Activate();
+                if (boxes.Count > 0) boxes[0].Focus();
+            };
             return w.ShowDialog() == true ? result : null;
         }
     }

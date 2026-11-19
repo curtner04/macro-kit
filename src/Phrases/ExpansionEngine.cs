@@ -21,7 +21,7 @@ namespace MacroKit.Phrases
         const int ModifierPollMs = 10;
         static readonly ushort[] HeldKeysToWaitFor = { 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C };                    // Ctrl, Alt, Win (left and right)
         static readonly ushort[] HeldKeysToWaitForWhenPasting = { 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C, 0xA0, 0xA1 }; // and Shift: Ctrl+Shift+V is not paste
-        const ushort VkBack = 0x08, VkTab = 0x09, VkEnter = 0x0D, VkEscape = 0x1B, VkSpace = 0x20, VkV = 0x56, VkLeftCtrl = 0xA2;
+        const ushort VkBack = 0x08, VkTab = 0x09, VkEnter = 0x0D, VkEscape = 0x1B, VkSpace = 0x20, VkV = 0x56, VkLeftCtrl = 0xA2, VkLeft = 0x25;
 
         /// <summary>Phrase settings copied when SetPhrases runs, so later edits to a PhraseDef cannot race with typing.</summary>
         sealed class Entry
@@ -102,6 +102,7 @@ namespace MacroKit.Phrases
         readonly Queue<QueuedKey> queued = new Queue<QueuedKey>();
         readonly List<ushort> swallowedUps = new List<ushort>();
         bool lCtrl, rCtrl, lAlt, rAlt, lWin, rWin;
+        bool asking;   // a {fill:Name} prompt is open: the user's keys go to it untouched
 
         BlockingCollection<Job> jobs;
         Thread worker;
@@ -139,6 +140,13 @@ namespace MacroKit.Phrases
         /// Raised on the worker thread.
         /// </summary>
         public event Action<string> ExpansionFailed;
+
+        /// <summary>
+        /// Asks the user for a phrase's {fill:Name} answers before anything is erased, on the worker thread. Gets the names in
+        /// order; returns the answers, or null when the user cancelled (the trigger then stays as typed). It must put the
+        /// focus back on the window the user was typing in before it returns. Unset, the fields are left empty.
+        /// </summary>
+        public Func<PhraseDef, IList<string>, IDictionary<string, string>> AskForFields { get; set; }
 
         /// <summary>Test hook: runs at the start of every expansion, before any key or clipboard call (tests press a modifier here).</summary>
         internal Action BeforeExecute { get; set; }
@@ -246,6 +254,8 @@ namespace MacroKit.Phrases
                 if (expanding) return true;
                 swallowedUps.Remove(vk);   // a fresh press after the expansion finished
             }
+
+            if (asking) return false;   // typing into the fill-in prompt
 
             if (expanding)
             {
@@ -500,13 +510,28 @@ namespace MacroKit.Phrases
 
         // The replacement with {date}, {time} and {clipboard} filled. The clipboard is read only when the text asks for it,
         // before a paste overwrites it; when it can't be read, {clipboard} is left empty.
-        string Fill(string replacement)
+        string Fill(string replacement, IDictionary<string, string> fields)
         {
             return Placeholders.Fill(replacement, Now(), () =>
             {
                 try { return clipboard.GetText(); }
                 catch (Exception ex) { Log.Warn("Could not read the clipboard for a phrase's {clipboard}.", ex); return ""; }
-            });
+            }, fields);
+        }
+
+        // The {fill:Name} answers: an empty set when the phrase has none, null when the user cancelled.
+        IDictionary<string, string> AskFields(Job job)
+        {
+            var answers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            List<string> names = Placeholders.Fields(job.Entry.Replacement);
+            Func<PhraseDef, IList<string>, IDictionary<string, string>> ask = AskForFields;
+            if (names.Count == 0 || ask == null) return answers;
+            lock (gate) { asking = true; queued.Clear(); }
+            try { return ask(job.Entry.Def, names); }
+            finally
+            {
+                lock (gate) { asking = false; length = 0; }
+            }
         }
 
         void WorkerLoop()
@@ -525,7 +550,15 @@ namespace MacroKit.Phrases
                 if (before != null) before();
 
                 bool paste = job.Entry.Paste;
-                string text = Fill(job.Entry.Replacement);
+                IDictionary<string, string> fields = AskFields(job);
+                if (fields == null)
+                {
+                    RetypeSwallowedKey(job);
+                    Reset();
+                    return;   // cancelled: what was typed stays as it was
+                }
+                int leftPresses;
+                string text = Placeholders.SplitCursor(Fill(job.Entry.Replacement, fields), out leftPresses);
                 object snapshot = null;
                 uint ourSequence = 0;
                 bool wroteClipboard = false;
@@ -575,6 +608,16 @@ namespace MacroKit.Phrases
                         Log.Error("Could not type the character after an expansion for phrase " + job.Entry.Def.Id + ".", ex);
                         failure = "The phrase was expanded, but Windows would not type the character that came after it.";
                     }
+                }
+
+                if (failure == null && leftPresses > 0)
+                {
+                    try
+                    {
+                        int presses = leftPresses + (string.IsNullOrEmpty(job.Tail) ? 0 : job.Tail.Length);
+                        for (int i = 0; i < presses; i++) { input.KeyDown(VkLeft); input.KeyUp(VkLeft); }
+                    }
+                    catch (Exception ex) { Log.Warn("Could not move the caret to a phrase's {cursor}.", ex); }
                 }
 
                 if (failure == null)

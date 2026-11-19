@@ -415,9 +415,42 @@ namespace MacroKit.App
 
         string Signature()
         {
-            return string.Join("|", c.Macros.Where(m => m.ShowOnDeck).Select(m => m.Id + ":" + m.Name)) + "#" + c.Settings.DeckColumns + "#" + c.SelectedRecordingName()
+            return string.Join("|", c.Macros.Where(m => m.ShowOnDeck).Select(m => m.Id + ":" + m.Name + ":" + m.DeckColor + ":" + m.DeckIcon + ":" + m.Hotkey + ":" + Broken(m)))
+                + "#" + c.Settings.DeckColumns + "#" + c.Settings.DeckCompact + "#" + c.SelectedRecordingName()
                 + "#" + (int)c.Activity.Kind + c.Activity.MacroId;
         }
+
+        /// <summary>The colours a Deck button's stripe can have, by the name saved in <see cref="MacroDef.DeckColor"/>.</summary>
+        public static readonly string[] Colors = { "Blue", "Green", "Orange", "Red", "Purple" };
+
+        static Color? ColorFor(string name)
+        {
+            switch ((name ?? "").Trim().ToLowerInvariant())
+            {
+                case "blue": return Color.FromRgb(0x3B, 0x82, 0xF6);
+                case "green": return Color.FromRgb(0x22, 0xA0, 0x5A);
+                case "orange": return Color.FromRgb(0xF0, 0x8A, 0x24);
+                case "red": return Color.FromRgb(0xE0, 0x45, 0x45);
+                case "purple": return Color.FromRgb(0x8B, 0x5C, 0xF6);
+                default: return null;
+            }
+        }
+
+        // The first error in the macro, or null when it can run. A macro that needs fixing gets a warning style on the Deck.
+        static string Broken(MacroDef m)
+        {
+            try
+            {
+                MacroKit.Macros.ParseResult parsed = MacroKit.Macros.MacroParser.Parse(m.Script ?? "", m.NewLineIsEnter);
+                if (!parsed.Ok) return "Line " + parsed.Errors[0].Line + ": " + parsed.Errors[0].Message;
+                return parsed.Steps.Count == 0 ? "It has no steps yet." : null;
+            }
+            catch (Exception) { return "It can't be read."; }
+        }
+
+        /// <summary>Self-test: the Deck buttons' labels in order, and which of them show the warning style.</summary>
+        public List<string> ButtonLabels { get; private set; }
+        public List<string> WarnedButtons { get; private set; }
 
         void Rebuild()
         {
@@ -427,30 +460,53 @@ namespace MacroKit.App
             close.Padding = new Thickness(6, 2, 6, 2);
             DockPanel.SetDock(close, Dock.Right);
             strip.Children.Add(close);
+            var compact = NoFocus(Ui.Button(c.Settings.DeckCompact ? "Bigger" : "Compact", () =>
+            {
+                c.Settings.DeckCompact = !c.Settings.DeckCompact;
+                c.MarkDirty(SaveParts.Settings);
+                Rebuild();
+            }, "Link", c.Settings.DeckCompact ? "Show bigger buttons in rows." : "Show smaller buttons in one row."));
+            compact.Padding = new Thickness(6, 2, 6, 2);
+            compact.FontSize = 11;
+            DockPanel.SetDock(compact, Dock.Right);
+            strip.Children.Add(compact);
             var caption = Ui.Text("Macro Kit Deck", "Muted", true, 11);
             caption.Margin = new Thickness(12, 0, 0, 0);
             strip.Children.Add(caption);
             strip.ToolTip = "Drag to move the Deck.";
             strip.MouseLeftButtonDown += (s, e) => { try { DragMove(); } catch (InvalidOperationException) { } };
 
-            var grid = new UniformGrid { Columns = Math.Max(1, Math.Min(8, c.Settings.DeckColumns)), Margin = new Thickness(8, 2, 8, 8) };
-            foreach (MacroDef m in c.Macros.Where(x => x.ShowOnDeck))
+            bool small = c.Settings.DeckCompact;
+            List<MacroDef> shown = c.Macros.Where(x => x.ShowOnDeck).ToList();
+            var grid = new UniformGrid { Columns = small ? shown.Count + 2 : Math.Max(1, Math.Min(8, c.Settings.DeckColumns)), Margin = new Thickness(8, 2, 8, 8) };
+            ButtonLabels = new List<string>();
+            WarnedButtons = new List<string>();
+            foreach (MacroDef m in shown)
             {
                 MacroDef macro = m;
                 bool running = c.Activity.Kind == ActivityKind.Macro && c.Activity.MacroId == macro.Id;
-                var b = DeckButton(macro.Name.Length == 0 ? "(unnamed)" : macro.Name, running, () =>
+                string name = macro.Name.Length == 0 ? "(unnamed)" : macro.Name;
+                string icon = (macro.DeckIcon ?? "").Trim();
+                string problem = running ? null : Broken(macro);
+                string label = icon.Length > 0 ? icon + "  " + name : name;
+                var b = DeckButton(label, running, () =>
                 {
                     if (running) c.Stop(); else c.StartMacro(macro, RunOrigin.Deck);
-                });
-                b.ToolTip = running ? "Click to stop “" + macro.Name + "”." : "Run “" + macro.Name + "” in the window that has focus.";
+                }, small ? null : HotkeyHint(macro.Hotkey), ColorFor(macro.DeckColor), problem != null);
+                string tip = running ? "Click to stop “" + macro.Name + "”." : "Run “" + macro.Name + "” in the window that has focus.";
+                if (!string.IsNullOrEmpty(macro.Hotkey)) tip += " Hotkey: " + HotkeyHint(macro.Hotkey) + ".";
+                if (problem != null) tip = "“" + macro.Name + "” needs fixing before it can run. " + problem;
+                b.ToolTip = tip;
                 grid.Children.Add(b);
+                ButtonLabels.Add(label);
+                if (problem != null) WarnedButtons.Add(label);
             }
             string recording = c.SelectedRecordingName();
             bool playing = c.Activity.Kind == ActivityKind.Playing;
-            var play = DeckButton("▶  " + (recording.Length == 0 ? "No recording" : recording), playing, () => { if (playing) c.Stop(); else c.StartPlayback(RunOrigin.Deck); });
+            var play = DeckButton("▶  " + (recording.Length == 0 ? "No recording" : recording), playing, () => { if (playing) c.Stop(); else c.StartPlayback(RunOrigin.Deck); }, null, null, false);
             play.ToolTip = "Play the recording selected on the Recorder tab.";
             grid.Children.Add(play);
-            var stop = DeckButton("■  Stop", false, () => c.Stop());
+            var stop = DeckButton("■  Stop", false, () => c.Stop(), null, null, false);
             stop.ToolTip = "Stop anything that is running.";
             stop.IsEnabled = c.IsBusy;
             grid.Children.Add(stop);
@@ -458,15 +514,52 @@ namespace MacroKit.App
             frame.Child = new StackPanel { Children = { strip, grid } };
         }
 
-        Button DeckButton(string text, bool active, Action click)
+        // "Ctrl+Shift+1" as it reads on a button; "" without a hotkey.
+        static string HotkeyHint(string hotkey)
         {
-            var label = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, MaxHeight = 36 };
-            var b = NoFocus(Ui.Button(label, click, active ? "Primary" : "Chip"));
-            b.Width = 124;
-            b.Height = 46;
+            if (string.IsNullOrEmpty(hotkey)) return "";
+            Hotkey parsed;
+            return Hotkey.TryParse(hotkey, out parsed) && !parsed.IsEmpty ? parsed.ToString() : hotkey;
+        }
+
+        Button DeckButton(string text, bool active, Action click, string hint, Color? stripe, bool warn)
+        {
+            bool small = c.Settings.DeckCompact;
+            var label = new TextBlock { Text = text, TextWrapping = small ? TextWrapping.NoWrap : TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, MaxHeight = 36 };
+            var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+            if (warn)
+            {
+                var mark = Ui.Text("⚠ needs fixing", "Warn", true, 10.5);
+                mark.HorizontalAlignment = HorizontalAlignment.Center;
+                if (!small) content.Children.Add(mark);
+                else label.Text = "⚠ " + text;
+            }
+            content.Children.Add(label);
+            if (!string.IsNullOrEmpty(hint) && !warn)
+            {
+                var keys = Ui.Text(hint, "Muted", false, 10.5);
+                keys.HorizontalAlignment = HorizontalAlignment.Center;
+                keys.TextTrimming = TextTrimming.CharacterEllipsis;
+                content.Children.Add(keys);
+            }
+            var b = NoFocus(Ui.Button(content, click, active ? "Primary" : "Chip"));
+            b.Width = small ? 96 : 124;
+            b.Height = small ? 30 : 58;   // two lines of name plus the hotkey line
             b.Margin = new Thickness(3);
-            b.Padding = new Thickness(8, 4, 8, 4);
-            b.FontSize = 12.5;
+            b.Padding = new Thickness(8, small ? 2 : 4, 8, small ? 2 : 4);
+            b.FontSize = small ? 12 : 12.5;
+            b.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            if (stripe.HasValue && !active)
+            {
+                b.BorderBrush = new SolidColorBrush(stripe.Value);
+                b.BorderThickness = new Thickness(4, 1, 1, 1);
+            }
+            if (warn)
+            {
+                b.SetResourceReference(Control.BorderBrushProperty, "Warn");
+                b.BorderThickness = new Thickness(1.5);
+                b.Opacity = 0.85;
+            }
             return b;
         }
 

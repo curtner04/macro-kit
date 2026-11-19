@@ -2052,5 +2052,64 @@ namespace MacroKit.Tests
                 Assert.Equal("quoted", rig.Clip.Text, "put back after the paste");
             }
         }
+
+        // ---- {cursor} and {fill:Name} ----
+
+        [Test]
+        public static void Placeholders_CursorCountsLeftPressesFromTheEnd()
+        {
+            int left;
+            Assert.Equal("Dear ,\r\nBye", Placeholders.SplitCursor(Placeholders.Fill("Dear {cursor},\r\nBye", Noon, null), out left));
+            Assert.Equal(5, left, "a comma, a line break and three letters");
+            Assert.Equal("ab", Placeholders.SplitCursor(Placeholders.Fill("ab", Noon, null), out left));
+            Assert.Equal(0, left);
+            Assert.Equal("a😀b", Placeholders.SplitCursor(Placeholders.Fill("a{cursor}😀b", Noon, null), out left));
+            Assert.Equal(2, left, "an emoji is one press");
+            Assert.Equal("{cursor:x}", Placeholders.Fill("{cursor:x}", Noon, null));
+        }
+
+        [Test]
+        public static void Placeholders_FieldsAreListedOnceAndFilled()
+        {
+            List<string> names = Placeholders.Fields("Hi {fill:Name}, about {fill:Topic}. Thanks {FILL:name}! {fill:}");
+            Assert.Equal("Name|Topic", string.Join("|", names));
+            var answers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { { "Name", "Sam" } };
+            Assert.Equal("Hi Sam, about . Thanks Sam! {fill:}", Placeholders.Fill("Hi {fill:Name}, about {fill:Topic}. Thanks {FILL:name}! {fill:}", Noon, null, answers));
+        }
+
+        [Test]
+        public static void Placeholders_TypedPhraseMovesTheCaretToTheCursor()
+        {
+            using (var rig = Inline(PhraseRig.Make("/sig", "Dear {cursor},")))
+            {
+                rig.Type("/sig");
+                Assert.Equal("Dear ,", rig.Text);
+                Assert.Equal(1, rig.Sink.Log.Count(l => l == "down LEFT"), "one press back over the comma");
+            }
+        }
+
+        [Test]
+        public static void Placeholders_FillPromptAnswersGoIntoThePhrase()
+        {
+            using (var rig = Inline(PhraseRig.Make("/hi", "Hello {fill:Name}!")))
+            {
+                IList<string> asked = null;
+                rig.Engine.AskForFields = (p, names) => { asked = names; return new Dictionary<string, string> { { "Name", "Sam" } }; };
+                rig.Type("/hi");
+                Assert.Equal("Name", string.Join("|", asked));
+                Assert.Equal("Hello Sam!", rig.Text);
+            }
+        }
+
+        [Test]
+        public static void Placeholders_CancellingTheFillPromptLeavesTheTrigger()
+        {
+            using (var rig = Inline(PhraseRig.Make("/hi", "Hello {fill:Name}!")))
+            {
+                rig.Engine.AskForFields = (p, names) => null;
+                rig.Type("/hi");
+                Assert.Equal("/hi", rig.Text);
+            }
+        }
     }
 }

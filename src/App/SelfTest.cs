@@ -82,6 +82,8 @@ namespace MacroKit.App
             copy.TargetWindow = new WindowMatch { ProcessName = "EXCEL.EXE", TitleContains = "Book1" };
             copy.AltTabPartner = new WindowMatch { ProcessName = "Chrome.exe", TitleContains = "Orders" };
             copy.Hotkey = "Ctrl+Alt+1";
+            copy.DeckColor = "Blue";
+            copy.DeckIcon = "📋";
             var broken = new MacroDef { Name = "Broken example", Script = "{{CTRL}{C}}{{PAUSE:fifty}}{{ALT}{TAB}}{{FOO}}\n{{INPUT}}", ShowOnDeck = true };
             var paste = new MacroDef { Name = "Paste ten times", Script = "{{KEYPRESS:DOWN:10:100}}{{CTRL}{V}}", Repeat = RepeatMode.Continuous, Hotkey = "Ctrl+Alt+2" };
             var note = new MacroDef { Name = "Sign the form", Script = "{{//}} fills the last page\nSam Example{{TAB}}{{MLEFTDBLCLICK}}", ShowOnDeck = true };
@@ -401,6 +403,43 @@ namespace MacroKit.App
                 bool noPhrase = main.Phrases.ShownPhrases.Count == 0;
                 main.Phrases.ListSearch = "";
                 return found && none && all && phrase && noPhrase && main.Phrases.ShownPhrases.Count == c.Phrases.Count;
+            });
+            Check("phrases can be grouped, and a deleted phrase or macro can be put back", () =>
+            {
+                int phrases = c.Phrases.Count, macros = c.Macros.Count;
+                main.Phrases.Select(0);
+                PhraseDef first = c.Phrases[0];
+                main.Phrases.SetGroup("Work");
+                bool grouped = first.Group == "Work" && main.Phrases.ShownGroups.SequenceEqual(new[] { "Work" }) && main.Phrases.ShownPhrases.Last() == first.Trigger;
+                main.Phrases.SetGroup("");
+                bool ungrouped = first.Group == "" && main.Phrases.ShownGroups.Count == 0;
+                main.Phrases.Select(0);
+                PhraseDef gone = c.Phrases[0];
+                bool offered = main.Phrases.DeleteSelected() && c.Phrases.Count == phrases - 1;
+                main.Phrases.Undo();
+                bool back = c.Phrases.Count == phrases && ReferenceEquals(c.Phrases[0], gone);
+                main.Macros.SelectMacro(0);
+                MacroDef m = c.Macros[0];
+                bool macroOffered = main.Macros.DeleteSelected() && c.Macros.Count == macros - 1;
+                main.Macros.UndoLastDelete();
+                bool macroBack = c.Macros.Count == macros && ReferenceEquals(c.Macros[0], m);
+                if (!(grouped && ungrouped && offered && back && macroOffered && macroBack))
+                    throw new Exception(string.Join(",", grouped, ungrouped, offered, back, macroOffered, macroBack));
+                return true;
+            });
+            Check("the Deck marks a macro that needs fixing and shows icons", () =>
+            {
+                MacroDef broken = c.Macros.First(x => x.Name == "Broken example");
+                MacroDef good = c.Macros.First(x => x.ShowOnDeck && x.Name != "Broken example" && MacroKit.Macros.MacroParser.Parse(x.Script, x.NewLineIsEnter).Ok);
+                string oldIcon = good.DeckIcon;
+                good.DeckIcon = "★";
+                shell.Deck.Update();
+                bool warned = shell.Deck.WarnedButtons.Contains(broken.Name) && !shell.Deck.WarnedButtons.Any(l => l.EndsWith(good.Name));
+                bool icon = shell.Deck.ButtonLabels.Contains("★  " + good.Name);
+                good.DeckIcon = oldIcon;
+                shell.Deck.Update();
+                if (!(warned && icon)) throw new Exception("warned " + string.Join("|", shell.Deck.WarnedButtons) + "; labels " + string.Join("|", shell.Deck.ButtonLabels));
+                return true;
             });
             Check("Windows' own shortcuts are listed", () =>
                 KeybindReaders.Windows().Keybinds.Any(k => k.Keys == "Win+V") && KeybindReaders.Windows().Keybinds.All(k => !k.Combo.IsEmpty));

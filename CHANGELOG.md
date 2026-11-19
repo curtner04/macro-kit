@@ -1,5 +1,16 @@
 # Macro Kit changelog
 
+## 1.6.0 - 2026-11-19
+
+- **Paste text instead of typing it**: a new option under *Repeat and speed* puts a macro's text in with one paste, so a whole paragraph appears at once instead of key by key. Your clipboard is put back afterwards and the pasted text stays out of Win+V history. Text under 4 characters is still typed, and if the clipboard is busy the text is typed instead.
+- Phrases can say where the caret ends up with `{cursor}`, and ask for a fill-in as they expand with `{fill:Name}`: a small **Fill in** window opens with a box for each name, Enter inserts the phrase and Esc leaves what you typed as it was.
+- Phrases can be put in a **Group**. The list shows each group under its own heading, and search also finds the group name.
+- **Delete** no longer asks first: a deleted phrase or macro can be put back with **Undo delete**. The list buttons are normal size now, and Delete sits apart from New and Duplicate.
+- Deck buttons can have a **Colour** stripe and an **Icon** (an emoji or symbol), and show their hotkey. A macro that can't run yet shows **⚠ needs fixing** with the reason in its tooltip. **Compact** in the Deck's title strip shows smaller buttons in one row.
+- Command groups in *Show all commands* open one at a time, so the list no longer grows into a page of its own.
+- The *Macro Kit understands* column wraps a long explanation into the empty lines below it instead of cutting it off.
+- Settings → About shows the data folder as a short path (the full path is in its tooltip and behind **Open data folder**), and the Hotkeys card mentions that shorter combinations and lone F13 to F24 keys work too.
+
 ## 1.5.6 - 2026-11-19
 
 - Macros type one character at a time, like a person, with the key delay (**ms after each key or click**, 10 ms unless you change it) and the ready check after each one. The Windows 11 Notepad lost whole stretches of text, and the shortcuts after it, when several keys arrived at once. A long text now takes a few seconds; set the key delay to 0 for programs that keep up.

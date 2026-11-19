@@ -1014,6 +1014,42 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void PasteTextPutsLongTextInWithOnePasteAndRestoresTheClipboard()
+        {
+            var rig = new Rig();
+            rig.Clipboard.Text = "mine";
+            string pasted = null;
+            rig.Input.OnCall = line => { if (line == "combo LCONTROL+V") pasted = rig.Clipboard.Text; };
+            RunResult result = rig.Run("Hello, World!{{ENTER}}ok", m => { m.PasteText = true; m.KeyDelayMs = 0; });
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal("Hello, World!", pasted);
+            Assert.True(rig.Log.StartsWith("combo LCONTROL+V|"), rig.Log);
+            Assert.True(rig.Log.EndsWith("|text ok"), "short text is still typed: " + rig.Log);
+            Assert.Equal("mine", rig.Clipboard.Text);
+            Assert.Equal(1, rig.Clipboard.PrivateHistory.Count);
+        }
+
+        [Test]
+        public static void PasteTextFallsBackToTypingWhenTheClipboardIsBusy()
+        {
+            var rig = new Rig();
+            rig.Clipboard.FailWrites = true;
+            RunResult result = rig.Run("Hello, World!", m => { m.PasteText = true; m.KeyDelayMs = 0; });
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal("text Hello, World!", rig.Log);
+        }
+
+        [Test]
+        public static void PasteTextIsOffByDefault()
+        {
+            var rig = new Rig();
+            RunResult result = rig.Run("Hello, World!");
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal("text Hello, World!", rig.Log);
+            Assert.False(new MacroDef().PasteText);
+        }
+
+        [Test]
         public static void CopyWithNothingToCopyGivesUpAfterASecond()
         {
             var rig = new Rig();

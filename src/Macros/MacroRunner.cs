@@ -685,11 +685,66 @@ namespace MacroKit.Macros
             // never drops or repeats characters.
             void TypePaced(string text)
             {
+                if (ShouldPaste(text) && PasteViaClipboard(text)) return;
                 Input.TypeTextPaced(text, () =>
                 {
                     Wait(macro.KeyDelayMs);
                     WaitForReady();
                 });
+            }
+
+            // With "Paste text" on, text of this many characters or more is pasted; shorter text (a "!" or an "ok") is typed.
+            const int PasteMinLength = 4;
+            const int PasteSettleMs = 250;
+
+            // Held keys (a script's {SHIFT down}) would turn Ctrl+V into another shortcut, so text is typed then.
+            bool ShouldPaste(string text)
+            {
+                return macro.PasteText && owner.clipboard != null && text.Length >= PasteMinLength && heldKeys.Count == 0;
+            }
+
+            // Puts the text on the clipboard (kept out of Win+V history), presses Ctrl+V, gives the window time to read it,
+            // then puts the user's clipboard back unless something else copied in the meantime. False when the clipboard
+            // could not be used; the caller then types the text instead.
+            bool PasteViaClipboard(string text)
+            {
+                IClipboard clip = owner.clipboard;
+                object snapshot = null;
+                uint ours, beforeWrite = 0;
+                try
+                {
+                    snapshot = clip.Snapshot();
+                    beforeWrite = clip.SequenceNumber;
+                    clip.SetTextPrivate(text.Replace("\r\n", "\n").Replace("\n", "\r\n"));
+                    ours = clip.SequenceNumber;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Could not put macro text on the clipboard, so it is typed instead.", ex);
+                    // A write that failed half way may have emptied the clipboard; put back what was there.
+                    if (snapshot != null)
+                    {
+                        try { if (clip.SequenceNumber != beforeWrite) clip.Restore(snapshot); }
+                        catch (Exception restoreError) { Log.Warn("Could not put the clipboard back.", restoreError); }
+                    }
+                    return false;
+                }
+                try
+                {
+                    Input.KeyCombo(new ushort[] { 0xA2, (ushort)'V' });
+                    Wait(Math.Max(PasteSettleMs, macro.KeyDelayMs));
+                    WaitForReady();
+                }
+                finally
+                {
+                    try
+                    {
+                        if (clip.SequenceNumber == ours) clip.Restore(snapshot);
+                        else Log.Info("Left the clipboard alone after a macro paste because another program changed it.");
+                    }
+                    catch (Exception ex) { Log.Warn("Could not put the clipboard back after a macro paste.", ex); }
+                }
+                return true;
             }
 
             const int CopyWaitMs = 1000;

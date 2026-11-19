@@ -207,8 +207,18 @@ namespace MacroKit.App
                 var t = Ui.Text(text, colour, false, 12);
                 t.Width = width;
                 t.ToolTip = text;
+                // A long note wraps into the empty lines below it; the next note (or the bottom of the box) limits it.
+                t.TextWrapping = TextWrapping.Wrap;
+                t.TextTrimming = TextTrimming.CharacterEllipsis;
+                double top = p.Y + Math.Max(0, (r.Height - 16) / 2);
+                if (notes.Children.Count > 0)
+                {
+                    var previous = notes.Children[notes.Children.Count - 1] as TextBlock;
+                    if (previous != null) previous.MaxHeight = Math.Max(16, top - Canvas.GetTop(previous) - 2);
+                }
+                t.MaxHeight = Math.Max(16, notes.ActualHeight - top - 4);
                 Canvas.SetLeft(t, 10);
-                Canvas.SetTop(t, p.Y + Math.Max(0, (r.Height - 16) / 2));
+                Canvas.SetTop(t, top);
                 notes.Children.Add(t);
                 if (line.Error != null)
                 {

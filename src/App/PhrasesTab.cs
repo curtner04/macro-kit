@@ -23,7 +23,10 @@ namespace MacroKit.App
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
         readonly TextBox listSearch = new TextBox();
-        readonly Button deleteButton;
+        readonly Button deleteButton, undoButton;
+        readonly ComboBox group;
+        PhraseDef undoPhrase;
+        int undoIndex;
         readonly TextBox trigger, replacement;
         readonly RadioButton immediately, afterDelimiter, typeIt, pasteIt;
         readonly CheckBox matchCase, phraseEnabled;
@@ -49,9 +52,11 @@ namespace MacroKit.App
             listEmpty = Ui.Para("No phrases yet. Press New, then type a trigger such as /shrug and the text to put in its place.");
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
             list.SelectionChanged += (s, e) => { if (!loading) LoadEditor(); };
-            var newButton = Ui.Button("New phrase", NewPhrase, "Small", "Add a phrase.");
-            deleteButton = Ui.Button("Delete", Delete, "Small", "Delete the selected phrase.");
-            deleteButton.Margin = new Thickness(6, 0, 0, 0);
+            var newButton = Ui.Button("New phrase", NewPhrase, null, "Add a phrase.");
+            deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected phrase. You can undo it.");
+            undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the phrase you just deleted.");
+            undoButton.Visibility = Visibility.Collapsed;
+            undoButton.Margin = new Thickness(6, 0, 0, 0);
 
             var listGrid = new Grid();
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -72,8 +77,11 @@ namespace MacroKit.App
             host.Children.Add(listEmpty);
             Grid.SetRow(host, 2);
             listGrid.Children.Add(host);
-            var buttons = Ui.Row(0, newButton, deleteButton);
-            buttons.Margin = new Thickness(0, 10, 0, 0);
+            var buttons = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 10, 0, 0) };
+            buttons.Children.Add(newButton);
+            buttons.Children.Add(undoButton);
+            DockPanel.SetDock(deleteButton, Dock.Right);
+            buttons.Children.Add(deleteButton);
             Grid.SetRow(buttons, 3);
             listGrid.Children.Add(buttons);
             Border listCard = Ui.Card(listGrid);
@@ -108,11 +116,17 @@ namespace MacroKit.App
             phraseEnabled = new CheckBox { Content = "This phrase is on" };
             phraseEnabled.Click += (s, e) => { Apply(p => p.Enabled = phraseEnabled.IsChecked == true); RefreshSelectedItem(); };
 
-            var placeholderNote = Ui.Para("Put in the date, the time or what you copied: " + MacroKit.Phrases.Placeholders.Help + ".", "Muted", 11.5);
+            group = new ComboBox { IsEditable = true, IsTextSearchEnabled = false, ToolTip = "Phrases with the same group are listed together. Leave it empty for no group." };
+            group.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new TextChangedEventHandler((s, e) => Apply(p => p.Group = (group.Text ?? "").Trim())));
+            group.LostKeyboardFocus += (s, e) => { if (!loading && !group.IsKeyboardFocusWithin) RegroupKeepingSelection(); };
+            group.SelectionChanged += (s, e) => { if (!loading && group.SelectedItem is string) Dispatcher.CurrentDispatcher.BeginInvoke(new Action(RegroupKeepingSelection)); };
+
+            var placeholderNote = Ui.Para("Put in the date, the time, what you copied, where the caret ends up, or a fill-in you are asked for: " + MacroKit.Phrases.Placeholders.Help + ".", "Muted", 11.5);
             placeholderNote.TextWrapping = TextWrapping.Wrap;
             var form = Ui.Stack(10,
                 Ui.Field("Trigger", trigger), triggerNote,
                 Ui.Field("Replacement", replacement), placeholderNote,
+                Ui.Field("Group (optional)", group),
                 Ui.Stack(6, Ui.Caption("EXPAND"), immediately, afterDelimiter),
                 Ui.Stack(6, Ui.Caption("INSERT"), typeIt, pasteIt, pasteNote),
                 Ui.Row(22, matchCase, phraseEnabled));
@@ -159,8 +173,14 @@ namespace MacroKit.App
         {
             loading = true;
             list.Items.Clear();
-            foreach (PhraseDef p in c.Phrases) list.Items.Add(MakeItem(p));
-            ListBoxItem match = list.Items.Cast<ListBoxItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, select)) ?? (list.Items.Count > 0 ? (ListBoxItem)list.Items[0] : null);
+            // Phrases without a group first, in their saved order, then each group under its heading, A to Z.
+            foreach (IGrouping<string, PhraseDef> g in c.Phrases.GroupBy(GroupOf, StringComparer.OrdinalIgnoreCase)
+                                                         .OrderBy(g => g.Key.Length == 0 ? 0 : 1).ThenBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase))
+            {
+                if (g.Key.Length > 0) list.Items.Add(MakeHeader(g.Key));
+                foreach (PhraseDef p in g) list.Items.Add(MakeItem(p));
+            }
+            ListBoxItem match = list.Items.Cast<ListBoxItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, select)) ?? list.Items.Cast<ListBoxItem>().FirstOrDefault(i => i.Tag is PhraseDef);
             list.SelectedItem = match;
             loading = false;
             FilterList();
@@ -171,14 +191,24 @@ namespace MacroKit.App
         void FilterList()
         {
             int shown = 0;
+            ListBoxItem header = null;
+            bool headerUsed = false;
             foreach (ListBoxItem item in list.Items)
             {
-                var p = (PhraseDef)item.Tag;
-                bool match = Ui.Matches(listSearch.Text, p.Trigger, p.Replacement);
+                var p = item.Tag as PhraseDef;
+                if (p == null)
+                {
+                    if (header != null) header.Visibility = headerUsed ? Visibility.Visible : Visibility.Collapsed;
+                    header = item;
+                    headerUsed = false;
+                    continue;
+                }
+                bool match = Ui.Matches(listSearch.Text, p.Trigger, p.Replacement, p.Group);
                 item.Visibility = match ? Visibility.Visible : Visibility.Collapsed;
-                if (match) shown++;
+                if (match) { shown++; headerUsed = true; }
             }
-            listEmpty.Text = list.Items.Count == 0
+            if (header != null) header.Visibility = headerUsed ? Visibility.Visible : Visibility.Collapsed;
+            listEmpty.Text = c.Phrases.Count == 0
                 ? "No phrases yet. Press New, then type a trigger such as /shrug and the text to put in its place."
                 : "No phrases match “" + listSearch.Text.Trim() + "”.";
             listEmpty.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -190,7 +220,49 @@ namespace MacroKit.App
         /// <summary>Self-test: the triggers of the phrases the list shows.</summary>
         public List<string> ShownPhrases
         {
-            get { return list.Items.Cast<ListBoxItem>().Where(i => i.Visibility == Visibility.Visible).Select(i => ((PhraseDef)i.Tag).Trigger).ToList(); }
+            get { return list.Items.Cast<ListBoxItem>().Where(i => i.Visibility == Visibility.Visible && i.Tag is PhraseDef).Select(i => ((PhraseDef)i.Tag).Trigger).ToList(); }
+        }
+
+        /// <summary>Self-test: the group headings the list shows, in order.</summary>
+        public List<string> ShownGroups
+        {
+            get { return list.Items.Cast<ListBoxItem>().Where(i => i.Visibility == Visibility.Visible && i.Tag is string).Select(i => (string)i.Tag).ToList(); }
+        }
+
+        /// <summary>Self-test: sets the selected phrase's group as if typed, then leaves the box.</summary>
+        public void SetGroup(string name) { group.Text = name; RegroupKeepingSelection(); }
+
+        /// <summary>Self-test: deletes the selected phrase; true when Undo delete is offered.</summary>
+        public bool DeleteSelected() { Delete(); return undoButton.Visibility == Visibility.Visible; }
+
+        /// <summary>Self-test: presses Undo delete.</summary>
+        public void Undo() { UndoDelete(); }
+
+        static string GroupOf(PhraseDef p) { return (p.Group ?? "").Trim(); }
+
+        static ListBoxItem MakeHeader(string name)
+        {
+            var t = Ui.Text(name.ToUpperInvariant(), "Muted", true, 11);
+            t.Margin = new Thickness(0, 6, 0, 0);
+            return new ListBoxItem { Content = t, Tag = name, Focusable = false, IsHitTestVisible = false, Padding = new Thickness(6, 4, 6, 2) };
+        }
+
+        void RegroupKeepingSelection()
+        {
+            PhraseDef p = Selected;
+            if (p == null) return;
+            string typed = (group.Text ?? "").Trim();
+            if (typed != GroupOf(p)) Apply(x => x.Group = typed);
+            Reload(p);
+            if (list.SelectedItem != null) list.ScrollIntoView(list.SelectedItem);
+        }
+
+        void FillGroupChoices(PhraseDef p)
+        {
+            group.Items.Clear();
+            foreach (string g in c.Phrases.Select(GroupOf).Where(g => g.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(g => g, StringComparer.CurrentCultureIgnoreCase))
+                group.Items.Add(g);
+            group.Text = GroupOf(p);
         }
 
         static ListBoxItem MakeItem(PhraseDef p)
@@ -235,6 +307,7 @@ namespace MacroKit.App
             {
                 trigger.Text = "";
                 replacement.Text = "";
+                group.Text = "";
                 triggerNote.Text = "";
                 triggerNote.Visibility = Visibility.Collapsed;
             }
@@ -242,6 +315,7 @@ namespace MacroKit.App
             {
                 trigger.Text = p.Trigger;
                 replacement.Text = p.Replacement;
+                FillGroupChoices(p);
                 immediately.IsChecked = p.When == ExpandWhen.Immediately;
                 afterDelimiter.IsChecked = p.When == ExpandWhen.AfterDelimiter;
                 typeIt.IsChecked = p.Method == InsertMethod.Type;
@@ -283,7 +357,8 @@ namespace MacroKit.App
 
         void NewPhrase()
         {
-            var p = new PhraseDef();
+            PhraseDef at = Selected;
+            var p = new PhraseDef { Group = at == null ? "" : GroupOf(at) };
             c.Phrases.Add(p);
             c.MarkDirty(SaveParts.Phrases);
             Reload(p);
@@ -294,12 +369,27 @@ namespace MacroKit.App
         {
             PhraseDef p = Selected;
             if (p == null) return;
-            string name = p.Trigger.Length == 0 ? "this phrase" : "“" + p.Trigger + "”";
-            if (!Ui.Confirm(owner, "Delete " + name + "?")) return;
+            string name = p.Trigger.Length == 0 ? "the phrase" : "“" + p.Trigger + "”";
             int index = c.Phrases.IndexOf(p);
             c.Phrases.Remove(p);
             c.MarkDirty(SaveParts.Phrases);
+            undoPhrase = p;
+            undoIndex = index;
+            undoButton.Visibility = Visibility.Visible;
             Reload(c.Phrases.Count == 0 ? null : c.Phrases[Math.Min(index, c.Phrases.Count - 1)]);
+            c.SetStatus("Deleted " + name + ". Press Undo delete to put it back.", false);
+        }
+
+        void UndoDelete()
+        {
+            PhraseDef p = undoPhrase;
+            undoPhrase = null;
+            undoButton.Visibility = Visibility.Collapsed;
+            if (p == null) return;
+            c.Phrases.Insert(Math.Min(Math.Max(0, undoIndex), c.Phrases.Count), p);
+            c.MarkDirty(SaveParts.Phrases);
+            Reload(p);
+            c.SetStatus("Put back " + (p.Trigger.Length == 0 ? "the phrase" : "“" + p.Trigger + "”") + ".", false);
         }
 
         void UpdateWarning()
