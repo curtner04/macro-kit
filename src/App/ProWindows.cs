@@ -67,7 +67,7 @@ namespace MacroKit.App
         }
     }
 
-    /// <summary>The macro library: packs of ready-made macros and phrases. Starter is free; the other packs come with Pro.</summary>
+    /// <summary>The macro library: packs of ready-made macros and phrases, all free to add.</summary>
     public sealed class LibraryWindow : Window
     {
         readonly AppController c;
@@ -100,9 +100,14 @@ namespace MacroKit.App
             foreach (LibraryPack pack in MacroLibrary.Packs)
             {
                 bool locked = pack.Pro && !Edition.IsPro;
-                var badge = pack.Pro ? Ui.Pill("PRO", "Good", "GoodBg") : Ui.Pill("FREE", "Info", "InfoBg");
-                badge.VerticalAlignment = VerticalAlignment.Center;
-                var heading = Ui.Row(8, Ui.Heading(pack.Name), badge);
+                // Every pack is free today, so only a Pro pack carries a badge.
+                var heading = Ui.Row(8, Ui.Heading(pack.Name));
+                if (pack.Pro)
+                {
+                    var badge = Ui.Pill("PRO", "Good", "GoodBg"); badge.Margin = new Thickness(8, 0, 0, 0);
+                    badge.VerticalAlignment = VerticalAlignment.Center;
+                    heading.Children.Add(badge);
+                }
                 heading.Margin = new Thickness(0, 16, 0, 2);
                 stack.Children.Add(heading);
                 stack.Children.Add(Ui.Para(pack.Description));
@@ -110,7 +115,7 @@ namespace MacroKit.App
                 {
                     var unlock = Ui.Row(8,
                         Ui.Button("Enter license key", () => { if (new LicenseWindow(this, c).ShowDialog() == true) Fill(); }, "Small"),
-                        Ui.Button("Get Pro", ProPage.Open, "Small"));
+                        ProPage.GetProButton());
                     unlock.Margin = new Thickness(0, 6, 0, 2);
                     stack.Children.Add(unlock);
                 }
@@ -147,6 +152,19 @@ namespace MacroKit.App
     /// <summary>Opens the Macro Kit website's Pro section in the default browser.</summary>
     public static class ProPage
     {
+        /// <summary>
+        /// "Get Pro" (opens the website) once checkout is open; until then a muted "Pro goes on sale soon" label,
+        /// so no button leads to a page where Pro can't be bought.
+        /// </summary>
+        public static FrameworkElement GetProButton(string tooltip = null)
+        {
+            if (Edition.CheckoutOpen) return Ui.Button("Get Pro", Open, "Small", tooltip ?? "Opens the Macro Kit website.");
+            var soon = Ui.Text("Pro goes on sale soon", "Muted", false, 12);
+            soon.VerticalAlignment = VerticalAlignment.Center;
+            soon.ToolTip = "Macro Kit Pro can't be bought yet. Everything else is free.";
+            return soon;
+        }
+
         public static void Open()
         {
             try { Process.Start(new ProcessStartInfo(Edition.ProPageUrl) { UseShellExecute = true }); }

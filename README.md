@@ -43,22 +43,24 @@ Closing the window keeps Macro Kit running in the notification area (tray), beca
   - **After a space, Enter, Tab or punctuation**: the trigger only counts at the start of a word, and the key you pressed is typed after the text.
   - **Type** or **Paste** the text. Paste is faster for long text. Pasting keeps whatever you had copied: Macro Kit remembers the whole clipboard (text, formatted text, pictures, files), pastes the phrase and puts everything back afterwards, unless you copied something else in the meantime. The pasted phrase is kept out of the Windows clipboard history (Win+V) and cloud clipboard sync, so addresses or other private text do not pile up there. Very large clipboard contents (over 64 MB) and a few special kinds are restored as text only. If the clipboard cannot be used at that moment, nothing is erased: the key you typed is typed normally and the status bar says the phrase was not inserted.
   - **Match case** and a per-phrase on/off switch.
+- The replacement can hold **placeholders**, filled in when the phrase expands: `{date}` and `{time}` (in this PC's short format), a format of your own such as `{date:dd MMM yyyy}` or `{time:HH:mm}`, and `{clipboard}` (the text you last copied). Other text in braces is typed as it is.
+- **Search phrases** above the list shows only the phrases whose trigger or text hold the words you type.
 - Phrases never expand inside Macro Kit itself, or in programs listed under *Programs where phrases never expand* in Settings.
 - If PhraseExpress is running, a warning appears: both programs could expand the same trigger.
 - The seeded phrase `/shrug` is there on first start.
 
 ### Macros
 
-A macro is a list of steps plus where and how it runs. Pick an editor the first time Macro Kit opens; change it in Settings, *Macro editor*, or with the link above the steps.
+A macro is a list of steps plus where and how it runs. Macros start in **Type it**; switch to key tiles in Settings, *Macro editor*, or with the link above the steps.
 
 - **Type it**: one step per line, written the way you'd say it: `ctrl+c`, `wait 50ms`, `alt+tab`, `type "hello"`, `click`, `open notepad`, `repeat 3 times` … `end repeat`, `take turns` … `or` … `end turns`. The column beside the text says what each line does and marks lines Macro Kit doesn't understand. Suggestions appear as you type (Tab or Ctrl+Space). The **Add** chips insert a step at the cursor: **Record keys** (press shortcuts; each becomes a line), **Type text**, **Wait**, **Click**, **Repeat** (around the selected lines), **Open app** and **More…**.
 - **Record keys** (also **+**, *Record keystrokes…* on the tiles) turns each shortcut you press into one step. While its window is in front it takes the keys before Windows and other programs do, so Alt+Tab, the Windows key, PrtSc, Alt+F4 and other apps' hotkeys are recorded instead of acted on; only Ctrl+Alt+Delete and Win+L stay with Windows. **Delays**: *No delays*, *Standard delays (50 ms)* between steps, or *Real-time delays* (the pauses as you pressed them). Macro Kit remembers the choice.
 - **Key tiles**: the same steps as tiles (**Ctrl + C**, **50 ms**, **“hello”**), without key down and key up markers. **+** adds Record keystrokes, Text, Action, Launch application, System (media keys, volume, show desktop, lock the PC) or Delay after the selected tile. Click a tile to retype it, move it with ◀ ▶ or delete it.
 - Both editors store the same Super Macro text (see the reference below), so a macro made in one opens in the other.
-- **Stream Deck** (the switch beside Run) shows the macro as Super Macro code to copy into BarRaider's Super Macro action, with the commands list and *New lines in the script press Enter*. Editing the code updates the steps. **Show all commands** opens the full command list below the steps without turning the switch on.
+- **Show code** (the switch beside Run) shows the macro as Super Macro code to copy into BarRaider's Super Macro action, with the commands list and *New lines in the script press Enter*. Editing the code updates the steps. **Show all commands** opens the full command list below the steps without turning the switch on.
 - **Options** sums up Repeat, Where it runs, Start it with and the schedule in one line; **Change options** opens them.
 
-With the Stream Deck switch on:
+With **Show code** on:
 
 - **Script text** is what runs. The **Steps** list beside it shows what Macro Kit understood, with the estimated time per pass. Problems appear in red with line and column; click one to select it in the script. A script with problems will not run.
 - **Add commands** inserts at the cursor so you never have to remember the syntax. The commands sit in groups that fold open and closed (Macro Kit remembers which are open), and **Find a command** shows only the groups that match a word such as *copy*, *loop* or *volume*:
@@ -74,7 +76,7 @@ With the Stream Deck switch on:
 - **Repeat**: once, a number of times, or continuously, with a wait between repeats and a delay after every key or click. *New lines in the script press Enter* matches Super Macro; turn it off to lay a long script out over several lines.
 - **Where it runs** and **Alt+Tab switches to**: see the next section.
 - **Start it with** gives the macro its own global hotkey (pressing it while that macro runs stops it) and chooses whether it appears on the Deck.
-- **New macro**, **Duplicate** and **Delete** manage the list.
+- **Search macros** above the list shows only the macros whose name, steps or hotkey hold the words you type. **New macro**, **Duplicate** and **Delete** manage the list; **Library** (beside the heading) adds ready-made macros and phrases.
 
 ### Global Keybinds
 
@@ -86,6 +88,7 @@ One list of the keyboard shortcuts in your apps, so you can see which keys are s
   | App | Read from |
   | --- | --- |
   | Macro Kit | its own Settings and macro hotkeys |
+  | Windows | built in: Windows' own shortcuts (Win+E, Win+V, Win+Shift+S, Alt+Tab, Win+1 to 9 and the rest; PrtSc is left out, since what it does is a Windows setting) |
   | Snipline | `%LOCALAPPDATA%\Snipline\data\settings.json` (Capture shortcut, Active window shortcut) |
   | Note Keeper | `%LOCALAPPDATA%\Note Keeper\data\settings.json` (Listen / stop, screenshot, mark moment) |
   | Jancy | `%APPDATA%\Jancy\keybinds.txt` |
@@ -162,9 +165,8 @@ Macro Kit is free and stays free: everything above works without paying. **Macro
 | --- | --- |
 | Conditions in macros (`{{IF}}`, `{{IFWINDOW}}`, `{{ELSE}}`). Repeat, take turns, random and every action are free | Macros, script |
 | Scheduled macros: every day at a time (on chosen days), every few minutes, or once at a date and time | Macros, **Run on a schedule** card |
-| The macro library's Pro packs: Spreadsheets and forms, Browser, Clicker, Loops and conditions, Symbols | Macros, **Library** |
 
-The library's Starter pack is free. Get Pro on the [Macro Kit website](https://curtner04.github.io/macro-kit/#pro), then paste the key from your email in **Settings → About → Enter license key**.
+Every macro library pack is free (since 1.5.2); the Conditions pack's examples need Pro to run. Pro goes on sale soon on the [Macro Kit website](https://curtner04.github.io/macro-kit/#pro); until then Macro Kit shows *Pro goes on sale soon* where a Get Pro button would be. With a key, paste it in **Settings → About → Enter license key**.
 
 - License keys start with `MK1-` and are checked on your PC with a public key built into Macro Kit (Ed25519 signatures). The key is never sent anywhere. Macro Kit's only network request is the launcher's update check against the public `macro-kit-downloads` releases on GitHub, which carries nothing about you or your key. The key is saved as `license.key` in the data folder and moves with Export / import.
 - Scheduled macros run only while Macro Kit is running (in the tray is fine). A time missed while it was closed is not made up. A run that finds Macro Kit busy waits up to 5 minutes, then is skipped. A scheduled macro types into the window in front at that moment unless **Where it runs** names a specific window, so pick one.

@@ -165,6 +165,20 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void WindowsOwnShortcutsAreListedOnEveryPc()
+        {
+            KeybindCatalog catalog = Fixture(new Dictionary<string, string>(), null);
+            AppKeybinds windows = catalog.Apps.Single(a => a.App == KeybindReaders.WindowsName);
+            Assert.True(windows.Keybinds.Count >= 30, "Windows shortcuts");
+            Assert.True(windows.Keybinds.All(k => k.Scope == KeybindScope.Global && !k.Saved), "global and built in");
+            Assert.True(windows.Keybinds.All(k => !k.Combo.IsEmpty), "every one is understood: " + string.Join(", ", windows.Keybinds.Where(k => k.Combo.IsEmpty).Select(k => k.Keys)));
+            Hotkey winV;
+            Assert.True(KeyText.TryParse("Win+V", out winV));
+            Assert.Equal(ComboVerdict.TakenGlobally, ComboCheck.Judge(catalog.Users(winV), true));
+            Assert.Equal(windows.Keybinds.Count, windows.Keybinds.Select(k => k.Combo).Distinct().Count(), "no key twice");
+        }
+
+        [Test]
         public static void VerdictsSayWhetherKeysAreFree()
         {
             var files = new Dictionary<string, string> { { "jancy-default", "id:copy-x; keybind:ctrl-shift-c; context:tab window\n" } };

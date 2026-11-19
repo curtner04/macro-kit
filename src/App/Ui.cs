@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -180,6 +181,28 @@ namespace MacroKit.App
                 p.Children.Add(children[i]);
             }
             return p;
+        }
+
+        /// <summary>A text box with a muted hint drawn behind it while it is empty, such as "Search macros".</summary>
+        public static Grid Hinted(TextBox box, string hint)
+        {
+            var text = Text(hint, "Muted", false, 12);
+            text.IsHitTestVisible = false;
+            text.Margin = new Thickness(8, 0, 0, 0);
+            text.VerticalAlignment = VerticalAlignment.Center;
+            box.TextChanged += (s, e) => text.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            var grid = new Grid();
+            grid.Children.Add(box);
+            grid.Children.Add(text);
+            return grid;
+        }
+
+        /// <summary>True when every word of <paramref name="query"/> appears in one of the texts, ignoring case. An empty query matches everything.</summary>
+        public static bool Matches(string query, params string[] texts)
+        {
+            if (string.IsNullOrWhiteSpace(query)) return true;
+            string all = string.Join("\n", texts.Where(t => t != null)).ToLowerInvariant();
+            return query.ToLowerInvariant().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).All(w => all.Contains(w));
         }
 
         /// <summary>A wrapping row of controls with even spacing (used for button groups).</summary>

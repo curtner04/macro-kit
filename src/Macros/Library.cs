@@ -50,8 +50,9 @@ namespace MacroKit.Macros
     }
 
     /// <summary>
-    /// The macro library: ready-made macros and phrases to add with one click. The Starter pack is free; the others come with
-    /// Macro Kit Pro. Adding copies an item into your own macros or phrases, where you can change it like any other.
+    /// The macro library: ready-made macros and phrases to add with one click. Every pack is free since 1.5.2 (Pro stays on
+    /// LibraryPack for a future pack); the Conditions examples still need Pro to run. Adding copies an item into your own
+    /// macros or phrases, where you can change it like any other.
     /// </summary>
     public static class MacroLibrary
     {
@@ -74,7 +75,7 @@ namespace MacroKit.Macros
                 new LibraryPack
                 {
                     Id = "starter", Name = "Starter", Pro = false,
-                    Description = "Everyday shortcuts to start from. Free.",
+                    Description = "Everyday shortcuts to start from.",
                     Items =
                     {
                         Macro("Copy, switch, paste", "Copies the selection, Alt+Tabs to the other window and pastes.",
@@ -88,7 +89,7 @@ namespace MacroKit.Macros
                 },
                 new LibraryPack
                 {
-                    Id = "spreadsheets", Name = "Spreadsheets and forms", Pro = true,
+                    Id = "spreadsheets", Name = "Spreadsheets and forms", Pro = false,
                     Description = "Repeat work down a column, move data between two windows, fill forms.",
                     Items =
                     {
@@ -102,20 +103,18 @@ namespace MacroKit.Macros
                 },
                 new LibraryPack
                 {
-                    Id = "browser", Name = "Browser", Pro = true,
+                    Id = "browser", Name = "Browser", Pro = false,
                     Description = "Tabs, addresses and pages that refresh themselves.",
                     Items =
                     {
                         Macro("Refresh every 30 seconds", "Presses F5, waits 30 seconds, again until you stop it.", "{{F5}}", RepeatMode.Continuous, 30000),
                         Macro("Reopen the closed tab", "Ctrl+Shift+T.", "{{CTRL}{SHIFT}{T}}"),
                         Macro("Copy the page address", "Selects the address bar, copies it and goes back to the page.", "{{CTRL}{L}}{{PAUSE:80}}{{CTRL}{C}}{{PAUSE:30}}{{ESC}}"),
-                        Macro("Open the copied link", "If the clipboard holds a link, opens it in a new tab.",
-                            "{{VARSETFROMCLIPBOARD:clip}}{{IF:$clip~http}}{{CTRL}{T}}{{PAUSE:150}}{{CTRL}{V}}{{ENTER}}{{ENDIF}}"),
                     },
                 },
                 new LibraryPack
                 {
-                    Id = "clicker", Name = "Clicker", Pro = true,
+                    Id = "clicker", Name = "Clicker", Pro = false,
                     Description = "Clicking for you, at a pace you choose.",
                     Items =
                     {
@@ -126,11 +125,13 @@ namespace MacroKit.Macros
                 },
                 new LibraryPack
                 {
-                    Id = "conditions", Name = "Loops and conditions", Pro = true,
-                    Description = "Examples of {{LOOP}}, {{IF}} and {{IFWINDOW}} to copy from.",
+                    Id = "conditions", Name = "Conditions", Pro = false,
+                    Description = "Examples of {{IF}} and {{IFWINDOW}} to copy from. Adding them is free; conditions run with Macro Kit Pro.",
                     Items =
                     {
                         Macro("Paste only in Notepad", "Pastes when Notepad is in front and does nothing anywhere else.", "{{IFWINDOW:notepad}}{{CTRL}{V}}{{ENDIF}}"),
+                        Macro("Open the copied link", "If the clipboard holds a link, opens it in a new browser tab.",
+                            "{{VARSETFROMCLIPBOARD:clip}}{{IF:$clip~http}}{{CTRL}{T}}{{PAUSE:150}}{{CTRL}{V}}{{ENTER}}{{ENDIF}}"),
                         Macro("Say what the clipboard holds", "Types whether the clipboard holds a link, nothing, or other text.",
                             "{{VARSETFROMCLIPBOARD:clip}}{{IF:$clip~http}}A link{{ELSE}}{{IF:$clip=}}Nothing{{ELSE}}Some text{{ENDIF}}{{ENDIF}}"),
                         Macro("Type a countdown", "Types 3, 2, 1 and Go! using a loop and a variable.",
@@ -139,7 +140,7 @@ namespace MacroKit.Macros
                 },
                 new LibraryPack
                 {
-                    Id = "symbols", Name = "Symbols", Pro = true,
+                    Id = "symbols", Name = "Symbols", Pro = false,
                     Description = "Phrases for symbols that have no key.",
                     Items =
                     {

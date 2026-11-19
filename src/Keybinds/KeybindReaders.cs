@@ -186,6 +186,60 @@ namespace MacroKit.Keybinds
             return app;
         }
 
+        // ---------------------------------------------------------------- Windows itself (built in, listed on every PC)
+
+        public const string WindowsName = "Windows";
+
+        /// <summary>
+        /// Windows' own shortcuts, so "Is it free?" and the clash warnings know about them. Win+L and Ctrl+Alt+Delete can never be
+        /// taken by an app; the rest an app can claim only by getting in Windows' way. PrtSc is left out: what it does is a Windows
+        /// setting, and screenshot apps often take it over.
+        /// </summary>
+        public static AppKeybinds Windows()
+        {
+            var app = new AppKeybinds(WindowsName) { Processes = new[] { "explorer" } };
+            Action<string, string> add = (action, keys) => app.Add(action, keys, KeybindScope.Global, false);
+            add("Show the desktop", "Win+D");
+            add("Open File Explorer", "Win+E");
+            add("Open Settings", "Win+I");
+            add("Lock the PC", "Win+L");
+            add("Run a program", "Win+R");
+            add("Search", "Win+S");
+            add("Clipboard history", "Win+V");
+            add("Quick Link menu (right-click Start)", "Win+X");
+            add("Quick Settings", "Win+A");
+            add("Notifications and calendar", "Win+N");
+            add("Task view", "Win+Tab");
+            add("Snipping Tool: capture part of the screen", "Win+Shift+S");
+            add("Emoji panel", "Win+.");
+            add("Minimize every window", "Win+M");
+            add("Maximize the window", "Win+Up");
+            add("Minimize or restore the window", "Win+Down");
+            add("Snap the window left", "Win+Left");
+            add("Snap the window right", "Win+Right");
+            add("Snap layouts", "Win+Z");
+            add("Move the window to the next screen", "Win+Shift+Right");
+            add("Move the window to the previous screen", "Win+Shift+Left");
+            add("New virtual desktop", "Win+Ctrl+D");
+            add("Next virtual desktop", "Win+Ctrl+Right");
+            add("Previous virtual desktop", "Win+Ctrl+Left");
+            add("Close this virtual desktop", "Win+Ctrl+F4");
+            add("Project to a second screen", "Win+P");
+            add("Cast to a wireless display", "Win+K");
+            add("Voice typing", "Win+H");
+            add("Widgets", "Win+W");
+            add("Game Bar", "Win+G");
+            add("Record the last moments (Game Bar)", "Win+Alt+G");
+            add("Start or stop recording (Game Bar)", "Win+Alt+R");
+            add("Restart the graphics driver", "Win+Ctrl+Shift+B");
+            add("Task Manager", "Ctrl+Shift+Esc");
+            add("Security options (lock, sign out, Task Manager)", "Ctrl+Alt+Delete");
+            add("Switch windows", "Alt+Tab");
+            add("Close the active window", "Alt+F4");
+            for (int n = 1; n <= 9; n++) add("Open the app pinned at position " + n + " on the taskbar", "Win+" + n);
+            return app;
+        }
+
         // ---------------------------------------------------------------- helpers
 
         static IDictionary<string, object> AsObject(object tree) { return tree as IDictionary<string, object>; }

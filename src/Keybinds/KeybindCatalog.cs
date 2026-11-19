@@ -74,6 +74,7 @@ namespace MacroKit.Keybinds
         {
             var catalog = new KeybindCatalog();
             catalog.Apps.Add(KeybindReaders.MacroKit(settings, macros));
+            catalog.Apps.Add(KeybindReaders.Windows());
 
             string text, problem;
             Func<string, bool> present = name => where.IsInstalled == null || where.IsInstalled(name);

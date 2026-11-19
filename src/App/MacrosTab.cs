@@ -20,6 +20,7 @@ namespace MacroKit.App
         readonly Window owner;
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
+        readonly TextBox listSearch = new TextBox();
         readonly Button duplicateButton, deleteButton, runButton, stopButton;
         readonly FrameworkElement editorPanel;
         readonly TextBox name;
@@ -104,23 +105,33 @@ namespace MacroKit.App
             duplicateButton = Ui.Button("Duplicate", Duplicate, "Small", "Copy the selected macro.");
             deleteButton = Ui.Button("Delete", Delete, "Small", "Delete the selected macro.");
             var libraryButton = Ui.Button("Library", () => new LibraryWindow(owner, c).ShowDialog(), "Small", "Ready-made macros and phrases to add with one click.");
-            c.LibraryAdded += (macro, phrase) => { if (macro != null) Reload(macro); };
-            var listButtons = Ui.Wrap(newButton, duplicateButton, deleteButton, libraryButton);
+            c.LibraryAdded += (macro, phrase) => { if (macro != null) { listSearch.Text = ""; Reload(macro); } };
+            var listButtons = Ui.Wrap(newButton, duplicateButton, deleteButton);
             foreach (UIElement b in listButtons.Children) ((FrameworkElement)b).Margin = new Thickness(0, 0, 6, 6);
             var listGrid = new Grid();
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             listGrid.RowDefinitions.Add(new RowDefinition());
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var heading = Ui.Heading("Macros");
-            heading.Margin = new Thickness(0, 0, 0, 8);
-            listGrid.Children.Add(heading);
+            var headingRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8), LastChildFill = true };
+            libraryButton.VerticalAlignment = VerticalAlignment.Center;
+            DockPanel.SetDock(libraryButton, Dock.Right);
+            headingRow.Children.Add(libraryButton);
+            headingRow.Children.Add(Ui.Heading("Macros"));
+            listGrid.Children.Add(headingRow);
+            listSearch.ToolTip = "Show only the macros whose name, steps or hotkey hold these words.";
+            listSearch.TextChanged += (s, e) => FilterList();
+            var searchBox = Ui.Hinted(listSearch, "Search macros");
+            searchBox.Margin = new Thickness(0, 0, 0, 8);
+            Grid.SetRow(searchBox, 1);
+            listGrid.Children.Add(searchBox);
             var host = new Grid();
             host.Children.Add(list);
             host.Children.Add(listEmpty);
-            Grid.SetRow(host, 1);
+            Grid.SetRow(host, 2);
             listGrid.Children.Add(host);
             listButtons.Margin = new Thickness(0, 8, 0, -6);
-            Grid.SetRow(listButtons, 2);
+            Grid.SetRow(listButtons, 3);
             listGrid.Children.Add(listButtons);
             Border listCard = Ui.Card(listGrid);
             listCard.Margin = new Thickness(0, 0, 10, 0);
@@ -130,8 +141,8 @@ namespace MacroKit.App
             name.TextChanged += (s, e) => Edit(m => m.Name = name.Text, true);
             runButton = Ui.Button(Ui.Row(7, Ui.Shape("play", 11, "AccentFg"), new TextBlock { Text = "Run" }), () => { if (current != null) c.StartMacro(current, RunOrigin.MainWindow); }, "Primary", "Run this macro. Macro Kit steps aside and the macro runs in the window you chose below.");
             stopButton = Ui.Button(Ui.Row(7, Ui.Shape("stop", 11, "Text"), new TextBlock { Text = "Stop" }), () => c.Stop(), null, "Stop the running macro.");
-            deckSwitch = new CheckBox { Content = "Stream Deck", IsChecked = c.Settings.ShowStreamDeckCode, VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "Show this macro as Super Macro text, to paste into a Super Macro action on an Elgato Stream Deck." };
+            deckSwitch = new CheckBox { Content = "Show code", IsChecked = c.Settings.ShowStreamDeckCode, VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Show this macro as code (Super Macro text). Copy it into a Super Macro action on an Elgato Stream Deck, or edit it there." };
             Ui.Style(deckSwitch, "Switch");
             deckSwitch.Margin = new Thickness(14, 0, 4, 0);
             deckSwitch.Click += (s, e) => { c.Settings.ShowStreamDeckCode = deckSwitch.IsChecked == true; c.MarkDirty(SaveParts.Settings); ApplyLayout(); };
@@ -301,7 +312,7 @@ namespace MacroKit.App
 
             c.ActivityChanged += UpdateRunButtons;
             c.HotkeysChanged += ShowHotkeyError;
-            // Settings (or the first-run question) can change the editor.
+            // Settings (or the link above the steps) can change the editor.
             c.Edited += parts => { if ((parts & SaveParts.Settings) != 0 && editor != null && EditorKinds.Normal(c.Settings.MacroEditor) != EditorKind) UseEditor(c.Settings.MacroEditor); };
             UseEditor(c.Settings.MacroEditor);
             ApplyLayout();
@@ -1059,9 +1070,33 @@ namespace MacroKit.App
             foreach (MacroDef m in c.Macros) list.Items.Add(MakeItem(m));
             ListBoxItem match = list.Items.Cast<ListBoxItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, select)) ?? (list.Items.Count > 0 ? (ListBoxItem)list.Items[0] : null);
             list.SelectedItem = match;
-            listEmpty.Visibility = list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             loading = false;
+            FilterList();
             Bind(match == null ? null : (MacroDef)match.Tag);
+        }
+
+        /// <summary>Hides the macros that don't match the search box, and says so when none are left.</summary>
+        void FilterList()
+        {
+            int shown = 0;
+            foreach (ListBoxItem item in list.Items)
+            {
+                var m = (MacroDef)item.Tag;
+                bool match = Ui.Matches(listSearch.Text, m.Name, m.Script, m.Hotkey);
+                item.Visibility = match ? Visibility.Visible : Visibility.Collapsed;
+                if (match) shown++;
+            }
+            listEmpty.Text = list.Items.Count == 0 ? "No macros yet. Press New macro to make one." : "No macros match “" + listSearch.Text.Trim() + "”.";
+            listEmpty.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>Self-test: the list's search box.</summary>
+        public string ListSearch { get { return listSearch.Text; } set { listSearch.Text = value; } }
+
+        /// <summary>Self-test: the names of the macros the list shows.</summary>
+        public List<string> ShownMacros
+        {
+            get { return list.Items.Cast<ListBoxItem>().Where(i => i.Visibility == Visibility.Visible).Select(i => ((MacroDef)i.Tag).Name).ToList(); }
         }
 
         ListBoxItem MakeItem(MacroDef m)
@@ -1089,7 +1124,9 @@ namespace MacroKit.App
             int index = list.Items.IndexOf(item);
             bool wasSelected = ReferenceEquals(list.SelectedItem, item);
             loading = true;
-            list.Items[index] = MakeItem(m);
+            ListBoxItem fresh = MakeItem(m);
+            fresh.Visibility = item.Visibility;
+            list.Items[index] = fresh;
             if (wasSelected) list.SelectedIndex = index;
             loading = false;
         }

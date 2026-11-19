@@ -57,7 +57,7 @@ namespace MacroKit.App
                 Ui.Para(Edition.ProOnly("Scheduled macros"), "Muted", 12),
                 Ui.Row(8,
                     Ui.Button("Enter license key", () => new LicenseWindow(owner(), c).ShowDialog(), "Small"),
-                    Ui.Button("Get Pro", ProPage.Open, "Small")));
+                    ProPage.GetProButton()));
 
             var badge = Ui.Pill("PRO", "Good", "GoodBg", 10.5);
             badge.VerticalAlignment = VerticalAlignment.Center;

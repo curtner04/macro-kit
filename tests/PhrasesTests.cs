@@ -1996,5 +1996,61 @@ namespace MacroKit.Tests
                 Assert.Equal("/addr", rig.Text);
             }
         }
+
+        // ---- placeholders: {date}, {time}, {clipboard} ----
+
+        static readonly DateTime Noon = new DateTime(2026, 11, 19, 12, 5, 0);
+
+        [Test]
+        public static void Placeholders_FillDateTimeAndClipboard()
+        {
+            Assert.Equal("2026-11-19 12:05", Placeholders.Fill("{date:yyyy-MM-dd} {TIME:HH:mm}", Noon, () => "x"));
+            Assert.Equal(Noon.ToString("d") + " / " + Noon.ToString("t"), Placeholders.Fill("{date} / {time}", Noon, () => "x"));
+            Assert.Equal("Re: hello", Placeholders.Fill("Re: {clipboard}", Noon, () => "hello"));
+            Assert.Equal("[]", Placeholders.Fill("[{clipboard}]", Noon, () => null));
+        }
+
+        [Test]
+        public static void Placeholders_LeaveOtherBracesAlone()
+        {
+            foreach (string text in new[] { "{{CTRL}{C}}", "if (a) { b(); }", "{name}", "{", "}{", "{date", "{clipboard:x}", "" })
+                Assert.Equal(text, Placeholders.Fill(text, Noon, () => "x"), text);
+            Assert.Equal("{ 19", Placeholders.Fill("{ {date:dd}", Noon, () => "x"));
+        }
+
+        [Test]
+        public static void Placeholders_ReadTheClipboardOnceAndOnlyWhenAsked()
+        {
+            int reads = 0;
+            Placeholders.Fill("{date} {time}", Noon, () => { reads++; return "x"; });
+            Assert.Equal(0, reads);
+            Assert.Equal("x x", Placeholders.Fill("{clipboard} {Clipboard}", Noon, () => { reads++; return "x"; }));
+            Assert.Equal(1, reads);
+        }
+
+        [Test]
+        public static void Placeholders_TypedPhraseUsesTheClipboardAndDate()
+        {
+            using (var rig = Inline(PhraseRig.Make("/re", "Re: {clipboard} ({date:yyyy-MM-dd})")))
+            {
+                rig.Engine.Now = () => Noon;
+                rig.Clip.Text = "Invoice 42";
+                rig.Type("/re");
+                Assert.Equal("Re: Invoice 42 (2026-11-19)", rig.Text);
+                Assert.Equal("Invoice 42", rig.Clip.Text, "the clipboard is untouched");
+            }
+        }
+
+        [Test]
+        public static void Placeholders_PastedPhrasePastesTheFilledTextAndRestoresTheClipboard()
+        {
+            using (var rig = Inline(PhraseRig.Make("/q", "> {clipboard}", method: InsertMethod.Paste)))
+            {
+                rig.Clip.Text = "quoted";
+                rig.Type("/q");
+                Assert.Equal("> quoted", rig.Clip.PrivateHistory[0]);
+                Assert.Equal("quoted", rig.Clip.Text, "put back after the paste");
+            }
+        }
     }
 }

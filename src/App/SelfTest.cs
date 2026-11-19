@@ -191,16 +191,6 @@ namespace MacroKit.App
                     main.Macros.SelectMacro(0);
                     Settle(main);
                 });
-                Step("render the first-run editor question (" + suffix + ")", () =>
-                {
-                    var ask = new EditorChoiceWindow(null);
-                    Prepare(ask, 760, 520);
-                    ask.SizeToContent = SizeToContent.Height;
-                    ask.Show();
-                    Settle(ask);
-                    Capture(ask, Path.Combine(folder, "7-editor-choice-" + suffix + ".png"));
-                    ask.Close();
-                });
                 Step("render the key recorder (" + suffix + ")", () =>
                 {
                     var rec = new KeyRecorderWindow(null);
@@ -394,6 +384,26 @@ namespace MacroKit.App
 
         static void RunLogicChecks(AppController c, AppShell shell, MainWindow main, string data)
         {
+            Check("the macro and phrase lists can be searched", () =>
+            {
+                if (c.Macros.Count == 0 || c.Phrases.Count == 0) throw new Exception("the sample data has no macros or phrases");
+                string name = c.Macros[0].Name;
+                main.Macros.ListSearch = name.ToUpperInvariant();
+                bool found = main.Macros.ShownMacros.Contains(name);
+                main.Macros.ListSearch = "no such macro qqq";
+                bool none = main.Macros.ShownMacros.Count == 0;
+                main.Macros.ListSearch = "";
+                bool all = main.Macros.ShownMacros.Count == c.Macros.Count;
+                string trigger = c.Phrases[0].Trigger;
+                main.Phrases.ListSearch = trigger;
+                bool phrase = main.Phrases.ShownPhrases.Contains(trigger);
+                main.Phrases.ListSearch = "no such phrase qqq";
+                bool noPhrase = main.Phrases.ShownPhrases.Count == 0;
+                main.Phrases.ListSearch = "";
+                return found && none && all && phrase && noPhrase && main.Phrases.ShownPhrases.Count == c.Phrases.Count;
+            });
+            Check("Windows' own shortcuts are listed", () =>
+                KeybindReaders.Windows().Keybinds.Any(k => k.Keys == "Win+V") && KeybindReaders.Windows().Keybinds.All(k => !k.Combo.IsEmpty));
             Check("keybinds tab lists every app and says where keys work", () =>
             {
                 main.SelectTab(4);
@@ -622,7 +632,7 @@ namespace MacroKit.App
                 if (real.Lines != expected) throw new Exception("with real-time delays recorded " + real.Lines.Replace("\r\n", " | ") + ", expected " + expected.Replace("\r\n", " | "));
                 if (!MacroKit.Macros.PlainMacro.ToScript(real.Lines).Ok) throw new Exception("the real-time steps are not understood");
             });
-            Check("the first-run question defaults to typing", () => new EditorChoiceWindow(null).Choice == EditorKinds.Text);
+            Check("with no editor chosen yet, macros are typed", () => EditorKinds.Normal("") == EditorKinds.Text);
             Step("settings and macros are written and read back", () =>
             {
                 c.Settings.Playback.Speed = 2.5;

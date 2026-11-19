@@ -29,6 +29,12 @@ namespace MacroKit.Core
     {
         public const string ProPageUrl = "https://curtner04.github.io/macro-kit/#pro";
 
+        /// <summary>
+        /// False until Pro can be bought. Meanwhile no "Get Pro" button leads to the website's disabled checkout;
+        /// Pro features say Pro goes on sale soon instead. Set it to true when checkout opens.
+        /// </summary>
+        public static readonly bool CheckoutOpen = false;
+
         static volatile LicenseInfo license;
 
         public static LicenseInfo License { get { return license; } }
@@ -48,7 +54,9 @@ namespace MacroKit.Core
         /// <summary>The sentence a free user sees on a Pro feature.</summary>
         public static string ProOnly(string feature)
         {
-            return feature + " come with Macro Kit Pro. Enter your license key in Settings, or get Pro from the Macro Kit website.";
+            return CheckoutOpen
+                ? feature + " come with Macro Kit Pro. Enter your license key in Settings, or get Pro from the Macro Kit website."
+                : feature + " come with Macro Kit Pro, which goes on sale soon. If you have a license key, enter it in Settings.";
         }
     }
 

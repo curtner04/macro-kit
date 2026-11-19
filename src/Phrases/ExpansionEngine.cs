@@ -495,6 +495,20 @@ namespace MacroKit.Phrases
             lock (gate) { queued.Clear(); expanding = false; }
         }
 
+        /// <summary>Test hook: the date and time {date} and {time} use.</summary>
+        public Func<DateTime> Now = () => DateTime.Now;
+
+        // The replacement with {date}, {time} and {clipboard} filled. The clipboard is read only when the text asks for it,
+        // before a paste overwrites it; when it can't be read, {clipboard} is left empty.
+        string Fill(string replacement)
+        {
+            return Placeholders.Fill(replacement, Now(), () =>
+            {
+                try { return clipboard.GetText(); }
+                catch (Exception ex) { Log.Warn("Could not read the clipboard for a phrase's {clipboard}.", ex); return ""; }
+            });
+        }
+
         void WorkerLoop()
         {
             foreach (Job job in jobs.GetConsumingEnumerable()) Execute(job);
@@ -511,13 +525,14 @@ namespace MacroKit.Phrases
                 if (before != null) before();
 
                 bool paste = job.Entry.Paste;
+                string text = Fill(job.Entry.Replacement);
                 object snapshot = null;
                 uint ourSequence = 0;
                 bool wroteClipboard = false;
                 if (paste)
                 {
                     // The clipboard comes first: if it is busy nothing has been erased yet and the trigger simply stays as typed.
-                    if (!PrepareClipboard(job.Entry.Replacement, out snapshot, out ourSequence))
+                    if (!PrepareClipboard(text, out snapshot, out ourSequence))
                     {
                         RetypeSwallowedKey(job);
                         failure = "Couldn't expand that phrase because another app was using the clipboard. What you typed was left as it was.";
@@ -542,9 +557,9 @@ namespace MacroKit.Phrases
                         input.KeyCombo(new ushort[] { VkLeftCtrl, VkV });
                         clock.Sleep(PasteSettleMs, CancellationToken.None);
                     }
-                    else if (job.Entry.Replacement.Length > 0)
+                    else if (text.Length > 0)
                     {
-                        input.TypeText(job.Entry.Replacement);
+                        input.TypeText(text);
                     }
                 }
                 finally

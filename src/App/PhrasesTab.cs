@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Windows;
@@ -21,6 +22,7 @@ namespace MacroKit.App
         readonly FrameworkElement warning;
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
+        readonly TextBox listSearch = new TextBox();
         readonly Button deleteButton;
         readonly TextBox trigger, replacement;
         readonly RadioButton immediately, afterDelimiter, typeIt, pasteIt;
@@ -53,19 +55,26 @@ namespace MacroKit.App
 
             var listGrid = new Grid();
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             listGrid.RowDefinitions.Add(new RowDefinition());
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var heading = Ui.Heading("Phrases");
             heading.Margin = new Thickness(0, 0, 0, 8);
             listGrid.Children.Add(heading);
+            listSearch.ToolTip = "Show only the phrases whose trigger or text holds these words.";
+            listSearch.TextChanged += (s, e) => FilterList();
+            var searchBox = Ui.Hinted(listSearch, "Search phrases");
+            searchBox.Margin = new Thickness(0, 0, 0, 8);
+            Grid.SetRow(searchBox, 1);
+            listGrid.Children.Add(searchBox);
             var host = new Grid();
             host.Children.Add(list);
             host.Children.Add(listEmpty);
-            Grid.SetRow(host, 1);
+            Grid.SetRow(host, 2);
             listGrid.Children.Add(host);
             var buttons = Ui.Row(0, newButton, deleteButton);
             buttons.Margin = new Thickness(0, 10, 0, 0);
-            Grid.SetRow(buttons, 2);
+            Grid.SetRow(buttons, 3);
             listGrid.Children.Add(buttons);
             Border listCard = Ui.Card(listGrid);
             listCard.Margin = new Thickness(0, 0, 10, 0);
@@ -99,13 +108,16 @@ namespace MacroKit.App
             phraseEnabled = new CheckBox { Content = "This phrase is on" };
             phraseEnabled.Click += (s, e) => { Apply(p => p.Enabled = phraseEnabled.IsChecked == true); RefreshSelectedItem(); };
 
+            var placeholderNote = Ui.Para("Put in the date, the time or what you copied: " + MacroKit.Phrases.Placeholders.Help + ".", "Muted", 11.5);
+            placeholderNote.TextWrapping = TextWrapping.Wrap;
             var form = Ui.Stack(10,
                 Ui.Field("Trigger", trigger), triggerNote,
-                Ui.Field("Replacement", replacement),
+                Ui.Field("Replacement", replacement), placeholderNote,
                 Ui.Stack(6, Ui.Caption("EXPAND"), immediately, afterDelimiter),
                 Ui.Stack(6, Ui.Caption("INSERT"), typeIt, pasteIt, pasteNote),
                 Ui.Row(22, matchCase, phraseEnabled));
             triggerNote.Margin = new Thickness(0, -4, 0, 0);
+            placeholderNote.Margin = new Thickness(0, -4, 0, 0);
             editor = form;
             var editorScroll = new ScrollViewer { Content = Ui.Card(form, new Thickness(16)), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             editorScroll.Margin = new Thickness(0);
@@ -132,7 +144,7 @@ namespace MacroKit.App
 
             // The tray menu can switch phrases on or off too.
             c.Edited += parts => { if ((parts & SaveParts.Settings) != 0) enabledSwitch.IsChecked = c.Settings.ExpansionEnabled; };
-            c.LibraryAdded += (macro, phrase) => { if (phrase != null) Reload(phrase); };
+            c.LibraryAdded += (macro, phrase) => { if (phrase != null) { listSearch.Text = ""; Reload(phrase); } };
 
             Reload(null);
             UpdateWarning();
@@ -150,9 +162,35 @@ namespace MacroKit.App
             foreach (PhraseDef p in c.Phrases) list.Items.Add(MakeItem(p));
             ListBoxItem match = list.Items.Cast<ListBoxItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, select)) ?? (list.Items.Count > 0 ? (ListBoxItem)list.Items[0] : null);
             list.SelectedItem = match;
-            listEmpty.Visibility = list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             loading = false;
+            FilterList();
             LoadEditor();
+        }
+
+        /// <summary>Hides the phrases that don't match the search box, and says so when none are left.</summary>
+        void FilterList()
+        {
+            int shown = 0;
+            foreach (ListBoxItem item in list.Items)
+            {
+                var p = (PhraseDef)item.Tag;
+                bool match = Ui.Matches(listSearch.Text, p.Trigger, p.Replacement);
+                item.Visibility = match ? Visibility.Visible : Visibility.Collapsed;
+                if (match) shown++;
+            }
+            listEmpty.Text = list.Items.Count == 0
+                ? "No phrases yet. Press New, then type a trigger such as /shrug and the text to put in its place."
+                : "No phrases match “" + listSearch.Text.Trim() + "”.";
+            listEmpty.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>Self-test: the list's search box.</summary>
+        public string ListSearch { get { return listSearch.Text; } set { listSearch.Text = value; } }
+
+        /// <summary>Self-test: the triggers of the phrases the list shows.</summary>
+        public List<string> ShownPhrases
+        {
+            get { return list.Items.Cast<ListBoxItem>().Where(i => i.Visibility == Visibility.Visible).Select(i => ((PhraseDef)i.Tag).Trigger).ToList(); }
         }
 
         static ListBoxItem MakeItem(PhraseDef p)
@@ -180,7 +218,9 @@ namespace MacroKit.App
             if (item == null || p == null) return;
             int index = list.Items.IndexOf(item);
             loading = true;
-            list.Items[index] = MakeItem(p);
+            ListBoxItem fresh = MakeItem(p);
+            fresh.Visibility = item.Visibility;
+            list.Items[index] = fresh;
             list.SelectedIndex = index;
             loading = false;
         }
@@ -234,7 +274,9 @@ namespace MacroKit.App
             // Rebuild only the list row, not the editor (the caret would jump).
             int index = list.Items.IndexOf(item);
             loading = true;
-            list.Items[index] = MakeItem(p);
+            ListBoxItem fresh = MakeItem(p);
+            fresh.Visibility = item.Visibility;
+            list.Items[index] = fresh;
             list.SelectedIndex = index;
             loading = false;
         }

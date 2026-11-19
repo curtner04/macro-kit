@@ -1,5 +1,16 @@
 # Macro Kit changelog
 
+## 1.5.2 - 2026-11-19
+
+- Phrases can put in the date, the time or what you copied: `{date}`, `{time}` and `{clipboard}` in the replacement are filled in as the phrase expands. Give a format of your own with a colon, such as `{date:dd MMM yyyy}` or `{time:HH:mm}`. Other text in braces is typed as it is.
+- **Search macros** and **Search phrases** boxes above the lists show only the macros or phrases that hold the words you type.
+- Every macro library pack is now free: Spreadsheets and forms, Browser, Clicker, Conditions (formerly Loops and conditions) and Symbols join Starter. The Conditions examples still need Macro Kit Pro to run.
+- Pro can't be bought yet, so the **Get Pro** buttons now say *Pro goes on sale soon* instead of opening a page with no checkout.
+- The switch beside **Run** is now called **Show code** (it was **Stream Deck**). It still shows the Super Macro code to copy into a Stream Deck action.
+- Macro Kit no longer asks which macro editor to use the first time it opens. Macros start in **Type it**; switch to key tiles in Settings or with the link above the steps.
+- **Library** moved up beside the Macros heading, away from **Delete**.
+- Global Keybinds lists Windows' own shortcuts (Win+E, Win+V, Win+Shift+S, Alt+Tab, Win+1 to 9 and more), so **Is it free?** and the clash warnings know about them.
+
 ## 1.5.1 - 2026-11-18
 
 - **Record keystrokes** now records Alt+Tab, the Windows key, PrtSc, Alt+F4 and keys other programs use as hotkeys. While the recorder is in front it takes those keys before Windows does, so they become steps instead of switching windows or taking a screenshot. Only Ctrl+Alt+Delete and Win+L stay with Windows.

@@ -91,34 +91,6 @@ namespace MacroKit.App
                 c.SetStatus("A damaged data file was set aside and replaced with defaults: " + string.Join(", ", c.Storage.Warnings) + ".", true);
             string readOnly = c.ReadOnlyNotice();
             if (readOnly != null) c.SetStatus(readOnly, true);
-            AskMacroEditorOnce();
-        }
-
-        /// <summary>
-        /// The first time Macro Kit opens (and once after updating to 1.5), ask which macro editor to use. Sessions without input
-        /// show no dialogs, so they skip it. Started hidden in the tray, it waits until the window first appears.
-        /// </summary>
-        void AskMacroEditorOnce()
-        {
-            if (!c.InputEnabled || !string.IsNullOrEmpty(c.Settings.MacroEditor)) return;
-            if (Main.IsVisible) { Main.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(AskMacroEditor)); return; }
-            DependencyPropertyChangedEventHandler shown = null;
-            shown = (s, e) =>
-            {
-                if (!Main.IsVisible) return;
-                Main.IsVisibleChanged -= shown;
-                Main.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(AskMacroEditor));
-            };
-            Main.IsVisibleChanged += shown;
-        }
-
-        void AskMacroEditor()
-        {
-            if (!string.IsNullOrEmpty(c.Settings.MacroEditor) || exitInProgress) return;
-            var w = new EditorChoiceWindow(Main);
-            w.ShowDialog();
-            c.Settings.MacroEditor = w.Choice;
-            c.MarkDirty(SaveParts.Settings);
         }
 
         void ApplyDeck()

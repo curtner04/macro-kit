@@ -364,8 +364,9 @@ namespace MacroKit.Tests
             });
             WithPro(false, () =>
             {
-                foreach (LibraryItem item in MacroLibrary.Packs.Where(p => !p.Pro).SelectMany(p => p.Items).Where(i => !i.IsPhrase))
-                    Assert.True(MacroParser.Parse(item.Script, true).Ok, "free pack works without Pro: " + item.Name);
+                // Every pack is free to add; only the Conditions examples need Pro to run.
+                foreach (LibraryItem item in MacroLibrary.Packs.Where(p => p.Id != "conditions").SelectMany(p => p.Items).Where(i => !i.IsPhrase))
+                    Assert.True(MacroParser.Parse(item.Script, true).Ok, "works without Pro: " + item.Name);
             });
         }
 
@@ -374,8 +375,8 @@ namespace MacroKit.Tests
         {
             var triggers = MacroLibrary.Packs.SelectMany(p => p.Items).Where(i => i.IsPhrase).Select(i => i.Trigger).ToList();
             Assert.Equal(triggers.Count, triggers.Distinct().Count());
-            Assert.True(MacroLibrary.Packs.Any(p => !p.Pro && p.Items.Count > 0), "a free pack");
-            Assert.True(MacroLibrary.Packs.Count(p => p.Pro) >= 3, "Pro packs");
+            Assert.True(MacroLibrary.Packs.Count >= 6 && MacroLibrary.Packs.All(p => !p.Pro && p.Items.Count > 0), "every pack is free");
+            Assert.True(MacroLibrary.Packs.Any(p => p.Name == "Conditions"), "the Conditions pack");
             MacroDef macro = MacroLibrary.Packs[0].Items.First(i => !i.IsPhrase).ToMacro();
             Assert.True(macro.Id.Length > 0);
             Assert.Equal(ScheduleKind.Off, macro.Schedule.Kind);
