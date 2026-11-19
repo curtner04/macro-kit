@@ -685,7 +685,19 @@ namespace MacroKit.App
                 var match = new WindowMatch { ProcessName = "old.exe", TitleContains = "old title" };
                 editor.Bind(match, null);
                 editor.ApplyWindow(new WindowInfo { ProcessName = "EXCEL.EXE", Title = "Budget 2026 - Excel", Handle = new IntPtr(5) });
-                return match.ProcessName == "EXCEL.EXE" && match.TitleContains == "" && editor.HintText.Contains("Budget 2026 - Excel") && editor.HintText.Contains("title filter");
+                return match.ProcessName == "EXCEL.EXE" && match.TitleContains == "" && editor.HintText.Contains("Budget 2026 - Excel") && editor.HintText.Contains("title filter")
+                    && editor.SummaryText.StartsWith("EXCEL.EXE") && !editor.DetailShown;
+            });
+            Check("the window chooser hides program and title until they are needed", () =>
+            {
+                var editor = new WindowMatchEditor(c);
+                editor.Bind(new WindowMatch { ProcessName = "slack.exe" }, null);
+                bool hiddenForProgram = !editor.DetailShown && editor.SummaryText.Contains("Any window of this program");
+                editor.Bind(new WindowMatch { ProcessName = "slack.exe", TitleContains = "Tickets" }, null);
+                bool shownForTitle = editor.DetailShown && editor.SummaryText.Contains("Tickets");
+                editor.Bind(new WindowMatch(), null);
+                bool empty = !editor.DetailShown && editor.SummaryText.StartsWith("No window chosen yet");
+                return hiddenForProgram && shownForTitle && empty;
             });
             Check("the administrator warning appears only for an elevated window when Macro Kit is not elevated", () =>
             {

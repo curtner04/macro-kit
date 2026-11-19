@@ -35,6 +35,7 @@ namespace MacroKit.App
         readonly HotkeyBox hotkey;
         readonly TextBlock hotkeyError = Ui.Text("", "Bad", false, 12);
         readonly WindowMatchEditor targetEditor, partnerEditor;
+        readonly FrameworkElement targetBlock, partnerBlock;
         readonly DispatcherTimer parseTimer;
         MacroDef current;
         ScheduleEditor schedule;
@@ -246,22 +247,27 @@ namespace MacroKit.App
             // ---- where it runs
             targetEditor = new WindowMatchEditor(c);
             partnerEditor = new WindowMatchEditor(c);
-            runPrevious = new RadioButton { Content = "The window I used before Macro Kit", GroupName = "macroTarget" };
-            runSpecific = new RadioButton { Content = "A specific window", GroupName = "macroTarget" };
+            runPrevious = new RadioButton { Content = "Whichever window I was using before Macro Kit", GroupName = "macroTarget" };
+            runSpecific = new RadioButton { Content = "Always the same window", GroupName = "macroTarget" };
             runPrevious.Checked += (s, e) => TargetKindChanged(TargetKind.PreviousWindow);
             runSpecific.Checked += (s, e) => TargetKindChanged(TargetKind.SpecificWindow);
             stopIfFocusLeaves = new CheckBox { Content = "Stop if another window takes focus", ToolTip = "Protects you from typing into the wrong window." };
             stopIfFocusLeaves.Click += (s, e) => Edit(m => m.StopIfFocusLeaves = stopIfFocusLeaves.IsChecked == true, false);
-            altWindows = new RadioButton { Content = "Whatever Windows picks (Macro Kit is never picked)", GroupName = "macroAlt" };
-            altSpecific = new RadioButton { Content = "A specific window", GroupName = "macroAlt" };
+            altWindows = new RadioButton { Content = "The window Windows would switch to (never Macro Kit)", GroupName = "macroAlt" };
+            altSpecific = new RadioButton { Content = "Always the same window", GroupName = "macroAlt" };
             altWindows.Checked += (s, e) => AltKindChanged(false);
             altSpecific.Checked += (s, e) => AltKindChanged(true);
+            // Each window chooser shows only under its own "Always the same window", so the card stays short.
+            targetBlock = Indent(Ui.Stack(8, targetEditor.Root, stopIfFocusLeaves));
+            partnerBlock = Indent(partnerEditor.Root);
+            var altCaption = Ui.Caption("WHEN THE SCRIPT PRESSES ALT+TAB, GO TO");
+            var altNote = Ui.Para("Choose a window here and Alt+Tab always jumps between the same two windows, which keeps a copy-and-paste macro on track.", "Muted", 12);
             var whereCard = Ui.Card(Ui.Stack(8,
                 Ui.Heading("Where it runs"),
-                Ui.Caption("RUN IN"), runPrevious, runSpecific, Indent(targetEditor.Root), Indent(stopIfFocusLeaves),
-                Ui.Caption("ALT+TAB SWITCHES TO"), altWindows, altSpecific, Indent(partnerEditor.Root),
-                Ui.Para("With a specific window, Alt+Tab in the script jumps straight between the two windows, so a copy and paste macro always goes from one to the other.", "Muted", 12)));
-            ((FrameworkElement)((StackPanel)whereCard.Child).Children[6]).Margin = new Thickness(0, 14, 0, 0);
+                Ui.Caption("TYPE INTO"), runPrevious, runSpecific, targetBlock,
+                altCaption, altNote, altWindows, altSpecific, partnerBlock));
+            altCaption.Margin = new Thickness(0, 16, 0, 0);
+            altNote.Margin = new Thickness(0, 0, 0, 2);
 
             // ---- hotkey and deck
             hotkey = new HotkeyBox(true, 190);
@@ -1181,9 +1187,8 @@ namespace MacroKit.App
         void UpdateEditorEnabled()
         {
             bool specific = current != null && current.Target == TargetKind.SpecificWindow;
-            targetEditor.Root.IsEnabled = specific;
-            stopIfFocusLeaves.IsEnabled = specific;
-            partnerEditor.Root.IsEnabled = altSpecific.IsChecked == true;
+            targetBlock.Visibility = specific ? Visibility.Visible : Visibility.Collapsed;
+            partnerBlock.Visibility = altSpecific.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         }
 
         void Edit(Action<MacroDef> change, bool refreshItem)

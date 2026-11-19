@@ -228,14 +228,18 @@ namespace MacroKit.App
     public sealed class WindowMatchEditor
     {
         public readonly FrameworkElement Root;
-        const string Placeholder = "Choose an open window…";
+        const string Placeholder = "Choose from the open windows…";
         readonly AppController controller;
         readonly ComboBox windows = new ComboBox();
         readonly TextBox program = new TextBox { Width = 150 };
         readonly TextBox title = new TextBox();
         readonly TextBlock summary;
-        readonly TextBlock found;
+        readonly TextBlock summaryDetail;
+        readonly Border found;
+        readonly TextBlock foundText;
         readonly TextBlock hint;
+        readonly FrameworkElement detail;
+        readonly Button detailToggle;
         WindowMatch match;
         Action changed = () => { };
         bool binding;
@@ -250,19 +254,38 @@ namespace MacroKit.App
                 var chosen = windows.SelectedItem as WindowInfo;
                 if (chosen == null || match == null || binding) return;
                 UseWindow(chosen);
+                // The card above now shows the choice, so the list goes back to its prompt.
+                windows.Dispatcher.BeginInvoke(new Action(FillWindows), System.Windows.Threading.DispatcherPriority.Background);
             };
             var pick = Ui.IconButton(Ui.GlyphTarget, "Pick", Pick, "Ghost", "Macro Kit steps aside. Switch to the window you want and Macro Kit takes it.");
             program.ToolTip = "The program, for example Chrome.exe or EXCEL.EXE.";
             title.ToolTip = "Part of the window title. Leave empty to match any window of that program.";
             program.TextChanged += (s, e) => Edited();
             title.TextChanged += (s, e) => Edited();
-            summary = Ui.Text("", "Muted", false, 12);
-            found = Ui.Text("", "Muted", false, 12);
             hint = Ui.Text("", "Muted", false, 12, true);
-            hint.Margin = new Thickness(0, 4, 0, 0);
+            hint.Margin = new Thickness(0, 6, 0, 0);
             hint.Visibility = Visibility.Collapsed;
 
-            var top = new Grid();
+            // The chosen window, said plainly: which program, whether a title narrows it, and whether it is open now.
+            summary = Ui.Text("", "Text", true, 13);
+            summaryDetail = Ui.Text("", "Muted", false, 12);
+            var names = Ui.Stack(1, summary, summaryDetail);
+            names.VerticalAlignment = VerticalAlignment.Center;
+            foundText = new TextBlock { FontSize = 11, FontWeight = FontWeights.SemiBold };
+            found = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 1, 8, 2), VerticalAlignment = VerticalAlignment.Center, Child = foundText, Margin = new Thickness(10, 0, 0, 0) };
+            var icon = Ui.Glyph(Ui.GlyphTarget, 16, "Muted");
+            icon.Margin = new Thickness(2, 0, 12, 0);
+            var chosenRow = new DockPanel();
+            DockPanel.SetDock(icon, Dock.Left);
+            DockPanel.SetDock(found, Dock.Right);
+            chosenRow.Children.Add(icon);
+            chosenRow.Children.Add(found);
+            chosenRow.Children.Add(names);
+            var chosenCard = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 9, 12, 9), BorderThickness = new Thickness(1), Child = chosenRow };
+            Ui.Ref(chosenCard, Border.BackgroundProperty, "Card2");
+            Ui.Ref(chosenCard, Border.BorderBrushProperty, "Border");
+
+            var top = new Grid { Margin = new Thickness(0, 8, 0, 0) };
             top.ColumnDefinitions.Add(new ColumnDefinition());
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             top.Children.Add(windows);
@@ -270,22 +293,26 @@ namespace MacroKit.App
             pick.Margin = new Thickness(8, 0, 0, 0);
             top.Children.Add(pick);
 
-            var detail = new Grid { Margin = new Thickness(0, 8, 0, 0) };
-            detail.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            detail.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            detail.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            detail.ColumnDefinitions.Add(new ColumnDefinition());
+            var detailGrid = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+            detail = detailGrid;
+            detailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            detailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            detailGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            detailGrid.ColumnDefinitions.Add(new ColumnDefinition());
             var l1 = Ui.Text("Program", "Muted", false, 12); l1.Margin = new Thickness(0, 0, 8, 0);
             var l2 = Ui.Text("Title contains", "Muted", false, 12); l2.Margin = new Thickness(14, 0, 8, 0);
             Grid.SetColumn(program, 1); Grid.SetColumn(l2, 2); Grid.SetColumn(title, 3);
-            detail.Children.Add(l1); detail.Children.Add(program); detail.Children.Add(l2); detail.Children.Add(title);
+            detailGrid.Children.Add(l1); detailGrid.Children.Add(program); detailGrid.Children.Add(l2); detailGrid.Children.Add(title);
+            detail.Visibility = Visibility.Collapsed;
 
-            var footer = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
-            DockPanel.SetDock(found, Dock.Right);
-            footer.Children.Add(found);
-            footer.Children.Add(summary);
+            // Typing a program or title is for the few who need it, so it waits behind a link.
+            detailToggle = Ui.Button("", () => ShowDetail(detail.Visibility != Visibility.Visible), "Link",
+                "Type the program name or part of the window title yourself, for example to tell two windows of one program apart.");
+            detailToggle.HorizontalAlignment = HorizontalAlignment.Left;
+            detailToggle.Margin = new Thickness(0, 6, 0, 0);
+            ShowDetail(false);
 
-            Root = Ui.Stack(0, top, detail, footer, hint);
+            Root = Ui.Stack(0, chosenCard, top, hint, detailToggle, detail);
             FillWindows();
         }
 
@@ -295,7 +322,18 @@ namespace MacroKit.App
             changed = onChanged ?? (() => { });
             ShowHint(null);
             ShowMatch();
+            // Open the details when the saved choice uses them, so nothing set is hidden.
+            ShowDetail(match != null && (!string.IsNullOrWhiteSpace(match.TitleContains) || (string.IsNullOrWhiteSpace(match.ProcessName) && !match.IsEmpty)));
         }
+
+        void ShowDetail(bool show)
+        {
+            detail.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            detailToggle.Content = show ? "Hide match details" : "Match details (program and title)";
+        }
+
+        /// <summary>Whether the program and title boxes are showing; used by the self test.</summary>
+        public bool DetailShown { get { return detail.Visibility == Visibility.Visible; } }
 
         // Picking or choosing a window keeps only the program. A window title usually holds the document name, which changes
         // from day to day, so it is shown as a hint and the person adds a title filter only when it is really needed.
@@ -306,13 +344,14 @@ namespace MacroKit.App
             match.TitleContains = match.ProcessName.Length == 0 ? window.Title ?? "" : "";
             ShowMatch();
             ShowHint(window);
+            if (match.TitleContains.Length == 0) ShowDetail(false);
             changed();
         }
 
         void ShowHint(WindowInfo window)
         {
             bool show = window != null && !string.IsNullOrEmpty(window.Title) && !string.IsNullOrEmpty(window.ProcessName);
-            hint.Text = show ? "Picked: " + window.Title + ". Add a title filter only if you have several windows of this program open." : "";
+            hint.Text = show ? "You picked “" + window.Title + "”. Any " + window.ProcessName + " window will do, so it still works when the title changes. Keep several open? Add a title filter under Match details." : "";
             hint.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -343,13 +382,29 @@ namespace MacroKit.App
 
         void UpdateSummary()
         {
-            if (match == null || match.IsEmpty) { summary.Text = "No window chosen yet."; found.Text = ""; return; }
-            summary.Text = match.Describe();
+            if (match == null || match.IsEmpty)
+            {
+                summary.Text = "No window chosen yet";
+                Ui.Ref(summary, TextBlock.ForegroundProperty, "Muted");
+                summaryDetail.Text = "Click Pick and switch to it, or choose it from the list.";
+                found.Visibility = Visibility.Collapsed;
+                return;
+            }
+            Ui.Ref(summary, TextBlock.ForegroundProperty, "Text");
+            bool hasProcess = !string.IsNullOrWhiteSpace(match.ProcessName);
+            bool hasTitle = !string.IsNullOrWhiteSpace(match.TitleContains);
+            summary.Text = hasProcess ? match.ProcessName.Trim() : "Any program";
+            summaryDetail.Text = hasTitle ? "Title contains “" + match.TitleContains.Trim() + "”" : "Any window of this program";
             bool open = false;
             try { open = controller.Windows.Find(match) != null; } catch (Exception) { }
-            found.Text = open ? "Open now" : "Not open right now";
-            Ui.Ref(found, TextBlock.ForegroundProperty, open ? "Good" : "Muted");
+            foundText.Text = open ? "Open now" : "Not open right now";
+            Ui.Ref(foundText, TextBlock.ForegroundProperty, open ? "Good" : "Muted");
+            Ui.Ref(found, Border.BackgroundProperty, open ? "GoodBg" : "Card");
+            found.Visibility = Visibility.Visible;
         }
+
+        /// <summary>The chosen-window card's two lines; used by the self test.</summary>
+        public string SummaryText { get { return summary.Text + " · " + summaryDetail.Text; } }
 
         void FillWindows()
         {

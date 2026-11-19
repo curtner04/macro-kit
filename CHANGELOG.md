@@ -1,5 +1,12 @@
 # Macro Kit changelog
 
+## 1.5.3 - 2026-11-19
+
+- **Where it runs** is simpler. The chosen window now appears as a card with the program name, whether a title narrows it, and **Open now** or **Not open right now**. Before, the list still said *Choose an open window* after you had chosen one.
+- A window chooser appears only when you pick **Always the same window**, so options you aren't using no longer take up space.
+- The **Program** and **Title contains** boxes are behind a **Match details** link. They open by themselves when a macro already uses a title.
+- Clearer wording: **Type into** *Whichever window I was using before Macro Kit* or *Always the same window*, and **When the script presses Alt+Tab, go to** *The window Windows would switch to* or *Always the same window*, with the explanation above the choices.
+
 ## 1.5.2 - 2026-11-19
 
 - Phrases can put in the date, the time or what you copied: `{date}`, `{time}` and `{clipboard}` in the replacement are filled in as the phrase expands. Give a format of your own with a colon, such as `{date:dd MMM yyyy}` or `{time:HH:mm}`. Other text in braces is typed as it is.
