@@ -19,7 +19,7 @@ The installer puts Macro Kit in your user profile without asking for administrat
 
 ## Getting started
 
-1. Open **Macros**. A first example ("Copy, switch, paste, next row") is already there. Click **Run**.
+1. Open **Macros**. Ten examples are already there, such as "Copy, switch, paste, next row" and an auto-clicker; **Phrases** has ten too. Pick one and click **Run**. **Remove examples** (above each list) takes out the ones you have not changed, and Undo puts them back.
 2. Macro Kit steps aside, switches to the window you used before it, and runs the macro there. A small status bar at the bottom-right of the screen shows progress and has a **Stop** button. Drag it anywhere and it stays there; **Settings → Status popup** can show it while nothing runs so you can place it, and **Reset position** puts it back in the corner.
 3. When the macro finishes, Macro Kit comes back without taking focus.
 
@@ -29,10 +29,12 @@ Closing the window keeps Macro Kit running in the notification area (tray), beca
 
 ### Recorder
 
-- **● Record** starts recording the mouse and keyboard; **■ Stop** (or the Stop hotkey) ends it. Macro Kit hides while it records, so its own window never ends up in a recording. Phrases pause while recording, so a recording replays exactly what you typed.
+- **● Record** starts recording the mouse and keyboard; **■ Stop** (or the Stop hotkey) ends it. While it records, Macro Kit shrinks to a small **recorder bar** at the top of where its window was: **Stop** keeps the take, **Restart** throws it away and starts again, **Discard** throws it away. Clicks on the bar are never recorded, and dragging it moves it there for later recordings. Phrases pause while recording, so a recording replays exactly what you typed.
 - A new recording shows as **Not saved** at the top of the list until you press **Save** (or turn on *Save new recordings automatically*). If you close or restart Macro Kit with an unsaved recording, it is saved for you.
 - **Rename**, **Delete**, **Export file…** and **Import file…** manage recordings. Exported files can be shared with another Macro Kit.
-- **▶ Play** plays the selected recording. **Speed** is a slider from 0.1x to 100x with quick buttons for ½x, 1x, 2x, 5x and 10x. **Repeat** is once, a number of times, or continuously, with an optional wait between repeats.
+- **▶ Play** plays the selected recording. **Speed** is a slider from 0.1x to 100x with quick buttons for ½x, 1x, 2x, 5x and 10x. **Repeat** is once, a number of times, or continuously, with an optional wait between repeats. Each recording keeps its own speed and repeat; a recording you have not set yet uses the last ones you chose.
+- **This recording** gives the selected recording its own global **Hotkey** (press it again while it plays to stop it) and a button on the Deck (*Show a button for it on the Deck*).
+- **Convert to macro** turns the selected recording into a macro on the Macros tab: its clicks (with where they happened), double clicks, drags, typed text, shortcuts, scrolls and the pauses between them, one step per line, so you can read and change it. Mouse movement between clicks is left out, and the pauses follow the recording's speed. Typed characters are read with a US keyboard layout.
 - *Record mouse movement* off records only clicks, wheel and keys (the pointer jumps straight to each click).
 
 ### Phrases
@@ -49,11 +51,11 @@ Closing the window keeps Macro Kit running in the notification area (tray), beca
 - **Delete** removes a phrase at once; **Undo delete** beside **New phrase** puts it back.
 - Phrases never expand inside Macro Kit itself, or in programs listed under *Programs where phrases never expand* in Settings.
 - If PhraseExpress is running, a warning appears: both programs could expand the same trigger.
-- The seeded phrase `/shrug` is there on first start.
+- Ten example phrases come in an *Examples* group: a signature (`;sig`), an address, an email, today's date, a time stamp, a thank-you, a meeting request with fill-ins (`;meet`), a link around the copied address (`;link`), pasted opening hours and a typo fix (`teh` → `the`). **Remove examples** takes out the ones you have not changed; **Undo remove** puts them back. Earlier installs get them once, without duplicates.
 
 ### Macros
 
-A macro is a list of steps plus where and how it runs. Macros start in **Type it**; switch to key tiles in Settings, *Macro editor*, or with the link above the steps.
+A macro is a list of steps plus where and how it runs. **Lines | Tiles** above the steps switches between two views of the same steps (Settings, *Macro editor*, has it too); macros start in Lines. Ten example macros come with Macro Kit, from copy-and-paste rows to an auto-clicker, a 30-second refresh and opening Notepad; **Remove examples** beside **Library** takes out the ones you have not changed.
 
 - **Type it**: one step per line, written the way you'd say it: `ctrl+c`, `wait 50ms`, `alt+tab`, `type "hello"`, `click`, `open notepad`, `repeat 3 times` … `end repeat`, `take turns` … `or` … `end turns`. The column beside the text says what each line does and marks lines Macro Kit doesn't understand. Suggestions appear as you type (Tab or Ctrl+Space). The **Add** chips insert a step at the cursor: **Record keys** (press shortcuts; each becomes a line), **Type text**, **Wait**, **Click**, **Repeat** (around the selected lines), **Open app** and **More…**.
 - **Record keys** (also **+**, *Record keystrokes…* on the tiles) turns each shortcut you press into one step. While its window is in front it takes the keys before Windows and other programs do, so Alt+Tab, the Windows key, PrtSc, Alt+F4 and other apps' hotkeys are recorded instead of acted on; only Ctrl+Alt+Delete and Win+L stay with Windows. **Delays**: *No delays*, *Standard delays (50 ms)* between steps, or *Real-time delays* (the pauses as you pressed them). Macro Kit remembers the choice.
@@ -65,7 +67,7 @@ A macro is a list of steps plus where and how it runs. Macros start in **Type it
 
 With **Show code** on:
 
-- **Script text** is what runs. The **Steps** list beside it shows what Macro Kit understood, with the estimated time per pass. Problems appear in red with line and column; click one to select it in the script. A script with problems will not run.
+- **Script text** is what runs. The steps it makes are the ones above, so under it is only a count and, when there are any, its problems in red with line and column (and *Run the macro* steps that name a macro you don't have); click one to select it in the script. A script with problems will not run.
 - **Add commands** inserts at the cursor so you never have to remember the syntax. The commands sit in groups that fold open and closed, one at a time (Macro Kit remembers which is open), and **Find a command** shows only the groups that match a word such as *copy*, *loop* or *volume*:
   - **Keys**: keys grouped by kind, each in its own colour (Clipboard, Switch, Edit, Arrows, Jump, any F key), **Your own shortcut** and **Hold or release a key**.
   - **Multi action** (like Stream Deck's Multi Action): **Repeat** the steps you selected N times, **Run the macro** (another of your macros), and **Take turns** or **Pick at random** between 2 or more choices. Select steps in the script first and the block goes around them; with nothing selected an empty block goes in at the cursor.
@@ -75,7 +77,6 @@ With **Show code** on:
   - **Windows**: switch to a window, or wait for one to open.
   - **Media and sound**: play/pause, next, previous, stop, mute and the volume keys, set the volume to a percentage or turn it up or down, play a sound file.
   - **Variables and clipboard**, and **Conditions** (Macro Kit Pro).
-- The **Steps** list indents the steps inside a block, so you can see what repeats or takes turns.
 - **Repeat**: once, a number of times, or continuously, with a wait between repeats and a delay after every key or click. *New lines in the script press Enter* matches Super Macro; turn it off to lay a long script out over several lines.
 - **Where it runs** (*Type into* and *When the script presses Alt+Tab, go to*): see the next section.
 - **Start it with** gives the macro its own global hotkey (pressing it while that macro runs stops it) and chooses whether it appears on the Deck, with an optional **Colour** stripe and **Icon** (an emoji or symbol; Win+. opens the emoji panel).
@@ -102,7 +103,8 @@ One list of the keyboard shortcuts in your apps, so you can see which keys are s
 - **Add app** (on the Apps card) is for any other program: type its name, optionally the program it runs as (so the card can say whether it is running), and its shortcuts. For each one, click the Keys box and press the keys, or type them (`ctrl+shift+m`, `F9`, `prtsc`), say what it does, and choose **Any window** or **That app only**. Apps you add are marked *Added by you* and count everywhere on the tab: in the list, the warnings and **Is it free?**. The pencil button on their card edits or deletes them. They are saved in `keybinds.json` in the data folder and move with Export / import. Macro Kit never changes the program itself.
 - Built-in shortcuts (such as Ctrl+S in an app) are listed too; untick **Built-in shortcuts** to see only saved ones.
 - A warning under a shortcut means it gets in another app's way: two apps with the same any-window shortcut, or an any-window shortcut that takes the keys before another app's in-app shortcut can see them.
-- **Is it free?**: click the box and press keys, or type them in **Search** (for example `ctrl+shift+c`). It says which apps use them and where. For keys no listed app uses, Macro Kit also asks Windows whether another running program has registered them. Programs that watch the keyboard another way (a keyboard hook, like Snipline's PrtSc) do not show up in that Windows check, and keys such a program grabs may run it instead of appearing in the box; type those keys instead.
+- **Search** takes keys in any order, with spaces or plus signs: `ctrl alt s` lists every shortcut that uses Ctrl, Alt and S (Ctrl+Alt+S, Ctrl+Shift+Alt+S…), and `alt ctrl shift` lists everything with Ctrl, Shift and Alt. Words that are not keys search the names and descriptions.
+- **Is it free?**: click the box and press keys, or type them in **Search** (for example `ctrl+shift+c` or `c shift ctrl`). It says which apps use them and where. For keys no listed app uses, Macro Kit also asks Windows whether another running program has registered them. Programs that watch the keyboard another way (a keyboard hook, like Snipline's PrtSc) do not show up in that Windows check, and keys such a program grabs may run it instead of appearing in the box; type those keys instead.
 - Each app card shows how many shortcuts it has, whether it is running (any-window shortcuts only work while it runs), the file it was read from and any problem reading it. Click a card to show only that app.
 
 ### Settings
@@ -111,7 +113,7 @@ The four global hotkeys, whether Esc stops playback and macros, whether Macro Ki
 
 ## The Deck
 
-The Deck is a small always-on-top panel of buttons, like a virtual Stream Deck: one button per macro that has *Show this macro as a button on the Deck* turned on, a button that plays the selected recording, and a **Stop** button. Show or hide it with the **Deck** button in the header, the tray menu or the Deck hotkey. Drag it by its title strip; it remembers where you left it.
+The Deck is a small always-on-top panel of buttons, like a virtual Stream Deck: one button per macro that has *Show this macro as a button on the Deck* turned on, one per recording with *Show a button for it on the Deck*, a button that plays the selected recording, and a **Stop** button. Show or hide it with the **Deck** button in the header, the tray menu or the Deck hotkey. Drag it by its title strip; it remembers where you left it.
 
 Each button shows the macro's icon and name, its hotkey underneath, and its colour stripe. A macro that can't run yet (a step needs fixing, or it has no steps) shows **⚠ needs fixing**, and its tooltip says what is wrong. **Compact** in the title strip shows smaller buttons in one row; **Bigger** goes back.
 
@@ -190,6 +192,7 @@ Defaults (all changeable in Settings; each needs Ctrl, Alt or Win, or an F13 to 
 | Ctrl+Shift+Alt+S | Stop whatever is running |
 | Ctrl+Shift+Alt+D | Show or hide the Deck |
 | Each macro's own hotkey | Run that macro (press again to stop it) |
+| Each recording's own hotkey | Play that recording (press again to stop it) |
 | Esc | Stops playback and macro runs (can be turned off; never stops a recording) |
 
 Only one activity runs at a time. Starting another is refused with a message.

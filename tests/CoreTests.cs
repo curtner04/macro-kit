@@ -1062,14 +1062,14 @@ namespace MacroKit.Tests
         }
 
         [Test]
-        public static void FirstStartSeedsTheShrugPhrase()
+        public static void FirstStartSeedsTheExamplePhrases()
         {
             Run((storage, dir) =>
             {
                 List<PhraseDef> phrases = storage.LoadPhrases();
-                Assert.Equal(1, phrases.Count);
-                Assert.Equal("/shrug", phrases[0].Trigger);
-                Assert.Equal("¯\\_(ツ)_/¯", phrases[0].Replacement);
+                Assert.Equal(10, phrases.Count);
+                Assert.Equal(";sig", phrases[0].Trigger);
+                Assert.Equal(Examples.PhraseGroup, phrases[0].Group);
                 Assert.Equal(ExpandWhen.Immediately, phrases[0].When);
                 Assert.Equal(InsertMethod.Type, phrases[0].Method);
                 Assert.True(File.Exists(dir.File("data\\phrases.json")));
@@ -1083,9 +1083,9 @@ namespace MacroKit.Tests
             Run((storage, dir) =>
             {
                 List<MacroDef> macros = storage.LoadMacros();
-                Assert.Equal(1, macros.Count);
+                Assert.Equal(10, macros.Count);
                 Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
-                Assert.Equal("{{CTRL}{C}}{{PAUSE:50}}{{ALT}{TAB}}{{PAUSE:100}}{{CTRL}{V}}{{PAUSE:50}}{{ALT}{TAB}}{{PAUSE:100}}{{DOWN}}{{PAUSE:50}}", macros[0].Script);
+                Assert.Equal(Examples.Macros()[0].Script, macros[0].Script);
                 Assert.Equal(RepeatMode.Times, macros[0].Repeat);
                 Assert.Equal(5, macros[0].RepeatTimes);
                 Assert.Equal(macros[0].Id, storage.LoadMacros()[0].Id);
@@ -1164,7 +1164,7 @@ namespace MacroKit.Tests
         {
             Run((storage, dir) =>
             {
-                storage.LoadPhrases();
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/shrug", Replacement = "¯\\_(ツ)_/¯" } });
                 byte[] bytes = File.ReadAllBytes(dir.File("data\\phrases.json"));
                 Assert.True(bytes.Length > 3);
                 Assert.False(bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF, "no BOM");
@@ -1181,7 +1181,7 @@ namespace MacroKit.Tests
                 string file = dir.File("data\\macros.json");
                 File.WriteAllText(file, "{ this is not json");
                 List<MacroDef> macros = storage.LoadMacros();
-                Assert.Equal(1, macros.Count);
+                Assert.Equal(10, macros.Count);
                 Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
                 string[] aside = Directory.GetFiles(dir.File("data"), "macros.json.unreadable-*");
                 Assert.Equal(1, aside.Length);
@@ -1270,7 +1270,7 @@ namespace MacroKit.Tests
                 {
                     List<PhraseDef> phrases = fresh.LoadPhrases();
                     List<MacroDef> macros = fresh.LoadMacros();
-                    Assert.Equal("/shrug", phrases[0].Trigger, "the starter phrase stands in, in memory only");
+                    Assert.Equal(";sig", phrases[0].Trigger, "the example phrases stand in, in memory only");
                     Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
                 }
                 Assert.SequenceEqual(new[] { "macros.json", "phrases.json" }, fresh.ReadOnlyFiles);

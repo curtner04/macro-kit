@@ -21,9 +21,9 @@ namespace MacroKit.App
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
         readonly TextBox listSearch = new TextBox();
-        readonly Button duplicateButton, deleteButton, undoButton, runButton, stopButton;
-        MacroDef undoMacro;
-        int undoIndex;
+        readonly Button duplicateButton, deleteButton, undoButton, runButton, stopButton, removeExamples;
+        // What Undo puts back: the macro just deleted, or the examples just removed, at their old places.
+        List<KeyValuePair<int, MacroDef>> undoItems = new List<KeyValuePair<int, MacroDef>>();
         readonly ComboBox deckColor;
         readonly TextBox deckIcon;
         readonly FrameworkElement deckLook;
@@ -55,7 +55,8 @@ namespace MacroKit.App
         readonly Border editorHost = new Border();
         readonly TextBlock plainSummary = Ui.Text("", "Muted", false, 12, true);
         readonly CheckBox deckSwitch;
-        readonly Button editorSwitch, allCommands, optionsButton;
+        readonly Button viewLines, viewTiles, allCommands, optionsButton;
+        Border problemsBox;
         readonly TextBlock optionsSummary = Ui.Text("", "Muted", false, 12.5);
         FrameworkElement palette, deckCard;
         FrameworkElement[] optionCards;
@@ -112,6 +113,9 @@ namespace MacroKit.App
             deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected macro. You can undo it.");
             undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the macro you just deleted.");
             undoButton.Visibility = Visibility.Collapsed;
+            removeExamples = Ui.Button("Remove examples", RemoveExamples, "Small", "Remove the example macros you have not changed. You can undo it.");
+            removeExamples.VerticalAlignment = VerticalAlignment.Center;
+            removeExamples.Margin = new Thickness(0, 0, 6, 0);
             var libraryButton = Ui.Button("Library", () => new LibraryWindow(owner, c).ShowDialog(), "Small", "Ready-made macros and phrases to add with one click.");
             c.LibraryAdded += (macro, phrase) => { if (macro != null) { listSearch.Text = ""; Reload(macro); } };
             var listButtons = Ui.Wrap(newButton, duplicateButton, undoButton, deleteButton);
@@ -126,6 +130,8 @@ namespace MacroKit.App
             libraryButton.VerticalAlignment = VerticalAlignment.Center;
             DockPanel.SetDock(libraryButton, Dock.Right);
             headingRow.Children.Add(libraryButton);
+            DockPanel.SetDock(removeExamples, Dock.Right);
+            headingRow.Children.Add(removeExamples);
             headingRow.Children.Add(Ui.Heading("Macros"));
             listGrid.Children.Add(headingRow);
             listSearch.ToolTip = "Show only the macros whose name, steps or hotkey hold these words.";
@@ -199,14 +205,18 @@ namespace MacroKit.App
 
             // ---- the steps, in the editor the user chose
             editorHost.AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((s, e) => codeTarget = false));
-            editorSwitch = Ui.Button("", () => SwitchEditor(), "Link", "Switch between typing the steps and building them from key tiles. Settings has this too.");
+            viewLines = Ui.Button("Lines", () => ChooseEditor(EditorKinds.Text), "Chip", "Type the steps, one per line.");
+            viewTiles = Ui.Button("Tiles", () => ChooseEditor(EditorKinds.Tiles), "Chip", "The same steps as key tiles you can click, drag and add to.");
+            viewLines.Margin = new Thickness(0, 0, 4, 0);
             allCommands = Ui.Button("", () => { c.Settings.ShowAllCommands = !c.Settings.ShowAllCommands; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }, "Link",
                 "Every command Macro Kit has, in groups, with boxes to fill in.");
             palette = BuildPalette();
             var stepsTitle = new DockPanel();
-            DockPanel.SetDock(editorSwitch, Dock.Right);
-            editorSwitch.VerticalAlignment = VerticalAlignment.Center;
-            stepsTitle.Children.Add(editorSwitch);
+            var viewToggle = Ui.Row(0, viewLines, viewTiles);
+            viewToggle.ToolTip = "Two views of the same steps. Settings has this too.";
+            DockPanel.SetDock(viewToggle, Dock.Right);
+            viewToggle.VerticalAlignment = VerticalAlignment.Center;
+            stepsTitle.Children.Add(viewToggle);
             stepsTitle.Children.Add(Ui.Heading("What it does"));
             var summaryRow = new DockPanel();
             DockPanel.SetDock(allCommands, Dock.Right);
@@ -252,7 +262,7 @@ namespace MacroKit.App
             pasteText.Click += (s, e) => Edit(m => m.PasteText = pasteText.IsChecked == true, false);
             var repeatCard = Ui.Card(Ui.Stack(8, Ui.Heading("Repeat and speed"), repeatRow, delays, pasteText));
             deckCard = Ui.Card(Ui.Stack(10, deckTitle,
-                Ui.Para("The same macro as Super Macro text. Paste it into a Super Macro action on your Stream Deck, or change it here and the steps above follow.", "Muted", 12),
+                Ui.Para("The same macro as Super Macro text. Paste it into a Super Macro action on your Stream Deck, or change it here and the steps above follow. Problems in the text are listed under it.", "Muted", 12),
                 BuildScriptAndSteps(), newLines));
 
             // ---- where it runs
@@ -868,24 +878,14 @@ namespace MacroKit.App
             var host = new Grid();
             host.Children.Add(steps);
             host.Children.Add(stepsEmpty);
-            var box = new Border { Padding = new Thickness(4), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), Child = host, Height = 188 };
-            Ui.Ref(box, Border.BackgroundProperty, "Input");
-            Ui.Ref(box, Border.BorderBrushProperty, "Border");
-            stepsHeader.Margin = new Thickness(0, 0, 0, 3);
-            stepsSummary.Margin = new Thickness(0, 5, 0, 0);
+            problemsBox = new Border { Padding = new Thickness(4), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), Child = host, MaxHeight = 150, Margin = new Thickness(0, 4, 0, 0) };
+            Ui.Ref(problemsBox, Border.BackgroundProperty, "Input");
+            Ui.Ref(problemsBox, Border.BorderBrushProperty, "Border");
+            stepsHeader.Margin = new Thickness(0, 6, 0, 0);
+            stepsSummary.Margin = new Thickness(0, 3, 0, 0);
             var scriptLabel = Ui.Text("Script text", "Muted", false, 12);
             scriptLabel.Margin = new Thickness(0, 0, 0, 3);
-
-            var left = Ui.Stack(0, scriptLabel, script);
-            var right = Ui.Stack(0, stepsHeader, box);
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.5, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 220 });
-            grid.Children.Add(left);
-            Grid.SetColumn(right, 2);
-            grid.Children.Add(right);
-            return Ui.Stack(0, grid, stepsSummary);
+            return Ui.Stack(0, scriptLabel, script, stepsHeader, problemsBox);   // the time per pass is shown with the steps above
         }
 
         void ShowSteps()
@@ -899,39 +899,25 @@ namespace MacroKit.App
                 var row = Ui.Text("Line " + error.Line + ", column " + error.Column + ":  " + error.Message, "Bad", false, 12.5, true);
                 steps.Items.Add(new ListBoxItem { Content = row, Tag = error, Padding = new Thickness(8, 4, 8, 4) });
             }
-            int number = 1, depth = 0;
+            // The steps themselves are the editor above; here only what needs fixing is listed (click one to find it in the text).
+            int number = 1, missing = 0;
             foreach (MacroStep step in parsed.Steps)
             {
-                // Steps inside a repeat, take-turns, random or if block are indented under it; Else and Or line up with the block.
-                bool opens = step.Kind == StepKind.LoopStart || step.Kind == StepKind.If || step.Kind == StepKind.IfWindow
-                    || step.Kind == StepKind.SwitchStart || step.Kind == StepKind.RandomStart;
-                bool closes = step.Kind == StepKind.LoopEnd || step.Kind == StepKind.EndIf || step.Kind == StepKind.EndSwitch || step.Kind == StepKind.EndRandom;
-                bool divides = step.Kind == StepKind.Else || step.Kind == StepKind.Or;
-                if (closes && depth > 0) depth--;
-                int shown = divides ? Math.Max(0, depth - 1) : depth;
-                if (opens) depth++;
-                string describe = step.Describe();
-                string colour = opens || closes || divides ? "AccentText" : "Text";
                 if (step.Kind == StepKind.RunMacro && (step.Value ?? "").IndexOf('$') < 0
                     && !c.Macros.Any(m => string.Equals((m.Name ?? "").Trim(), (step.Value ?? "").Trim(), StringComparison.OrdinalIgnoreCase)))
                 {
-                    describe += "  (you have no macro by this name)";
-                    colour = "Bad";
+                    var row = Ui.Text("Step " + number.ToString(CultureInfo.InvariantCulture) + ":  " + step.Describe() + "  (you have no macro by this name)", "Bad", false, 12.5, true);
+                    steps.Items.Add(new ListBoxItem { Content = row, Tag = step, Padding = new Thickness(8, 3, 8, 3) });
+                    missing++;
                 }
-                var row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
-                row.ColumnDefinitions.Add(new ColumnDefinition());
-                row.Children.Add(Ui.Text(number.ToString(CultureInfo.InvariantCulture), "Muted", false, 12));
-                var text = Ui.Text(describe, colour, opens || closes || divides, 12.5);
-                text.Margin = new Thickness(Math.Min(shown, 6) * 14, 0, 0, 0);
-                Grid.SetColumn(text, 1);
-                row.Children.Add(text);
-                steps.Items.Add(new ListBoxItem { Content = row, Tag = step, Padding = new Thickness(8, 3, 8, 3) });
                 number++;
             }
-            stepsEmpty.Visibility = steps.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            stepsHeader.Text = "Steps: " + parsed.Steps.Count + (parsed.Errors.Count > 0 ? "   ·   " + parsed.Errors.Count + (parsed.Errors.Count == 1 ? " problem" : " problems") : "");
-            Ui.Ref(stepsHeader, TextBlock.ForegroundProperty, parsed.Errors.Count > 0 ? "Bad" : "Muted");
+            int problems = parsed.Errors.Count + missing;
+            stepsEmpty.Visibility = Visibility.Collapsed;
+            if (problemsBox != null) problemsBox.Visibility = problems > 0 ? Visibility.Visible : Visibility.Collapsed;
+            stepsHeader.Text = (parsed.Steps.Count == 1 ? "1 step" : parsed.Steps.Count + " steps")
+                + (problems > 0 ? "   ·   " + problems + (problems == 1 ? " problem" : " problems") : parsed.Steps.Count > 0 ? ", no problems" : "");
+            Ui.Ref(stepsHeader, TextBlock.ForegroundProperty, problems > 0 ? "Bad" : "Muted");
             stepsSummary.Text = parsed.Steps.Count == 0 ? "" : "About " + AppController.FormatDuration(parsed.EstimatedMs(current)) + " per pass" + RepeatTotal();
             stepsLoading = false;
         }
@@ -981,9 +967,11 @@ namespace MacroKit.App
             ApplyLayout();
         }
 
-        void SwitchEditor()
+        /// <summary>Lines or Tiles: two views of the same steps.</summary>
+        void ChooseEditor(string kind)
         {
-            c.Settings.MacroEditor = EditorKind == EditorKinds.Tiles ? EditorKinds.Text : EditorKinds.Tiles;
+            if (EditorKinds.Normal(kind) == EditorKind) return;
+            c.Settings.MacroEditor = EditorKinds.Normal(kind);
             c.MarkDirty(SaveParts.Settings);
             if (EditorKinds.Normal(c.Settings.MacroEditor) != EditorKind) UseEditor(c.Settings.MacroEditor);
         }
@@ -999,7 +987,12 @@ namespace MacroKit.App
             allCommands.Content = c.Settings.ShowAllCommands ? "Hide all commands" : "Show all commands";
             foreach (FrameworkElement card in optionCards) card.Visibility = c.Settings.ShowMacroOptions ? Visibility.Visible : Visibility.Collapsed;
             optionsButton.Content = c.Settings.ShowMacroOptions ? "Hide options" : "Change options";
-            editorSwitch.Content = EditorKind == EditorKinds.Tiles ? "Type it instead" : "Use key tiles";
+            bool tiles = EditorKind == EditorKinds.Tiles;
+            foreach (var pair in new[] { new KeyValuePair<Button, bool>(viewLines, !tiles), new KeyValuePair<Button, bool>(viewTiles, tiles) })
+            {
+                pair.Key.SetResourceReference(Control.BackgroundProperty, pair.Value ? "Selected" : "Card2");
+                pair.Key.SetResourceReference(Control.BorderBrushProperty, pair.Value ? "Accent" : "Border");
+            }
             if (deck) ShowSteps();
         }
 
@@ -1103,6 +1096,7 @@ namespace MacroKit.App
 
         void Reload(MacroDef select)
         {
+            removeExamples.Visibility = c.Macros.Any(Examples.IsUnchanged) ? Visibility.Visible : Visibility.Collapsed;
             loading = true;
             list.Items.Clear();
             foreach (MacroDef m in c.Macros) list.Items.Add(MakeItem(m));
@@ -1287,8 +1281,8 @@ namespace MacroKit.App
             int index = c.Macros.IndexOf(m);
             c.Macros.Remove(m);
             c.MarkDirty(SaveParts.Macros);
-            undoMacro = m;
-            undoIndex = index;
+            undoItems = new List<KeyValuePair<int, MacroDef>> { new KeyValuePair<int, MacroDef>(index, m) };
+            undoButton.Content = "Undo delete";
             undoButton.Visibility = Visibility.Visible;
             Reload(c.Macros.Count == 0 ? null : c.Macros[Math.Min(index, c.Macros.Count - 1)]);
             c.SetStatus("Deleted “" + m.Name + "”. Press Undo delete to put it back.", false);
@@ -1296,16 +1290,34 @@ namespace MacroKit.App
 
         void UndoDelete()
         {
-            MacroDef m = undoMacro;
-            undoMacro = null;
+            List<KeyValuePair<int, MacroDef>> items = undoItems;
+            undoItems = new List<KeyValuePair<int, MacroDef>>();
             undoButton.Visibility = Visibility.Collapsed;
-            if (m == null) return;
-            c.Macros.Insert(Math.Min(Math.Max(0, undoIndex), c.Macros.Count), m);
+            if (items.Count == 0) return;
+            foreach (var item in items.OrderBy(i => i.Key)) c.Macros.Insert(Math.Min(Math.Max(0, item.Key), c.Macros.Count), item.Value);
             c.MarkDirty(SaveParts.Macros);
             listSearch.Text = "";
+            MacroDef m = items[0].Value;
             Reload(m);
-            c.SetStatus("Put back “" + m.Name + "”.", false);
+            c.SetStatus(items.Count > 1 ? "Put back " + items.Count + " example macros." : "Put back “" + m.Name + "”.", false);
         }
+
+        /// <summary>Removes every example macro still as shipped in one go; Undo puts them all back.</summary>
+        void RemoveExamples()
+        {
+            var items = c.Macros.Select((m, i) => new KeyValuePair<int, MacroDef>(i, m)).Where(x => Examples.IsUnchanged(x.Value)).ToList();
+            if (items.Count == 0) return;
+            foreach (var item in items) c.Macros.Remove(item.Value);
+            c.MarkDirty(SaveParts.Macros);
+            undoItems = items;
+            undoButton.Content = "Undo remove";
+            undoButton.Visibility = Visibility.Visible;
+            Reload(c.Macros.Count == 0 ? null : c.Macros[0]);
+            c.SetStatus("Removed " + items.Count + " example macros. Press Undo remove to put them back.", false);
+        }
+
+        /// <summary>Self-test: presses Remove examples; returns how many macros it removed.</summary>
+        public int RemoveExampleItems() { int before = c.Macros.Count; RemoveExamples(); return before - c.Macros.Count; }
 
         /// <summary>Self-test: deletes the selected macro; true when Undo delete is offered.</summary>
         public bool DeleteSelected() { Delete(); return undoButton.Visibility == Visibility.Visible; }

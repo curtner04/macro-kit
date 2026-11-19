@@ -21,6 +21,7 @@ namespace MacroKit.App
         TrayIcon tray;
         DeckWindow deck;
         RunPill pill;
+        RecorderBar recBar;
         readonly HashSet<Window> closedWindows = new HashSet<Window>();
         bool exitInProgress;
 
@@ -34,6 +35,7 @@ namespace MacroKit.App
             wantTray = useTray;
             Main = new MainWindow(c, this);
             pill = new RunPill(c);
+            recBar = new RecorderBar(c);
             deck = new DeckWindow(c);
             c.IsMainWindowVisible = () => Main.IsVisible;
             c.IsMainWindowMinimized = () => Main.WindowState == WindowState.Minimized;
@@ -46,14 +48,14 @@ namespace MacroKit.App
             KeyRecorderWindow.UseKeyboardHook = c.InputEnabled;
             KeyRecorderWindow.LoadDelays = () => c.Settings.RecordKeyDelays;
             KeyRecorderWindow.SaveDelays = kind => { c.Settings.RecordKeyDelays = kind; c.MarkDirty(SaveParts.Settings); };
-            foreach (Window w in new Window[] { Main, deck, pill })
+            foreach (Window w in new Window[] { Main, deck, pill, recBar })
             {
                 Window window = w;
                 window.SourceInitialized += (s, e) => RefreshOwnWindows();
                 window.Closed += (s, e) => { closedWindows.Add(window); RefreshOwnWindows(); };
             }
             c.Confirm = message => Ui.Confirm(Main, message);
-            c.ActivityChanged += () => { pill.Present(); deck.Update(); };
+            c.ActivityChanged += () => { recBar.Present(MainPixelsIfHiddenForRecording()); pill.Present(); deck.Update(); };
             c.ActivityProgressed += () => pill.Refresh();
             c.DeckVisibilityChanged += ApplyDeck;
             c.RecordingsChanged += () => deck.Update();
@@ -64,7 +66,7 @@ namespace MacroKit.App
         void RefreshOwnWindows()
         {
             var handles = new List<IntPtr>();
-            foreach (Window w in new Window[] { Main, deck, pill })
+            foreach (Window w in new Window[] { Main, deck, pill, recBar })
             {
                 if (w == null || closedWindows.Contains(w)) continue;
                 IntPtr handle = new WindowInteropHelper(w).Handle;
@@ -75,6 +77,15 @@ namespace MacroKit.App
 
         public DeckWindow Deck { get { return deck; } }
         public RunPill Pill { get { return pill; } }
+        public RecorderBar RecorderBar { get { return recBar; } }
+
+        /// <summary>Where the main window was, when a recording just hid it (the recorder bar takes its place); empty otherwise.</summary>
+        Rect MainPixelsIfHiddenForRecording()
+        {
+            Rect r;
+            if (c.Activity.Kind != ActivityKind.Recording || !c.MainHiddenForActivity || Main.WindowState != WindowState.Normal || !NativeUi.TryGetRect(Main, out r)) return Rect.Empty;
+            return r;
+        }
 
         /// <summary>Starts the tray icon and shows the windows that should be visible.</summary>
         public void Start(bool startHidden)
@@ -229,6 +240,7 @@ namespace MacroKit.App
                 if (tray != null) { tray.Dispose(); tray = null; }
                 deck.Close();
                 pill.Close();
+                recBar.Close();
             }
             catch (Exception ex) { Log.Warn("Closing a window while leaving failed: " + ex.Message); }
             finally { Application.Current.Shutdown(); }

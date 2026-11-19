@@ -25,6 +25,11 @@ namespace MacroKit.App
         readonly List<KeyValuePair<double, Button>> speedChips = new List<KeyValuePair<double, Button>>();
         readonly RadioButton once, times, continuous;
         readonly NumberBox repeatTimes, repeatDelay;
+        readonly HotkeyBox hotkey = new HotkeyBox(true, 190);
+        readonly TextBlock hotkeyError = Ui.Text("", "Bad", false, 12);
+        readonly CheckBox onDeck = new CheckBox { Content = "Show a button for it on the Deck", ToolTip = "The Deck gets a button that plays this recording (and stops it while it plays)." };
+        readonly Button convertButton;
+        readonly TextBlock playbackFor = Ui.Text("", "Muted", false, 12);
         bool loading;
 
         public RecorderTab(AppController controller, Window owner)
@@ -33,7 +38,7 @@ namespace MacroKit.App
             this.owner = owner;
 
             // ---- recordings list
-            listEmpty = Ui.Para("No recordings yet. Press Record, do something, then press Stop. Macro Kit hides while it records so it never gets in the way.");
+            listEmpty = Ui.Para("No recordings yet. Press Record, do something, then press Stop. While it records, Macro Kit shrinks to a small bar with Stop, Restart and Discard.");
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
             list.SelectionChanged += (s, e) =>
             {
@@ -41,6 +46,8 @@ namespace MacroKit.App
                 var item = list.SelectedItem as ListBoxItem;
                 c.SelectRecording(item == null ? "" : (string)item.Tag);
                 UpdateButtons();
+                LoadPlayback();
+                LoadOptions();
             };
             saveButton = Ui.Button("Save", () => c.SavePending(), "Small", "Keep the new recording.");
             renameButton = Ui.Button("Rename…", Rename, "Small", "Give the selected recording a new name.");
@@ -69,7 +76,7 @@ namespace MacroKit.App
             listCard.Margin = new Thickness(0, 0, 10, 0);
 
             // ---- transport
-            recordButton = Transport("record", "Record", recordHint, () => c.StartRecording(RunOrigin.MainWindow), "Start recording mouse and keyboard. Macro Kit hides while it records.");
+            recordButton = Transport("record", "Record", recordHint, () => c.StartRecording(RunOrigin.MainWindow), "Start recording mouse and keyboard. Macro Kit shrinks to a small recorder bar until you stop.");
             playButton = Transport("play", "Play", playHint, () => c.StartPlayback(RunOrigin.MainWindow), "Play the selected recording.");
             stopButton = Transport("stop", "Stop", stopHint, () => c.Stop(), "Stop recording or playback.");
             playButton.Style = (Style)Application.Current.FindResource("Primary");
@@ -102,15 +109,40 @@ namespace MacroKit.App
             once.Checked += (s, e) => RepeatChanged(RepeatMode.Once);
             times.Checked += (s, e) => RepeatChanged(RepeatMode.Times);
             continuous.Checked += (s, e) => RepeatChanged(RepeatMode.Continuous);
-            repeatTimes.Changed += () => { if (loading) return; if (times.IsChecked != true) times.IsChecked = true; c.Settings.Playback.RepeatTimes = repeatTimes.Value; c.MarkDirty(SaveParts.Settings); };
-            repeatDelay.Changed += () => { if (loading) return; c.Settings.Playback.RepeatDelayMs = repeatDelay.Value; c.MarkDirty(SaveParts.Settings); };
+            repeatTimes.Changed += () => { if (loading) return; if (times.IsChecked != true) times.IsChecked = true; int n = repeatTimes.Value; c.EditPlayback(SelectedId, p => p.RepeatTimes = n); };
+            repeatDelay.Changed += () => { if (loading) return; int ms = repeatDelay.Value; c.EditPlayback(SelectedId, p => p.RepeatDelayMs = ms); };
             var timesRow = Ui.Row(0, times, repeatTimes, Ui.Text("times", null));
             repeatTimes.Margin = new Thickness(2, 0, 7, 0);
             var repeatRow = Ui.Row(18, once, timesRow, continuous);
             var delayRow = Ui.Row(7, Ui.Text("Wait", "Muted", false, 12), repeatDelay, Ui.Text("ms between repeats", "Muted", false, 12));
 
+            // ---- the selected recording's own hotkey, Deck button and macro
+            hotkey.Changed += () =>
+            {
+                if (loading || SelectedId == null) return;
+                c.SetRecordingHotkey(SelectedId, hotkey.Value.IsEmpty ? "" : hotkey.Value.ToString());
+                ShowHotkeyError();
+                UpdateHints();
+            };
+            if (!c.InputEnabled) hotkey.ToolTip = "Hotkeys are off in this session (input is turned off).";
+            hotkeyError.TextWrapping = TextWrapping.Wrap;
+            hotkeyError.Visibility = Visibility.Collapsed;
+            onDeck.Click += (s, e) => { if (!loading && SelectedId != null) c.SetRecordingOnDeck(SelectedId, onDeck.IsChecked == true); };
+            convertButton = Ui.Button("Convert to macro", ConvertToMacro, "Small", "Make a macro from this recording's clicks, typing, keys and pauses, so you can edit it step by step.");
+            convertButton.HorizontalAlignment = HorizontalAlignment.Left;
+            var options = Ui.Card(Ui.Stack(8,
+                Ui.Heading("This recording"),
+                Ui.Row(10, Ui.Text("Hotkey", "Muted", false, 12), hotkey.WithClear()),
+                hotkeyError,
+                Ui.Para("Plays it from any program; press it again to stop.", "Muted", 12),
+                onDeck,
+                Ui.Spacer(2),
+                convertButton,
+                Ui.Para("Convert to macro turns the clicks, typing and pauses into steps you can read and change on the Macros tab. Mouse movement between clicks is left out.", "Muted", 12)));
+
             var playback = Ui.Card(Ui.Stack(8,
                 Ui.Heading("Playback"),
+                playbackFor,
                 speedHead, speed, chips,
                 Ui.Spacer(2),
                 Ui.Text("Repeat", "Muted", false, 12), repeatRow, delayRow));
@@ -122,11 +154,12 @@ namespace MacroKit.App
             autoSave.IsChecked = c.Settings.AutoSaveRecordings;
             autoSave.Click += (s, e) => { c.Settings.AutoSaveRecordings = autoSave.IsChecked == true; c.MarkDirty(SaveParts.Settings); };
             var recording = Ui.Card(Ui.Stack(8, Ui.Heading("Recording"), mouseMoves, autoSave,
-                Ui.Para("Macro Kit hides while it records or plays, and comes back when you stop. Esc stops a playback; hotkeys work from any program.", "Muted", 12)));
+                Ui.Para("While it records, Macro Kit shrinks to a small bar: Stop keeps the take, Restart starts over, Discard throws it away. Clicks on the bar are never recorded. Macro Kit hides while it plays; Esc stops a playback, and hotkeys work from any program.", "Muted", 12)));
 
             var right = new StackPanel();
             right.Children.Add(Ui.Card(Ui.Stack(0, transport)));
             right.Children.Add(playback);
+            right.Children.Add(options);
             right.Children.Add(recording);
             var rightScroll = new ScrollViewer { Content = right, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
@@ -138,11 +171,13 @@ namespace MacroKit.App
             grid.Children.Add(rightScroll);
             Root = grid;
 
-            c.RecordingsChanged += Reload;
+            c.RecordingsChanged += () => { Reload(); LoadPlayback(); LoadOptions(); };
             c.ActivityChanged += UpdateButtons;
+            c.HotkeysChanged += ShowHotkeyError;
             c.Edited += parts => { if ((parts & SaveParts.Settings) != 0) UpdateHints(); };
             Reload();
             LoadPlayback();
+            LoadOptions();
             UpdateHints();
         }
 
@@ -221,12 +256,16 @@ namespace MacroKit.App
             renameButton.IsEnabled = has;
             deleteButton.IsEnabled = has;
             exportButton.IsEnabled = has;
+            hotkey.IsEnabled = has;
+            onDeck.IsEnabled = has;
+            convertButton.IsEnabled = has;
         }
 
         void UpdateHints()
         {
             recordHint.Text = c.Settings.RecordHotkey;
-            playHint.Text = c.Settings.PlayHotkey;
+            RecordingOptions own = c.OptionsFor(SelectedId);
+            playHint.Text = own != null && !string.IsNullOrEmpty(own.Hotkey) ? own.Hotkey : c.Settings.PlayHotkey;
             stopHint.Text = c.Settings.StopHotkey;
             Ui.Ref(playHint, TextBlock.ForegroundProperty, "AccentFg");
             playHint.Opacity = 0.8;
@@ -274,7 +313,9 @@ namespace MacroKit.App
         void LoadPlayback()
         {
             loading = true;
-            PlaybackSettings p = c.Settings.Playback;
+            string id = SelectedId;
+            PlaybackSettings p = c.PlaybackFor(id);
+            playbackFor.Text = id == null ? "New recordings start with these." : "For “" + c.RecordingName(id) + "”. Each recording keeps its own.";
             speed.Value = Math.Log10(Math.Max(0.1, Math.Min(100, p.Speed)));
             repeatTimes.Value = p.RepeatTimes;
             repeatDelay.Value = p.RepeatDelayMs;
@@ -288,8 +329,7 @@ namespace MacroKit.App
         void RepeatChanged(RepeatMode mode)
         {
             if (loading) return;
-            c.Settings.Playback.Repeat = mode;
-            c.MarkDirty(SaveParts.Settings);
+            c.EditPlayback(SelectedId, p => p.Repeat = mode);
         }
 
         static double SnapSpeed(double v)
@@ -301,8 +341,7 @@ namespace MacroKit.App
         void SetSpeed(double value, bool moveSlider)
         {
             value = Math.Max(0.1, Math.Min(100, value));
-            c.Settings.Playback.Speed = value;
-            c.MarkDirty(SaveParts.Settings);
+            c.EditPlayback(SelectedId, p => p.Speed = value);
             if (moveSlider)
             {
                 loading = true;
@@ -314,7 +353,7 @@ namespace MacroKit.App
 
         void ShowSpeed()
         {
-            double v = c.Settings.Playback.Speed;
+            double v = c.PlaybackFor(SelectedId).Speed;
             speedValue.Text = (v < 10 ? v.ToString("0.0#", CultureInfo.CurrentCulture) : v.ToString("0", CultureInfo.CurrentCulture)) + "×";
             foreach (var chip in speedChips)
             {
@@ -323,5 +362,47 @@ namespace MacroKit.App
                 chip.Value.SetResourceReference(Control.BorderBrushProperty, current ? "Accent" : "Border");
             }
         }
+
+        // ---- this recording
+
+        void LoadOptions()
+        {
+            loading = true;
+            RecordingOptions o = c.OptionsFor(SelectedId);
+            hotkey.SetText(o == null ? "" : o.Hotkey);
+            onDeck.IsChecked = o != null && o.ShowOnDeck;
+            loading = false;
+            ShowHotkeyError();
+            UpdateHints();
+        }
+
+        void ShowHotkeyError()
+        {
+            string error;
+            string id = SelectedId;
+            hotkeyError.Text = id != null && c.HotkeyErrors.TryGetValue(AppController.RecordingHotkeyKey(id), out error) ? error : "";
+            hotkeyError.Visibility = hotkeyError.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        void ConvertToMacro()
+        {
+            string id = SelectedId;
+            if (id == null) return;
+            MacroDef macro = c.ConvertRecordingToMacro(id);
+            var main = owner as MainWindow;
+            if (macro != null && main != null) main.SelectTab(2);
+        }
+
+        /// <summary>Self-test: presses Convert to macro without switching tabs; returns the new macro.</summary>
+        public MacroDef ConvertSelected() { return SelectedId == null ? null : c.ConvertRecordingToMacro(SelectedId); }
+
+        /// <summary>Self-test: sets the selected recording's hotkey as if it was typed in the box.</summary>
+        public void SetHotkeyForTest(string text) { hotkey.SetText(text); c.SetRecordingHotkey(SelectedId, text); ShowHotkeyError(); }
+
+        /// <summary>Self-test: the error shown under the hotkey box, or "".</summary>
+        public string HotkeyErrorText { get { return hotkeyError.Visibility == Visibility.Visible ? hotkeyError.Text : ""; } }
+
+        /// <summary>Self-test: ticks Show on the Deck.</summary>
+        public void ShowOnDeckForTest(bool show) { onDeck.IsChecked = show; c.SetRecordingOnDeck(SelectedId, show); }
     }
 }

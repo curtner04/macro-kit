@@ -206,6 +206,28 @@ namespace MacroKit.Core
             RepeatTimes = 2;
             RepeatDelayMs = 0;
         }
+
+        public PlaybackSettings Copy()
+        {
+            return new PlaybackSettings { Speed = Speed, Repeat = Repeat, RepeatTimes = RepeatTimes, RepeatDelayMs = RepeatDelayMs };
+        }
+    }
+
+    /// <summary>One recording's own hotkey, Deck button and playback (kept in the settings, by recording id).</summary>
+    public sealed class RecordingOptions
+    {
+        public string Id { get; set; }
+        public string Hotkey { get; set; }
+        public bool ShowOnDeck { get; set; }
+        public PlaybackSettings Playback { get; set; }  // its speed and repeat
+
+        public RecordingOptions()
+        {
+            Id = "";
+            Hotkey = "";
+            ShowOnDeck = false;
+            this.Playback = new PlaybackSettings();
+        }
     }
 
     public sealed class AppSettings
@@ -218,7 +240,8 @@ namespace MacroKit.Core
         public bool EscStops { get; set; }                // a physical Esc stops playback and macro runs (never recording)
         public bool RecordMouseMoves { get; set; }
         public bool AutoSaveRecordings { get; set; }
-        public PlaybackSettings Playback { get; set; }
+        public PlaybackSettings Playback { get; set; }      // how a recording plays until it has its own (and what new ones start with)
+        public List<RecordingOptions> RecordingSettings { get; set; }   // each recording's own hotkey, Deck button, speed and repeat
         public string SelectedRecordingId { get; set; }
         public bool ExpansionEnabled { get; set; }
         public List<string> ExcludedPrograms { get; set; }   // "game.exe"
@@ -227,11 +250,15 @@ namespace MacroKit.Core
         public double DeckTop { get; set; }
         public int DeckColumns { get; set; }
         public bool DeckCompact { get; set; }              // the Deck shows smaller buttons in one row
+        public bool ExamplesAdded { get; set; }            // the example phrases and macros were added once (new installs start with them)
         // Where the status popup was dragged to (its outer edges, physical pixels); NaN = bottom-right of the screen being worked on.
         public double PillLeft { get; set; }
         public double PillTop { get; set; }
         public double PillRight { get; set; }
         public double PillBottom { get; set; }
+        // Where the recorder bar was dragged to (top-left, physical pixels); NaN = the top middle of the main window or screen.
+        public double RecorderBarLeft { get; set; }
+        public double RecorderBarTop { get; set; }
         public double WindowLeft { get; set; }
         public double WindowTop { get; set; }
         public double WindowWidth { get; set; }
@@ -259,6 +286,7 @@ namespace MacroKit.Core
             RecordMouseMoves = true;
             AutoSaveRecordings = false;
             Playback = new PlaybackSettings();
+            RecordingSettings = new List<RecordingOptions>();
             SelectedRecordingId = "";
             ExpansionEnabled = true;
             ExcludedPrograms = new List<string>();
@@ -270,6 +298,8 @@ namespace MacroKit.Core
             PillTop = double.NaN;
             PillRight = double.NaN;
             PillBottom = double.NaN;
+            RecorderBarLeft = double.NaN;
+            RecorderBarTop = double.NaN;
             WindowLeft = double.NaN;
             WindowTop = double.NaN;
             WindowWidth = 1040;

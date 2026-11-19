@@ -30,7 +30,7 @@ namespace MacroKit.App
         readonly Border verdict = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(11, 8, 11, 8), Margin = new Thickness(0, 10, 0, 0), Visibility = Visibility.Collapsed };
         readonly TextBlock verdictText = Ui.Text("", "Text", false, 12.5, true);
         readonly StackPanel apps = new StackPanel();
-        readonly TextBox search = new TextBox { MinWidth = 180, ToolTip = "Search keys, apps or actions. Typing keys such as ctrl+shift+c also checks them." };
+        readonly TextBox search = new TextBox { MinWidth = 180, ToolTip = "Search keys, apps or actions. Type keys in any order: ctrl alt s lists every shortcut that uses Ctrl, Alt and S; alt ctrl shift lists every Ctrl+Shift+Alt one." };
         readonly ComboBox scopeFilter = new ComboBox { Width = 190 };
         readonly ComboBox appFilter = new ComboBox { Width = 170 };
         readonly ComboBox sort = new ComboBox { Width = 130 };
@@ -319,9 +319,11 @@ namespace MacroKit.App
             string query = (search.Text ?? "").Trim();
             if (query.Length > 0)
             {
-                Hotkey typed;
-                bool keys = KeyText.TryParse(query, out typed) && !typed.IsEmpty && (typed.Modifiers != HotkeyModifiers.None || query.Length > 1);
-                rows = rows.Where(k => (keys && k.Combo == typed)
+                // Keys in any order: "ctrl alt s" finds every shortcut that uses Ctrl, Alt and S; "alt ctrl shift" every Ctrl+Shift+Alt one.
+                HotkeyModifiers mods;
+                ushort key;
+                bool keys = KeyText.TryParseLoose(query, out mods, out key);
+                rows = rows.Where(k => (keys && KeyText.HasKeys(k.Combo, mods, key))
                     || k.Keys.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                     || k.App.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
                     || k.Action.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
@@ -416,8 +418,10 @@ namespace MacroKit.App
         {
             if (!checkBox.Value.IsEmpty) return;   // the box wins over the search text
             string query = (search.Text ?? "").Trim();
-            Hotkey typed;
-            if (query.Length > 1 && KeyText.TryParse(query, out typed) && (typed.Modifiers != HotkeyModifiers.None || query.Length > 2)) Check(typed, false);
+            HotkeyModifiers mods;
+            ushort key;
+            // A whole shortcut in any order ("s ctrl alt") is checked too; modifiers alone only filter the list.
+            if (query.Length > 1 && KeyText.TryParseLoose(query, out mods, out key) && key != 0 && (mods != HotkeyModifiers.None || query.Length > 2)) Check(new Hotkey(mods, key), false);
             else verdict.Visibility = Visibility.Collapsed;
         }
 
@@ -448,6 +452,9 @@ namespace MacroKit.App
 
         /// <summary>Text of the latest answer (self test).</summary>
         public string VerdictText { get { return verdict.Visibility == Visibility.Visible ? verdictText.Text : ""; } }
+
+        /// <summary>The shortcuts the list shows right now (self test).</summary>
+        public List<Keybind> ShownRows { get { return list.Items.Cast<ListBoxItem>().Select(i => (Keybind)i.Tag).ToList(); } }
 
         /// <summary>Puts text in the search box as if typed (self test).</summary>
         public void SetSearch(string text) { search.Text = text; }

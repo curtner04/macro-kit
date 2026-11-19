@@ -1,5 +1,14 @@
 # Macro Kit changelog
 
+## 1.7.0 - 2026-11-19
+
+- **Recorder bar**: while it records, Macro Kit no longer disappears completely. A small bar at the top of where its window was shows a blinking dot and the time, with **Stop** (keep the take), **Restart** (throw it away and start again) and **Discard**. Clicks on the bar are never recorded; drag it and it stays there.
+- **Convert to macro** on the Recorder tab turns a recording into a macro you can read and edit: clicks with where they happened, double clicks, drags, typed text, shortcuts, scrolls and the pauses between them, one step per line.
+- Each recording can have its own **hotkey** and **Deck button**, and keeps its own **speed and repeat** (*This recording* and *Playback* on the Recorder tab).
+- **Ten example phrases and ten example macros** come with Macro Kit, so it is easier to see what they can do: a signature, an address, dates, fill-ins, a typo fix; copy-and-paste rows, an auto-clicker, a timed refresh, opening Notepad and more. Earlier installs get them once. **Remove examples** takes out the ones you have not changed, and Undo puts them all back.
+- **Global Keybinds search takes keys in any order**: `ctrl alt s` shows every shortcut that uses Ctrl, Alt and S, and `alt ctrl shift` every one with all three modifiers.
+- The macro editor has a **Lines | Tiles** switch above the steps instead of the *Use key tiles* link. With **Show code** on, the code no longer has a second steps list beside it: just the script, a count and any problems.
+
 ## 1.6.0 - 2026-11-19
 
 - **Paste text instead of typing it**: a new option under *Repeat and speed* puts a macro's text in with one paste, so a whole paragraph appears at once instead of key by key. Your clipboard is put back afterwards and the pasted text stays out of Win+V history. Text under 4 characters is still typed, and if the clipboard is busy the text is typed instead.

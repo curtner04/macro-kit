@@ -23,10 +23,10 @@ namespace MacroKit.App
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
         readonly TextBox listSearch = new TextBox();
-        readonly Button deleteButton, undoButton;
+        readonly Button deleteButton, undoButton, removeExamples;
         readonly ComboBox group;
-        PhraseDef undoPhrase;
-        int undoIndex;
+        // What Undo puts back: the phrase just deleted, or the examples just removed, at their old places.
+        List<KeyValuePair<int, PhraseDef>> undoItems = new List<KeyValuePair<int, PhraseDef>>();
         readonly TextBox trigger, replacement;
         readonly RadioButton immediately, afterDelimiter, typeIt, pasteIt;
         readonly CheckBox matchCase, phraseEnabled;
@@ -57,14 +57,18 @@ namespace MacroKit.App
             undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the phrase you just deleted.");
             undoButton.Visibility = Visibility.Collapsed;
             undoButton.Margin = new Thickness(6, 0, 0, 0);
+            removeExamples = Ui.Button("Remove examples", RemoveExamples, "Small", "Remove the example phrases you have not changed. You can undo it.");
+            removeExamples.VerticalAlignment = VerticalAlignment.Center;
 
             var listGrid = new Grid();
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             listGrid.RowDefinitions.Add(new RowDefinition());
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var heading = Ui.Heading("Phrases");
-            heading.Margin = new Thickness(0, 0, 0, 8);
+            var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            DockPanel.SetDock(removeExamples, Dock.Right);
+            heading.Children.Add(removeExamples);
+            heading.Children.Add(Ui.Heading("Phrases"));
             listGrid.Children.Add(heading);
             listSearch.ToolTip = "Show only the phrases whose trigger or text holds these words.";
             listSearch.TextChanged += (s, e) => FilterList();
@@ -171,6 +175,7 @@ namespace MacroKit.App
 
         void Reload(PhraseDef select)
         {
+            removeExamples.Visibility = c.Phrases.Any(Examples.IsUnchanged) ? Visibility.Visible : Visibility.Collapsed;
             loading = true;
             list.Items.Clear();
             // Phrases without a group first, in their saved order, then each group under its heading, A to Z.
@@ -373,8 +378,8 @@ namespace MacroKit.App
             int index = c.Phrases.IndexOf(p);
             c.Phrases.Remove(p);
             c.MarkDirty(SaveParts.Phrases);
-            undoPhrase = p;
-            undoIndex = index;
+            undoItems = new List<KeyValuePair<int, PhraseDef>> { new KeyValuePair<int, PhraseDef>(index, p) };
+            undoButton.Content = "Undo delete";
             undoButton.Visibility = Visibility.Visible;
             Reload(c.Phrases.Count == 0 ? null : c.Phrases[Math.Min(index, c.Phrases.Count - 1)]);
             c.SetStatus("Deleted " + name + ". Press Undo delete to put it back.", false);
@@ -382,15 +387,37 @@ namespace MacroKit.App
 
         void UndoDelete()
         {
-            PhraseDef p = undoPhrase;
-            undoPhrase = null;
+            List<KeyValuePair<int, PhraseDef>> items = undoItems;
+            undoItems = new List<KeyValuePair<int, PhraseDef>>();
             undoButton.Visibility = Visibility.Collapsed;
-            if (p == null) return;
-            c.Phrases.Insert(Math.Min(Math.Max(0, undoIndex), c.Phrases.Count), p);
+            if (items.Count == 0) return;
+            foreach (var item in items.OrderBy(i => i.Key)) c.Phrases.Insert(Math.Min(Math.Max(0, item.Key), c.Phrases.Count), item.Value);
             c.MarkDirty(SaveParts.Phrases);
+            listSearch.Text = "";
+            PhraseDef p = items[0].Value;
             Reload(p);
-            c.SetStatus("Put back " + (p.Trigger.Length == 0 ? "the phrase" : "“" + p.Trigger + "”") + ".", false);
+            c.SetStatus(items.Count > 1 ? "Put back " + items.Count + " example phrases." : "Put back " + (p.Trigger.Length == 0 ? "the phrase" : "“" + p.Trigger + "”") + ".", false);
         }
+
+        /// <summary>Removes every example phrase still as shipped in one go; Undo puts them all back.</summary>
+        void RemoveExamples()
+        {
+            var items = c.Phrases.Select((p, i) => new KeyValuePair<int, PhraseDef>(i, p)).Where(x => Examples.IsUnchanged(x.Value)).ToList();
+            if (items.Count == 0) return;
+            foreach (var item in items) c.Phrases.Remove(item.Value);
+            c.MarkDirty(SaveParts.Phrases);
+            undoItems = items;
+            undoButton.Content = "Undo remove";
+            undoButton.Visibility = Visibility.Visible;
+            Reload(c.Phrases.Count == 0 ? null : c.Phrases[0]);
+            c.SetStatus("Removed " + items.Count + " example phrases. Press Undo remove to put them back.", false);
+        }
+
+        /// <summary>Self-test: presses Remove examples; returns how many phrases it removed.</summary>
+        public int RemoveExampleItems() { int before = c.Phrases.Count; RemoveExamples(); return before - c.Phrases.Count; }
+
+        /// <summary>Self-test: true while Remove examples is offered.</summary>
+        public bool OffersRemoveExamples { get { return removeExamples.Visibility == Visibility.Visible; } }
 
         void UpdateWarning()
         {

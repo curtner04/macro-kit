@@ -101,7 +101,14 @@ namespace MacroKit.App
         public void Present()
         {
             hideTimer.Stop();
-            if (c.Activity.Kind != ActivityKind.None)
+            if (c.Activity.Kind == ActivityKind.Recording)
+            {
+                // The recorder bar shows a recording; the popup stays out of the way.
+                moving = false;
+                tick.Stop();
+                Hide();
+            }
+            else if (c.Activity.Kind != ActivityKind.None)
             {
                 moving = false;
                 anchored = false;
@@ -384,6 +391,166 @@ namespace MacroKit.App
     }
 
     /// <summary>
+    /// The small recorder bar shown while a recording runs, in place of the main window: a blinking dot with the time, and Stop,
+    /// Restart and Discard. It appears where the main window's top edge was (or at the top of the screen being worked on), never
+    /// takes focus, and clicks on it are never recorded. Dragging it moves it there for the next recordings too.
+    /// </summary>
+    public sealed class RecorderBar : FloatingWindow
+    {
+        readonly AppController c;
+        readonly Ellipse dot = new Ellipse { Width = 12, Height = 12, HorizontalAlignment = HorizontalAlignment.Center };
+        readonly TextBlock time = Ui.Text("0:00", "Text", true, 13);
+        readonly TextBlock warning = Ui.Text("", "Warn", false, 11, true);
+        readonly Button stop, restart, discard;
+        readonly DispatcherTimer tick;
+        ActivityInfo shown;
+        bool dragging;
+
+        public RecorderBar(AppController controller)
+        {
+            c = controller;
+            Title = "Macro Kit recorder";
+            Ui.Ref(dot, Shape.FillProperty, "Rec");
+            time.HorizontalAlignment = HorizontalAlignment.Center;
+            time.Margin = new Thickness(0, 5, 0, 0);
+            var status = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Width = 62 };
+            status.Children.Add(dot);
+            status.Children.Add(time);
+            var rec = Ui.Text("REC", "Rec", true, 9.5);
+            rec.HorizontalAlignment = HorizontalAlignment.Center;
+            status.Children.Add(rec);
+            status.ToolTip = "Recording. Drag the bar to move it.";
+
+            stop = Tool(Ui.Shape("stop", 15, "Bad"), "Stop", () => c.StopRecording());
+            restart = Tool(Ui.Glyph("", 16, "Text"), "Restart", () => c.RestartRecording());
+            discard = Tool(Ui.Glyph("", 15, "Muted"), "Discard", () => c.DiscardRecording());
+            restart.ToolTip = "Throw this take away and start recording again.";
+            discard.ToolTip = "Stop and throw this take away.";
+
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(status);
+            row.Children.Add(stop);
+            row.Children.Add(restart);
+            row.Children.Add(discard);
+            warning.MaxWidth = 250;
+            warning.Margin = new Thickness(4, 6, 4, 0);
+            warning.Visibility = Visibility.Collapsed;
+            var body = new StackPanel { Margin = new Thickness(6) };
+            body.Children.Add(row);
+            body.Children.Add(warning);
+            var frame = new Border { Child = body, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10) };
+            Ui.Ref(frame, Border.BackgroundProperty, "Card");
+            Ui.Ref(frame, Border.BorderBrushProperty, "Border");
+            frame.MouseLeftButtonDown += (s, e) => DragToNewPlace();
+            Content = frame;
+
+            tick = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(500) };
+            tick.Tick += (s, e) => { if (shown != null) Render(shown); };
+        }
+
+        Button Tool(FrameworkElement icon, string label, Action click)
+        {
+            icon.HorizontalAlignment = HorizontalAlignment.Center;
+            var iconHost = new Grid { Height = 18 };
+            iconHost.Children.Add(icon);
+            var text = Ui.Text(label, "Text", false, 11.5);
+            text.HorizontalAlignment = HorizontalAlignment.Center;
+            text.Margin = new Thickness(0, 4, 0, 0);
+            var content = new StackPanel();
+            content.Children.Add(iconHost);
+            content.Children.Add(text);
+            var b = NoFocus(Ui.Button(content, click, "Ghost"));
+            b.Width = 62;
+            b.Height = 52;
+            b.Padding = new Thickness(2);
+            b.Margin = new Thickness(2, 0, 0, 0);
+            return b;
+        }
+
+        /// <summary>Shows the bar while a recording runs and hides it otherwise.</summary>
+        public void Present(Rect mainPixels)
+        {
+            if (c.Activity.Kind != ActivityKind.Recording)
+            {
+                tick.Stop();
+                shown = null;
+                Hide();
+                return;
+            }
+            bool fresh = !IsVisible;
+            Render(c.Activity);
+            tick.Start();
+            if (fresh)
+            {
+                Show();
+                UpdateLayout();
+                Place(mainPixels);
+            }
+        }
+
+        /// <summary>Fills the bar for an activity (also used by the self test).</summary>
+        public void Render(ActivityInfo a)
+        {
+            shown = a;
+            int seconds = Math.Max(0, (int)(DateTime.Now - a.Started).TotalSeconds);
+            time.Text = (seconds / 60) + ":" + (seconds % 60).ToString("00");
+            // The dot blinks once a second, like a camera's.
+            dot.Opacity = (DateTime.Now.Millisecond < 500 || seconds == 0) ? 1 : 0.25;
+            string keys = c.Settings.StopHotkey;
+            stop.ToolTip = string.IsNullOrEmpty(keys) ? "Stop and keep this recording." : "Stop and keep this recording (" + keys + ").";
+            bool warn = !string.IsNullOrEmpty(a.Warning);
+            warning.Text = warn ? a.Warning : "";
+            warning.Visibility = warn ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>The dragged place when it is still on a screen; otherwise the top middle of the main window it replaces, or of the screen.</summary>
+        void Place(Rect mainPixels)
+        {
+            Rect self;
+            if (!NativeUi.TryGetRect(this, out self)) return;
+            AppSettings s = c.Settings;
+            if (!double.IsNaN(s.RecorderBarLeft) && !double.IsNaN(s.RecorderBarTop) && NativeUi.IsOnScreen(s.RecorderBarLeft, s.RecorderBarTop, self.Width, self.Height))
+            {
+                NativeUi.MoveTo(this, (int)s.RecorderBarLeft, (int)s.RecorderBarTop);
+                return;
+            }
+            Rect area = mainPixels;
+            if (area.IsEmpty)
+            {
+                try
+                {
+                    IntPtr target = c.Windows.LastExternalForeground;
+                    var screen = target != IntPtr.Zero ? System.Windows.Forms.Screen.FromHandle(target) : System.Windows.Forms.Screen.PrimaryScreen;
+                    System.Drawing.Rectangle work = screen.WorkingArea;
+                    area = new Rect(work.X, work.Y, work.Width, work.Height);
+                }
+                catch (Exception) { return; }
+            }
+            NativeUi.MoveTo(this, (int)(area.Left + (area.Width - self.Width) / 2), (int)area.Top + 12);
+        }
+
+        void DragToNewPlace()
+        {
+            Rect before, after;
+            if (dragging || !NativeUi.TryGetRect(this, out before)) return;
+            dragging = true;
+            try { DragMove(); }
+            catch (InvalidOperationException) { }
+            finally { dragging = false; }
+            if (!NativeUi.TryGetRect(this, out after) || (Math.Abs(after.X - before.X) < 3 && Math.Abs(after.Y - before.Y) < 3)) return;
+            c.Settings.RecorderBarLeft = after.Left;
+            c.Settings.RecorderBarTop = after.Top;
+            c.MarkDirty(SaveParts.Settings);
+        }
+
+        /// <summary>Button labels, left to right (self test).</summary>
+        public IList<string> ButtonLabels
+        {
+            get { return new[] { stop, restart, discard }.Select(b => ((TextBlock)((StackPanel)b.Content).Children[1]).Text).ToList(); }
+        }
+    }
+
+    /// <summary>
     /// The Deck: a small always-on-top panel of buttons, like the virtual Stream Deck. Clicking a button never takes focus, so a macro
     /// started here runs in the window that already has it.
     /// </summary>
@@ -416,8 +583,9 @@ namespace MacroKit.App
         string Signature()
         {
             return string.Join("|", c.Macros.Where(m => m.ShowOnDeck).Select(m => m.Id + ":" + m.Name + ":" + m.DeckColor + ":" + m.DeckIcon + ":" + m.Hotkey + ":" + Broken(m)))
+                + "#" + string.Join("|", c.DeckRecordings().Select(o => o.Id + ":" + c.RecordingName(o.Id) + ":" + o.Hotkey))
                 + "#" + c.Settings.DeckColumns + "#" + c.Settings.DeckCompact + "#" + c.SelectedRecordingName()
-                + "#" + (int)c.Activity.Kind + c.Activity.MacroId;
+                + "#" + (int)c.Activity.Kind + c.Activity.MacroId + c.Activity.RecordingId;
         }
 
         /// <summary>The colours a Deck button's stripe can have, by the name saved in <see cref="MacroDef.DeckColor"/>.</summary>
@@ -478,7 +646,8 @@ namespace MacroKit.App
 
             bool small = c.Settings.DeckCompact;
             List<MacroDef> shown = c.Macros.Where(x => x.ShowOnDeck).ToList();
-            var grid = new UniformGrid { Columns = small ? shown.Count + 2 : Math.Max(1, Math.Min(8, c.Settings.DeckColumns)), Margin = new Thickness(8, 2, 8, 8) };
+            List<RecordingOptions> recordings = c.DeckRecordings();
+            var grid = new UniformGrid { Columns = small ? shown.Count + recordings.Count + 2 : Math.Max(1, Math.Min(8, c.Settings.DeckColumns)), Margin = new Thickness(8, 2, 8, 8) };
             ButtonLabels = new List<string>();
             WarnedButtons = new List<string>();
             foreach (MacroDef m in shown)
@@ -500,6 +669,17 @@ namespace MacroKit.App
                 grid.Children.Add(b);
                 ButtonLabels.Add(label);
                 if (problem != null) WarnedButtons.Add(label);
+            }
+            foreach (RecordingOptions o in recordings)
+            {
+                string id = o.Id;
+                string name = c.RecordingName(id);
+                bool playingThis = c.Activity.Kind == ActivityKind.Playing && c.Activity.RecordingId == id;
+                string label = "▶  " + name;
+                var b = DeckButton(label, playingThis, () => { if (playingThis) c.Stop(); else c.StartPlayback(RunOrigin.Deck, id); }, small ? null : HotkeyHint(o.Hotkey), null, false);
+                b.ToolTip = playingThis ? "Click to stop “" + name + "”." : "Play the recording “" + name + "”." + (string.IsNullOrEmpty(o.Hotkey) ? "" : " Hotkey: " + HotkeyHint(o.Hotkey) + ".");
+                grid.Children.Add(b);
+                ButtonLabels.Add(label);
             }
             string recording = c.SelectedRecordingName();
             bool playing = c.Activity.Kind == ActivityKind.Playing;

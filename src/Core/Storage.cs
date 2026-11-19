@@ -208,29 +208,11 @@ namespace MacroKit.Core
             lock (gate) WriteGuarded(KeybindAppsPath, Json.Serialize(new KeybindAppsFile { Apps = new List<KeybindAppDef>(apps) }));
         }
 
-        /// <summary>First-start phrase: /shrug becomes the shrug emoticon.</summary>
-        public static List<PhraseDef> SeedPhrases()
-        {
-            return new List<PhraseDef>
-            {
-                new PhraseDef { Trigger = "/shrug", Replacement = "¯\\_(ツ)_/¯", Enabled = true, When = ExpandWhen.Immediately, Method = InsertMethod.Type },
-            };
-        }
+        /// <summary>First-start phrases: the examples.</summary>
+        public static List<PhraseDef> SeedPhrases() { return Examples.Phrases(); }
 
-        /// <summary>First-start macro: copy, switch, paste, switch back, next row.</summary>
-        public static List<MacroDef> SeedMacros()
-        {
-            return new List<MacroDef>
-            {
-                new MacroDef
-                {
-                    Name = "Copy, switch, paste, next row",
-                    Script = "{{CTRL}{C}}{{PAUSE:50}}{{ALT}{TAB}}{{PAUSE:100}}{{CTRL}{V}}{{PAUSE:50}}{{ALT}{TAB}}{{PAUSE:100}}{{DOWN}}{{PAUSE:50}}",
-                    Repeat = RepeatMode.Times,
-                    RepeatTimes = 5,
-                },
-            };
-        }
+        /// <summary>First-start macros: the examples (the first one is copy, switch, paste, switch back, next row).</summary>
+        public static List<MacroDef> SeedMacros() { return Examples.Macros(); }
 
         // ---- recordings ---------------------------------------------------------------------------
 

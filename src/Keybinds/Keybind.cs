@@ -143,6 +143,45 @@ namespace MacroKit.Keybinds
             return !combo.IsEmpty;
         }
 
+        /// <summary>
+        /// Reads search text as keys in any order, with spaces or + between them: "ctrl alt s", "s+ctrl+alt", "alt ctrl shift".
+        /// False when a word is not a key or modifier, when it names more than one key, or when it is one plain character (that is a
+        /// word search). <paramref name="key"/> is 0 when only modifiers were named.
+        /// </summary>
+        public static bool TryParseLoose(string text, out HotkeyModifiers mods, out ushort key)
+        {
+            mods = HotkeyModifiers.None;
+            key = 0;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            string trimmed = text.Trim();
+            Hotkey exact;
+            if (TryParse(trimmed, out exact) && (exact.Modifiers != HotkeyModifiers.None || trimmed.Length > 1))
+            {
+                mods = exact.Modifiers;
+                key = exact.Vk;
+                return true;
+            }
+            string[] words = trimmed.Split(new[] { ' ', '+', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < words.Length; i++)
+            {
+                HotkeyModifiers mod;
+                if (modifiers.TryGetValue(words[i], out mod)) { mods |= mod; continue; }
+                ushort vk;
+                // Two-word key names: "page up", "print screen".
+                if (i + 1 < words.Length && TryKey(words[i] + " " + words[i + 1], out vk)) i++;
+                else if (!TryKey(words[i], out vk)) return false;
+                if (key != 0 && key != vk) return false;
+                key = vk;
+            }
+            return mods != HotkeyModifiers.None || (key != 0 && trimmed.Length > 1);
+        }
+
+        /// <summary>True when the shortcut uses every modifier named and the key named (if any): "ctrl alt" finds Ctrl+Shift+Alt+S too.</summary>
+        public static bool HasKeys(Hotkey combo, HotkeyModifiers mods, ushort key)
+        {
+            return !combo.IsEmpty && (combo.Modifiers & mods) == mods && (key == 0 || combo.Vk == key);
+        }
+
         /// <summary>Splits on the separator; an empty last part means the key is the separator itself ("Ctrl++", "ctrl--").</summary>
         static List<string> Split(string text, char separator)
         {

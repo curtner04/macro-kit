@@ -24,6 +24,8 @@ namespace MacroKit.App
         public string Name = "";
         public RunOrigin Origin;
         public string MacroId = "";
+        /// <summary>Playing: the recording that plays.</summary>
+        public string RecordingId = "";
         public int Pass, TotalPasses, StepIndex, StepCount, ElapsedMs, DurationMs;
         public double Speed = 1;
         public string Message = "";
@@ -40,7 +42,7 @@ namespace MacroKit.App
     /// </summary>
     public sealed class AppController : IDisposable
     {
-        const int HotkeyRecord = 1, HotkeyPlay = 2, HotkeyStop = 3, HotkeyDeck = 4, HotkeyMacroBase = 100;
+        const int HotkeyRecord = 1, HotkeyPlay = 2, HotkeyStop = 3, HotkeyDeck = 4, HotkeyMacroBase = 100, HotkeyRecordingBase = 30000;
         const ushort VkEscape = 0x1B;
 
         readonly Dispatcher dispatcher;
@@ -58,6 +60,7 @@ namespace MacroKit.App
         readonly DispatcherTimer pickTimer;
         readonly DispatcherTimer scheduleTimer;
         readonly Dictionary<int, string> macroByHotkeyId = new Dictionary<int, string>();
+        readonly Dictionary<int, string> recordingByHotkeyId = new Dictionary<int, string>();
         readonly List<int> registeredHotkeys = new List<int>();
         readonly Dictionary<string, string> hotkeyErrors = new Dictionary<string, string>();
 
@@ -171,6 +174,15 @@ namespace MacroKit.App
             pickTimer.Tick += (s, e) => PickTick();
             scheduleTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = TimeSpan.FromSeconds(5) };
             scheduleTimer.Tick += (s, e) => ScheduleTick();
+
+            // Once per data folder: the example phrases and macros a new install starts with, added to an older setup too.
+            if (!Settings.ExamplesAdded)
+            {
+                Examples.AddMissing(Phrases, Macros);
+                Settings.ExamplesAdded = true;
+                engine.SetPhrases(Phrases);
+                MarkDirty(SaveParts.Settings | SaveParts.Phrases | SaveParts.Macros);
+            }
         }
 
         // ------------------------------------------------------------------ start and stop
@@ -301,7 +313,8 @@ namespace MacroKit.App
         string HotkeySignature()
         {
             return string.Join("|", new[] { Settings.RecordHotkey, Settings.PlayHotkey, Settings.StopHotkey, Settings.DeckHotkey }
-                .Concat(Macros.Select(m => m.Id + "=" + m.Hotkey)));
+                .Concat(Macros.Select(m => m.Id + "=" + m.Hotkey))
+                .Concat(Settings.RecordingSettings.Where(o => RecordingExists(o.Id)).Select(o => "rec:" + o.Id + "=" + o.Hotkey)));
         }
 
         /// <summary>Registers every hotkey again (after any hotkey changed). Failures are kept in <see cref="HotkeyErrors"/>.</summary>
@@ -313,6 +326,7 @@ namespace MacroKit.App
             // While a hotkey box is capturing keys nothing is registered (Windows would swallow the keys before the box saw them);
             // the combinations are still checked so a duplicate is reported right away.
             macroByHotkeyId.Clear();
+            recordingByHotkeyId.Clear();
             hotkeyErrors.Clear();
             var used = new Dictionary<string, string>();
             Register("Record", HotkeyRecord, Settings.RecordHotkey, "Record", used);
@@ -324,6 +338,13 @@ namespace MacroKit.App
                 if (string.IsNullOrWhiteSpace(Macros[i].Hotkey)) continue;
                 int id = HotkeyMacroBase + i;
                 if (Register(Macros[i].Id, id, Macros[i].Hotkey, "“" + Macros[i].Name + "”", used)) macroByHotkeyId[id] = Macros[i].Id;
+            }
+            for (int i = 0; i < Settings.RecordingSettings.Count; i++)
+            {
+                RecordingOptions o = Settings.RecordingSettings[i];
+                if (string.IsNullOrWhiteSpace(o.Hotkey) || !RecordingExists(o.Id)) continue;
+                int id = HotkeyRecordingBase + i;
+                if (Register(RecordingHotkeyKey(o.Id), id, o.Hotkey, "“" + RecordingName(o.Id) + "”", used)) recordingByHotkeyId[id] = o.Id;
             }
             hotkeySignature = HotkeySignature();
             HotkeysChanged();
@@ -379,6 +400,12 @@ namespace MacroKit.App
                 case HotkeyStop: Stop(); break;
                 case HotkeyDeck: ToggleDeck(); break;
                 default:
+                    string recordingId;
+                    if (recordingByHotkeyId.TryGetValue(id, out recordingId))
+                    {
+                        if (Activity.Kind == ActivityKind.Playing && Activity.RecordingId == recordingId) Stop(); else StartPlayback(RunOrigin.Hotkey, recordingId);
+                        break;
+                    }
                     string macroId;
                     MacroDef macro;
                     if (macroByHotkeyId.TryGetValue(id, out macroId) && (macro = Macros.FirstOrDefault(m => m.Id == macroId)) != null)
@@ -895,18 +922,41 @@ namespace MacroKit.App
             RecordingsChanged();
         }
 
-        public bool StartPlayback(RunOrigin origin)
+        /// <summary>The recorder bar's Restart: throws the current take away and starts recording again at once.</summary>
+        public void RestartRecording()
+        {
+            if (Activity.Kind != ActivityKind.Recording) return;
+            recorder.Stop(new Hotkey[0]);
+            Activity.Started = DateTime.Now;
+            recorder.Start(Settings.RecordMouseMoves);
+            SetStatus("Recording started again.", false);
+            ActivityChanged();
+        }
+
+        /// <summary>The recorder bar's Discard: stops and throws the take away, keeping any earlier unsaved recording.</summary>
+        public void DiscardRecording()
+        {
+            if (Activity.Kind != ActivityKind.Recording) return;
+            recorder.Stop(new Hotkey[0]);
+            End("Recording discarded.", false);
+        }
+
+        /// <summary>True while the main window is hidden because something is running (it comes back when that ends).</summary>
+        public bool MainHiddenForActivity { get { return mainHiddenByActivity; } }
+
+        /// <summary>Plays the recording selected on the Recorder tab.</summary>
+        public bool StartPlayback(RunOrigin origin) { return StartPlayback(origin, null); }
+
+        /// <summary>Plays a recording (the selected one when <paramref name="recordingId"/> is null) at its own speed and repeat.</summary>
+        public bool StartPlayback(RunOrigin origin, string recordingId)
         {
             if (!CanBegin(origin)) return false;
-            Rec recording = SelectedRecording();
-            if (recording == null) return Refuse("Pick a recording to play first.", origin);
+            Rec recording = recordingId == null ? SelectedRecording() : LoadRecording(recordingId);
+            if (recording == null) return Refuse(recordingId == null ? "Pick a recording to play first." : "That recording is gone. It may have been deleted.", origin);
             if (recording.Events.Count == 0) return Refuse("This recording is empty, so there is nothing to play.", origin);
-            PlaybackSettings settings = new PlaybackSettings
-            {
-                Speed = Settings.Playback.Speed, Repeat = Settings.Playback.Repeat,
-                RepeatTimes = Settings.Playback.RepeatTimes, RepeatDelayMs = Settings.Playback.RepeatDelayMs
-            };
+            PlaybackSettings settings = PlaybackFor(recording.Id).Copy();
             ActivityInfo activity = Begin(ActivityKind.Playing, recording.Name, origin);
+            activity.RecordingId = recording.Id;
             activity.Speed = settings.Speed;
             activity.TotalPasses = settings.Repeat == RepeatMode.Once ? 1 : settings.Repeat == RepeatMode.Times ? Math.Max(1, settings.RepeatTimes) : 0;
             activity.StepCount = recording.Events.Count;
@@ -1053,7 +1103,99 @@ namespace MacroKit.App
         public void RefreshRecordings()
         {
             Recordings = Storage.LoadRecordingIndex();
+            if (InputEnabled && hook.IsRunning && HotkeySignature() != hotkeySignature) ApplyHotkeys();
             RecordingsChanged();
+        }
+
+        /// <summary>A saved recording, or the unsaved one; null when it is gone.</summary>
+        public Rec LoadRecording(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            if (Pending != null && Pending.Id == id) return Pending;
+            return Storage.LoadRecording(id);
+        }
+
+        bool RecordingExists(string id)
+        {
+            return !string.IsNullOrEmpty(id) && ((Pending != null && Pending.Id == id) || (Recordings != null && Recordings.Any(r => r.Id == id)));
+        }
+
+        public string RecordingName(string id)
+        {
+            if (Pending != null && Pending.Id == id) return Pending.Name;
+            RecordingInfo info = Recordings == null ? null : Recordings.FirstOrDefault(r => r.Id == id);
+            return info == null ? "" : info.Name;
+        }
+
+        // ---- each recording's own hotkey, Deck button and playback
+
+        /// <summary>The key a recording's hotkey problem is kept under in <see cref="HotkeyErrors"/>.</summary>
+        public static string RecordingHotkeyKey(string id) { return "rec:" + id; }
+
+        public RecordingOptions OptionsFor(string id)
+        {
+            return string.IsNullOrEmpty(id) ? null : Settings.RecordingSettings.FirstOrDefault(o => o.Id == id);
+        }
+
+        /// <summary>The recording's own options, made from the current defaults the first time one of them is changed.</summary>
+        public RecordingOptions EnsureOptions(string id)
+        {
+            RecordingOptions o = OptionsFor(id);
+            if (o != null) return o;
+            o = new RecordingOptions { Id = id, Playback = Settings.Playback.Copy() };
+            Settings.RecordingSettings.Add(o);
+            return o;
+        }
+
+        /// <summary>How a recording plays: its own speed and repeat, or the defaults until it has its own.</summary>
+        public PlaybackSettings PlaybackFor(string id)
+        {
+            RecordingOptions o = OptionsFor(id);
+            return o != null && o.Playback != null ? o.Playback : Settings.Playback;
+        }
+
+        /// <summary>Changes how a recording plays; the change also becomes the default for recordings that have no settings yet.</summary>
+        public void EditPlayback(string id, Action<PlaybackSettings> change)
+        {
+            change(Settings.Playback);
+            if (!string.IsNullOrEmpty(id)) change(EnsureOptions(id).Playback);
+            MarkDirty(SaveParts.Settings);
+        }
+
+        public void SetRecordingHotkey(string id, string hotkey)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            EnsureOptions(id).Hotkey = hotkey ?? "";
+            MarkDirty(SaveParts.Settings);
+        }
+
+        public void SetRecordingOnDeck(string id, bool show)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            EnsureOptions(id).ShowOnDeck = show;
+            MarkDirty(SaveParts.Settings);
+        }
+
+        /// <summary>The recordings that have a Deck button, in the order they were added to it.</summary>
+        public List<RecordingOptions> DeckRecordings()
+        {
+            return Settings.RecordingSettings.Where(o => o.ShowOnDeck && RecordingExists(o.Id)).ToList();
+        }
+
+        /// <summary>Turns a recording into a new macro (clicks, typing, keys and pauses) and returns it; null when there is nothing in it.</summary>
+        public MacroDef ConvertRecordingToMacro(string id)
+        {
+            Rec recording = LoadRecording(id);
+            if (recording == null) { SetStatus("Pick a recording to convert first.", true); return null; }
+            MacroDef macro = RecordingToMacro.Convert(recording, PlaybackFor(recording.Id).Speed);
+            if (macro.Script.Length == 0) { SetStatus("“" + recording.Name + "” has no clicks or keys, so there is nothing to turn into a macro.", true); return null; }
+            string name = macro.Name;
+            for (int n = 2; Macros.Any(m => string.Equals(m.Name, macro.Name, StringComparison.OrdinalIgnoreCase)); n++) macro.Name = name + " " + n;
+            Macros.Add(macro);
+            MarkDirty(SaveParts.Macros);
+            LibraryAdded(macro, null);
+            SetStatus("Made the macro “" + macro.Name + "” from the recording. Edit it on the Macros tab.", false);
+            return macro;
         }
 
         /// <summary>The recording to play: the unsaved one when it is selected, otherwise the selected saved one.</summary>
@@ -1119,7 +1261,9 @@ namespace MacroKit.App
             {
                 if (Pending != null && Pending.Id == id) Pending = null;
                 else Storage.DeleteRecording(id);
-                if (Settings.SelectedRecordingId == id) { Settings.SelectedRecordingId = ""; MarkDirty(SaveParts.Settings); }
+                if (Settings.SelectedRecordingId == id) Settings.SelectedRecordingId = "";
+                Settings.RecordingSettings.RemoveAll(o => o.Id == id);
+                MarkDirty(SaveParts.Settings);
                 RefreshRecordings();
             }
             catch (Exception ex) { SetStatus("Could not delete the recording: " + ex.Message, true); }

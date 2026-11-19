@@ -98,6 +98,7 @@ namespace MacroKit.App
 
             AppSettings settings = storage.LoadSettings();
             settings.SelectedRecordingId = login.Id;
+            settings.ExamplesAdded = true;
             settings.DeckVisible = true;
             settings.ExcludedPrograms = new List<string> { "game.exe", "obs64.exe" };
             settings.Playback.Speed = 2;
@@ -441,6 +442,64 @@ namespace MacroKit.App
                 if (!(warned && icon)) throw new Exception("warned " + string.Join("|", shell.Deck.WarnedButtons) + "; labels " + string.Join("|", shell.Deck.ButtonLabels));
                 return true;
             });
+            Check("the recorder bar has Stop, Restart and Discard", () =>
+                shell.RecorderBar.ButtonLabels.SequenceEqual(new[] { "Stop", "Restart", "Discard" }) && !shell.RecorderBar.IsVisible);
+            Check("a recording turns into a macro and gets its own hotkey, Deck button and speed", () =>
+            {
+                RecordingInfo rows = c.Recordings.First(r => r.Name == "Copy table rows");
+                RecordingInfo login = c.Recordings.First(r => r.Name == "Login steps");
+                string before = c.Settings.SelectedRecordingId;
+                double speed = c.Settings.Playback.Speed;
+                c.SelectRecording(rows.Id);
+                c.RefreshRecordings();
+                int macros = c.Macros.Count;
+                MacroDef made = main.Recorder.ConvertSelected();
+                bool converted = made != null && c.Macros.Count == macros + 1 && made.Name == "Copy table rows (from recording)"
+                    && made.Script.Contains("{{PAUSE:") && MacroKit.Macros.MacroParser.Parse(made.Script, made.NewLineIsEnter).Ok;
+                if (made != null) { c.Macros.Remove(made); c.MarkDirty(SaveParts.Macros); }
+
+                main.Recorder.SetHotkeyForTest("Ctrl+Alt+9");
+                bool hotkey = c.OptionsFor(rows.Id) != null && c.OptionsFor(rows.Id).Hotkey == "Ctrl+Alt+9";
+                main.Recorder.ShowOnDeckForTest(true);
+                shell.Deck.Update();
+                bool deck = shell.Deck.ButtonLabels.Contains("▶  Copy table rows");
+
+                c.EditPlayback(rows.Id, p => p.Speed = 5);
+                c.SelectRecording(login.Id);
+                c.RefreshRecordings();
+                c.EditPlayback(login.Id, p => p.Speed = 0.5);
+                bool ownSpeed = c.PlaybackFor(rows.Id).Speed == 5 && c.PlaybackFor(login.Id).Speed == 0.5 && main.Recorder.HotkeyErrorText == "";
+
+                c.Settings.RecordingSettings.Clear();
+                c.Settings.Playback.Speed = speed;
+                c.SelectRecording(before);
+                c.MarkDirty(SaveParts.Settings);
+                c.RefreshRecordings();
+                shell.Deck.Update();
+                bool deckBack = !shell.Deck.ButtonLabels.Contains("▶  Copy table rows");
+                if (!(converted && hotkey && deck && ownSpeed && deckBack))
+                    throw new Exception(string.Join(",", converted, hotkey, deck, ownSpeed, deckBack) + (made == null ? "" : " " + made.Script.Replace("\n", " / ")));
+                return true;
+            });
+            Check("Remove examples takes out the unchanged examples, and Undo puts them back", () =>
+            {
+                int phrases = c.Phrases.Count, macros = c.Macros.Count;
+                int count = Examples.AddMissing(c.Phrases, c.Macros);
+                c.MarkDirty(SaveParts.Phrases | SaveParts.Macros);
+                int newPhrases = c.Phrases.Count - phrases, newMacros = c.Macros.Count - macros;
+                bool added = count == newPhrases + newMacros && newPhrases >= 8 && newMacros >= 8;
+                int removedPhrases = main.Phrases.RemoveExampleItems();
+                int removedMacros = main.Macros.RemoveExampleItems();
+                bool removed = removedPhrases == newPhrases && removedMacros == newMacros && c.Phrases.Count == phrases && c.Macros.Count == macros && !main.Phrases.OffersRemoveExamples;
+                main.Phrases.Undo();
+                main.Macros.UndoLastDelete();
+                bool back = c.Phrases.Count == phrases + newPhrases && c.Macros.Count == macros + newMacros && main.Phrases.OffersRemoveExamples;
+                main.Phrases.RemoveExampleItems();
+                main.Macros.RemoveExampleItems();
+                if (!(added && removed && back && c.Phrases.Count == phrases && c.Macros.Count == macros))
+                    throw new Exception(string.Join(",", added, removed, back, removedPhrases, removedMacros));
+                return true;
+            });
             Check("Windows' own shortcuts are listed", () =>
                 KeybindReaders.Windows().Keybinds.Any(k => k.Keys == "Win+V") && KeybindReaders.Windows().Keybinds.All(k => !k.Combo.IsEmpty));
             Check("keybinds tab lists every app and says where keys work", () =>
@@ -457,7 +516,17 @@ namespace MacroKit.App
                 main.Keybinds.SetSearch("ctrl+alt+shift+k");
                 Settle(main);
                 bool free = main.Keybinds.VerdictText.Contains("is free");
+                main.Keybinds.SetSearch("k shift alt ctrl");
+                Settle(main);
+                bool anyOrderChecks = main.Keybinds.VerdictText.Contains("is free");
+                main.Keybinds.SetSearch("alt ctrl shift");
+                Settle(main);
+                List<Keybind> threeMods = main.Keybinds.ShownRows;
+                const HotkeyModifiers all3 = HotkeyModifiers.Ctrl | HotkeyModifiers.Shift | HotkeyModifiers.Alt;
+                bool modsOnly = threeMods.Count > 0 && threeMods.All(k => (k.Combo.Modifiers & all3) == all3)
+                    && threeMods.Any(k => k.Combo.Vk == 'R' && k.Combo.Modifiers == all3);
                 main.Keybinds.SetSearch("");
+                if (!anyOrderChecks || !modsOnly) throw new Exception("any order: verdict " + anyOrderChecks + ", Ctrl+Shift+Alt rows " + threeMods.Count + " " + string.Join("|", threeMods.Select(k => k.Keys)));
                 return catalog != null && catalog.Apps.Count >= 5 && prtsc && jancy && free
                     && catalog.Clashes().Any(x => x.A.App == KeybindReaders.MacroKitName && x.B.App == KeybindReaders.JancyName)
                     && catalog.Apps.Any(a => a.App == OtherAppReaders.PowerToysName && a.Keybinds.Count == 3)
@@ -835,6 +904,12 @@ namespace MacroKit.App
             {
                 shell.Pill.Render(new ActivityInfo(), "Can't find the window to run in (Chrome.exe, title contains “Orders”). Open it and try again.", true);
                 RenderFloating(shell.Pill, Path.Combine(folder, "7-pill-error-" + suffix + ".png"));
+            });
+            Step("render recorder bar (" + suffix + ")", () =>
+            {
+                shell.RecorderBar.Render(new ActivityInfo { Kind = ActivityKind.Recording, Name = "Recording", Started = now.AddSeconds(-12) });
+                RenderFloating(shell.RecorderBar, Path.Combine(folder, "7-recorder-bar-" + suffix + ".png"));
+                shell.RecorderBar.Hide();
             });
             Step("render pill shown for moving (" + suffix + ")", () =>
             {
