@@ -43,6 +43,17 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void LeftClickIsSuggestedAndUnderstood()
+        {
+            Assert.True(PlainMacro.Suggestions.Any(s => s[0] == "left click"), "left click is in the suggestions");
+            Assert.Equal(S("click"), S("left click"));
+            // Enter takes the highlighted suggestion only for a line that isn't a step yet ("typ"), not for one that is ("click").
+            PlainKind kind; string error;
+            Assert.True(PlainMacro.Translate("typ", out kind, out error) == null || error != null, "typ is not a step");
+            Assert.True(PlainMacro.Translate("click", out kind, out error) != null && error == null, "click is a step");
+        }
+
+        [Test]
         public static void KeysAndShortcuts()
         {
             Assert.Equal("{{CTRL}{C}}", S("ctrl+c"));

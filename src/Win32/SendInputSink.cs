@@ -42,6 +42,21 @@ namespace MacroKit.Win32
         }
 
         /// <summary>
+        /// Macros type a few characters at a time and let the caller wait for the window in between. Some programs (the
+        /// Windows 11 Notepad among them) drop or repeat characters when a long burst arrives all at once.
+        /// </summary>
+        public void TypeTextPaced(string text, Action betweenBatches)
+        {
+            bool first = true;
+            foreach (Native.INPUT[] batch in InputPackets.TextBatches(text, scanFor, InputPackets.PacedTextBatch))
+            {
+                if (!first && betweenBatches != null) betweenBatches();
+                first = false;
+                Send(batch);
+            }
+        }
+
+        /// <summary>
         /// SetCursorPos takes physical pixels because the app manifest declares PerMonitorV2 DPI awareness; without that
         /// Windows would scale the coordinates and the cursor would land in the wrong place on a scaled monitor.
         /// </summary>

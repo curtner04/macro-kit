@@ -764,7 +764,7 @@ namespace MacroKit.Macros
             new[] { "wait for Notepad 10s", "Wait for a window to open" },
             new[] { "space 10 times every 100ms", "Press a key several times" },
             new[] { "hold shift", "Hold a key down" }, new[] { "release shift", "Let go of a held key" },
-            new[] { "click", "Left click" }, new[] { "right click", "Right click" }, new[] { "double click", "Double-click" },
+            new[] { "click", "Left click" }, new[] { "left click", "Left click" }, new[] { "right click", "Right click" }, new[] { "double click", "Double-click" },
             new[] { "middle click", "Middle click" }, new[] { "hold left mouse", "Hold the left button" }, new[] { "release left mouse", "Let go of the left button" },
             new[] { "move mouse to 640, 400", "Move the pointer" }, new[] { "move mouse by 10, 0", "Nudge the pointer" },
             new[] { "scroll down 3", "Mouse wheel" }, new[] { "scroll up 3", "Mouse wheel" },

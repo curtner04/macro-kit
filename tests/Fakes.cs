@@ -61,6 +61,10 @@ namespace MacroKit.Tests
             Done(l);
         }
 
+        /// <summary>Logs one "text" line like TypeText; counts how often the runner asked to pace it.</summary>
+        public int PacedCalls;
+        public void TypeTextPaced(string text, Action betweenBatches) { PacedCalls++; TypeText(text); }
+
         public void TypeText(string text)
         {
             string l = "text " + (text ?? "").Replace("\r", "").Replace("\n", "\\n").Replace("\t", "\\t");
@@ -208,6 +212,10 @@ namespace MacroKit.Tests
         public WindowInfo Find(WindowMatch match) { return windows.FirstOrDefault(w => match != null && match.Matches(w)); }
 
         public bool IsOwnWindow(IntPtr hwnd) { return ownHandles.Contains(hwnd); }
+
+        /// <summary>The windows WaitUntilReady was asked about, in order.</summary>
+        public readonly List<IntPtr> ReadyChecks = new List<IntPtr>();
+        public bool WaitUntilReady(IntPtr hwnd, int timeoutMs) { ReadyChecks.Add(hwnd); return true; }
 
         public bool Activate(IntPtr hwnd, int timeoutMs)
         {

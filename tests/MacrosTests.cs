@@ -989,6 +989,28 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void TheRunWaitsForEachWindowToBeReadyInsteadOfRushingOn()
+        {
+            var rig = new Rig();
+            RunResult result = rig.Run("{{CTRL}{A}}Hello, World!{{ALT}{TAB}}{{CTRL}{V}}", m => m.AltTabPartner = Rig.Match("Chrome.exe"));
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal(1, rig.Input.PacedCalls);
+            // Once at the start, after each of the four steps (the switch twice: on arrival and after the step).
+            Assert.SequenceEqual(new[] { rig.Excel.Handle, rig.Excel.Handle, rig.Excel.Handle, rig.Chrome.Handle, rig.Chrome.Handle, rig.Chrome.Handle },
+                rig.Windows.ReadyChecks);
+        }
+
+        [Test]
+        public static void ARealAltTabWaitsForTheNewWindow()
+        {
+            var rig = new Rig();
+            rig.Input.OnCall = line => { if (line == "combo LALT+TAB") rig.Windows.SimulateAltTab(); };
+            RunResult result = rig.Run("{{ALT}{TAB}}");
+            Assert.True(result.Completed, result.Error);
+            Assert.True(rig.Windows.ReadyChecks.Contains(rig.Chrome.Handle), "checked the window Alt+Tab landed on");
+        }
+
+        [Test]
         public static void SmartAltTabRecognizesEveryAltSpelling()
         {
             foreach (string alt in new[] { "ALT", "LALT", "RALT", "MENU", "alt" })

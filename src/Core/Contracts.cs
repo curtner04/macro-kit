@@ -22,6 +22,7 @@ namespace MacroKit.Core
         void KeyUp(ushort vk);
         void KeyCombo(IList<ushort> keys);       // all down in order, ~15 ms hold, all up in reverse order
         void TypeText(string text);              // Unicode; '\n' = Enter key, '\t' = Tab key, '\r' dropped
+        void TypeTextPaced(string text, Action betweenBatches); // the same, a few characters at a time, calling betweenBatches between them
         void MouseMoveTo(int x, int y);          // absolute physical pixels on the virtual desktop
         void MouseMoveBy(int dx, int dy);        // relative, exact pixels (no mouse acceleration)
         void MouseButton(MouseButton button, bool down);
@@ -191,5 +192,6 @@ namespace MacroKit.Core
         bool IsOwnWindow(IntPtr hwnd);                    // belongs to this process
         IntPtr LastExternalForeground { get; }            // most recent switchable foreground window not owned by this process
         bool IsSwitchable(IntPtr hwnd);                   // Alt+Tab would list it and it is not ours (false for the taskbar, desktop, Start menu, task switcher)
+        bool WaitUntilReady(IntPtr hwnd, int timeoutMs);  // its program answers messages and has keyboard focus somewhere; false on timeout
     }
 }

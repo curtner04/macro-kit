@@ -359,6 +359,14 @@ namespace MacroKit.App
             Put(start, end, text, caret);
         }
 
+        bool LineIsComplete()
+        {
+            int start, end;
+            LineAround(box.CaretIndex, out start, out end);
+            PlainKind kind;
+            string error;
+            return PlainMacro.Translate(box.Text.Substring(start, end - start), out kind, out error) != null && error == null;
+        }
         void BoxKeyDown(object sender, KeyEventArgs e)
         {
             if (!suggest.IsOpen)
@@ -379,7 +387,9 @@ namespace MacroKit.App
                 case Key.Tab:
                     e.Handled = true; Accept(); break;
                 case Key.Enter:
-                    if (picked) { e.Handled = true; Accept(); }
+                    // Enter takes the highlighted suggestion. Only a line that is already a whole step ("click", "left")
+                    // keeps Enter as a new line, unless an arrow key moved to a suggestion.
+                    if (picked || !LineIsComplete()) { e.Handled = true; Accept(); }
                     else CloseSuggestions();
                     break;
                 case Key.Escape:

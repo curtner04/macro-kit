@@ -14,6 +14,9 @@ namespace MacroKit.Win32
         /// <summary>Most characters typed per SendInput call, so a long phrase never monopolises the input queue in one go.</summary>
         public const int MaxTextBatch = 64;
 
+        /// <summary>Characters per SendInput call when a macro types text and waits for the window between calls.</summary>
+        public const int PacedTextBatch = 8;
+
         /// <summary>Layout-dependent VK to scan code (MapVirtualKey). Extended keys come back without their 0xE0 prefix; the flag carries that.</summary>
         public static ushort ScanFor(ushort vk)
         {
@@ -80,6 +83,11 @@ namespace MacroKit.Win32
         /// </summary>
         public static List<Native.INPUT[]> TextBatches(string text, Func<ushort, ushort> scanFor)
         {
+            return TextBatches(text, scanFor, MaxTextBatch);
+        }
+
+        public static List<Native.INPUT[]> TextBatches(string text, Func<ushort, ushort> scanFor, int maxBatch)
+        {
             var batches = new List<Native.INPUT[]>();
             if (string.IsNullOrEmpty(text)) return batches;
             var current = new List<Native.INPUT>();
@@ -90,7 +98,7 @@ namespace MacroKit.Win32
                 if (c == '\r') continue;
                 bool pair = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]);
                 int units = pair ? 2 : 1;
-                if (characters + units > MaxTextBatch)
+                if (characters + units > maxBatch && characters > 0)
                 {
                     batches.Add(current.ToArray());
                     current.Clear();

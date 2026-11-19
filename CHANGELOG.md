@@ -1,5 +1,13 @@
 # Macro Kit changelog
 
+## 1.5.4 - 2026-11-19
+
+- Macros wait for the window to catch up instead of rushing on. After every step, and after switching windows, Macro Kit waits (up to a second) until the window's program is responding and ready for keys before sending the next step. Most `wait` lines between steps are no longer needed.
+- Typed text goes out a few characters at a time with that check in between, so slow programs such as the Windows 11 Notepad no longer drop characters (a missing "!") or repeat one ("hhhh").
+- A real Alt+Tab waits for the switch to finish and for the new window to be ready.
+- In **Type it**, Enter takes the highlighted suggestion, so `typ` then Enter gives `type ""`. A line that is already a whole step, such as `click`, still starts a new line unless you moved to a suggestion with the arrow keys.
+- `left click` is in the suggestions (it means the same as `click`).
+
 ## 1.5.3 - 2026-11-19
 
 - **Where it runs** is simpler. The chosen window now appears as a card with the program name, whether a title narrows it, and **Open now** or **Not open right now**. Before, the list still said *Choose an open window* after you had chosen one.

@@ -171,6 +171,19 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void PacedTextGoesEightCharactersAtATimeWithoutSplittingAPair()
+        {
+            List<Native.INPUT[]> batches = InputPackets.TextBatches("Hello, World!", FakeScan, InputPackets.PacedTextBatch);
+            Assert.Equal(2, batches.Count);
+            Assert.Equal(16, batches[0].Length);
+            Assert.Equal((ushort)'!', batches[1][batches[1].Length - 2].ki.wScan);
+            // Seven letters then an emoji (a surrogate pair): the pair moves whole into the next batch.
+            List<Native.INPUT[]> pair = InputPackets.TextBatches("abcdefg\U0001F600", FakeScan, InputPackets.PacedTextBatch);
+            Assert.Equal(2, pair.Count);
+            Assert.Equal(4, pair[1].Length);
+        }
+
+        [Test]
         public static void NewlineAndTabArePressedAsRealKeysAndCarriageReturnIsDropped()
         {
             Native.INPUT[] p = InputPackets.TextBatches("a\r\nb\tc", FakeScan).Single();

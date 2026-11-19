@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using MacroKit.Core;
@@ -208,6 +209,36 @@ namespace MacroKit.Win32
                 if (attached) Native.AttachThreadInput(thisThread, foregroundThread, false);
             }
         }
+
+        /// <summary>
+        /// Waits until the window's program has caught up: its thread answers a do-nothing message (so it is not busy with
+        /// earlier keys or a switch) and, after a window switch, something in it has keyboard focus. Windows has no signal for
+        /// "the keys were handled", so this is the closest check there is. Gives up after timeoutMs and returns false.
+        /// </summary>
+        public bool WaitUntilReady(IntPtr hwnd, int timeoutMs)
+        {
+            if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd)) return false;
+            var watch = Stopwatch.StartNew();
+            Func<uint> remaining = () => (uint)Math.Max(1, timeoutMs - watch.ElapsedMilliseconds);
+            IntPtr ignored;
+            // Two round trips: the first can be answered just before the thread picks up waiting input, the second after it.
+            for (int i = 0; i < 2; i++)
+            {
+                if (Native.SendMessageTimeout(hwnd, Native.WM_NULL, IntPtr.Zero, IntPtr.Zero, Native.SMTO_ABORTIFHUNG | Native.SMTO_BLOCK, remaining(), out ignored) == IntPtr.Zero)
+                    return false;
+            }
+            uint pid;
+            uint thread = Native.GetWindowThreadProcessId(hwnd, out pid);
+            if (thread == 0) return false;
+            return PollUntil(() =>
+            {
+                var info = new Native.GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(Native.GUITHREADINFO)) };
+                // Focus inside it, or at least the window active (some programs, such as games, never focus a child).
+                return Native.GetGUIThreadInfo(thread, ref info) && (info.hwndFocus != IntPtr.Zero || info.hwndActive != IntPtr.Zero);
+            }, Math.Min(FocusWaitMs, (int)remaining()));
+        }
+
+        const int FocusWaitMs = 300;
 
         // Checks the condition, then every 10 ms until it holds or ms have passed. One check always happens, even for 0 ms.
         static bool PollUntil(Func<bool> condition, int ms)

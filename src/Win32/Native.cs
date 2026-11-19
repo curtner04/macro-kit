@@ -282,6 +282,30 @@ namespace MacroKit.Win32
         [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
+        public const uint WM_NULL = 0x0000;
+        public const uint SMTO_BLOCK = 0x0001;
+        public const uint SMTO_ABORTIFHUNG = 0x0002;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct GUITHREADINFO
+        {
+            public int cbSize;
+            public uint flags;
+            public IntPtr hwndActive;
+            public IntPtr hwndFocus;
+            public IntPtr hwndCapture;
+            public IntPtr hwndMenuOwner;
+            public IntPtr hwndMoveSize;
+            public IntPtr hwndCaret;
+            public RECT rcCaret;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO info);
+
         [DllImport("user32.dll")]
         public static extern bool IsWindow(IntPtr hWnd);
 

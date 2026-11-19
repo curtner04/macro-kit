@@ -178,6 +178,7 @@ namespace MacroKit.Macros
                 PrimeFocus();
                 SeedVariables();
                 AnnounceTargetReady();
+                WaitForReady();
 
                 totalPasses = TotalPasses();
                 for (pass = 1; totalPasses == 0 || pass <= totalPasses; pass++)
@@ -466,6 +467,7 @@ namespace MacroKit.Macros
             void SwitchTo(WindowInfo window)
             {
                 if (Windows.Foreground != window.Handle) Activate(window);
+                WaitForReady();
                 if (partner != null && window.Handle == partner.Handle) return;
                 target = window;
                 otherWindow = IntPtr.Zero;
@@ -524,8 +526,13 @@ namespace MacroKit.Macros
                         if (IsSmartAltTab(step)) SwitchWindow(step);
                         else
                         {
+                            IntPtr before = Windows.Foreground;
                             PressCombo(step.Keys);
-                            if (IsAltTabCombo(step) && GuardsSpecificWindowWithoutPartner() && otherWindow == IntPtr.Zero) awaitingOtherWindow = true;
+                            if (IsAltTabCombo(step))
+                            {
+                                if (GuardsSpecificWindowWithoutPartner() && otherWindow == IntPtr.Zero) awaitingOtherWindow = true;
+                                WaitForSwitchAway(before);
+                            }
                         }
                         break;
                     case StepKind.KeyDown:
@@ -548,7 +555,7 @@ namespace MacroKit.Macros
                         }
                         break;
                     case StepKind.Text:
-                        Input.TypeText(step.Text);
+                        TypePaced(step.Text);
                         break;
                     case StepKind.MouseMoveTo:
                         Input.MouseMoveTo(step.X, step.Y);
@@ -590,7 +597,7 @@ namespace MacroKit.Macros
                         break;
                     case StepKind.OutputVar:
                         string text = Lookup(step.Var);
-                        if (text.Length > 0) Input.TypeText(text);
+                        if (text.Length > 0) TypePaced(text);
                         break;
                     case StepKind.UnsetVar:
                         variables.Remove(step.Var);
@@ -651,7 +658,43 @@ namespace MacroKit.Macros
                         WaitForWindow(step);
                         break;
                 }
-                if (step.SendsInput) Wait(macro.KeyDelayMs);
+                if (step.SendsInput)
+                {
+                    Wait(macro.KeyDelayMs);
+                    WaitForReady();
+                }
+            }
+
+            // ---- Waiting for the window to catch up ----
+
+            const int ReadyTimeoutMs = 1000;
+
+            // Before the next step, let the window in front finish what it was sent: Windows has no "done" signal for keys,
+            // so this waits until its program answers and has keyboard focus (at most a second, then the run goes on).
+            void WaitForReady()
+            {
+                IntPtr front = Windows.Foreground;
+                if (front != IntPtr.Zero && !Windows.IsOwnWindow(front)) Windows.WaitUntilReady(front, ReadyTimeoutMs);
+                token.ThrowIfCancellationRequested();
+            }
+
+            // Text goes a few characters at a time with the key delay and a ready check in between, so a slow program
+            // never drops or repeats characters.
+            void TypePaced(string text)
+            {
+                Input.TypeTextPaced(text, () =>
+                {
+                    Wait(macro.KeyDelayMs);
+                    WaitForReady();
+                });
+            }
+
+            // A real Alt+Tab: wait for the switch to happen and for the new window to be ready, instead of a fixed pause.
+            void WaitForSwitchAway(IntPtr before)
+            {
+                long deadline = Clock.NowMs + AltTabActivateTimeoutMs;
+                while (Windows.Foreground == before && Clock.NowMs < deadline) Clock.Sleep(PollMs, token);
+                WaitForReady();
             }
 
             void PressCombo(ushort[] keys)
@@ -713,7 +756,7 @@ namespace MacroKit.Macros
             void SwitchWindow(MacroStep step)
             {
                 WindowInfo other = AltTabDestination();
-                if (Windows.Activate(other.Handle, AltTabActivateTimeoutMs)) return;
+                if (Windows.Activate(other.Handle, AltTabActivateTimeoutMs)) { WaitForReady(); return; }
 
                 PressCombo(step.Keys);
                 long deadline = Clock.NowMs + AltTabActivateTimeoutMs;
@@ -722,6 +765,7 @@ namespace MacroKit.Macros
                     if (Clock.NowMs >= deadline) throw new RunStopped("Alt+Tab didn't switch to " + NameOf(other) + ", so the macro stopped before typing in the wrong place.");
                     Clock.Sleep(PollMs, token);
                 }
+                WaitForReady();
             }
 
             // ---- Focus guard ----

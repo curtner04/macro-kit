@@ -1154,6 +1154,7 @@ namespace MacroKit.App
             public void KeyUp(ushort vk) { throw Off(); }
             public void KeyCombo(IList<ushort> keys) { throw Off(); }
             public void TypeText(string text) { throw Off(); }
+            public void TypeTextPaced(string text, Action betweenBatches) { throw Off(); }
             public void MouseMoveTo(int x, int y) { throw Off(); }
             public void MouseMoveBy(int dx, int dy) { throw Off(); }
             public void MouseButton(Core.MouseButton button, bool down) { throw Off(); }
