@@ -243,8 +243,12 @@ namespace MacroKit.Core
             if (source == null || node is string || node is IDictionary) throw new FormatException("Expected a list.");
             Type elementType = listType.GetGenericArguments()[0];
             var result = (IList)Activator.CreateInstance(listType);
+            bool nullable = Nullable.GetUnderlyingType(elementType) != null;
             foreach (object item in source)
             {
+                // A null entry (a hand edit or a half-damaged file) is skipped: the loaders expect real items, and a null
+                // event would otherwise become a zero event.
+                if (item == null && !nullable) continue;
                 try { result.Add(ConvertNode(elementType, item)); }
                 catch (Exception e) when (e is FormatException || e is InvalidCastException || e is OverflowException) { /* skip an entry that does not fit */ }
             }

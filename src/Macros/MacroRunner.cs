@@ -149,6 +149,10 @@ namespace MacroKit.Macros
             IntPtr otherWindow;               // specific window, no partner: the window the first real Alt+Tab settled on
             bool awaitingOtherWindow;         // a real Alt+Tab was sent and its destination is not known yet
             int pass, totalPasses;
+            bool passBusy;                    // this pass sent input or waited (a pass that did neither would otherwise spin when the macro is continuous)
+            HashSet<IntPtr> windowsBeforeOpen; // the windows there were when the last {{RUN}} started, until the next {{WAITWINDOW}}
+            IntPtr frontBeforeOpen;
+            long openedAtMs;
 
             IInputSink Input { get { return owner.input; } }
             IWindowSystem Windows { get { return owner.windows; } }
@@ -184,10 +188,14 @@ namespace MacroKit.Macros
                 for (pass = 1; totalPasses == 0 || pass <= totalPasses; pass++)
                 {
                     token.ThrowIfCancellationRequested();
+                    passBusy = false;
+                    windowsBeforeOpen = null;   // a {{RUN}} only counts for the {{WAITWINDOW}} that follows it in the same pass
                     RunPass();
                     result.PassesDone = pass;
                     bool more = totalPasses == 0 || pass < totalPasses;
-                    if (more) Wait(macro.RepeatDelayMs);
+                    // A continuous macro that is only waiting for its condition (an {{IFWINDOW}}) would spin a whole core; give it a short rest.
+                    if (more && totalPasses == 0 && macro.RepeatDelayMs <= 0 && !passBusy) Clock.Sleep(PollMs, token);
+                    else if (more) Wait(macro.RepeatDelayMs);
                 }
                 result.Completed = true;
             }
@@ -290,7 +298,7 @@ namespace MacroKit.Macros
                     throw new RunStopped("Windows didn't let Macro Kit switch to " + NameOf(window) + ".");
             }
 
-            void SeedVariables()
+            void SeedCharacters()
             {
                 variables["SMCOLON"] = ":";
                 variables["SMDOLLAR"] = "$";
@@ -298,6 +306,11 @@ namespace MacroKit.Macros
                 variables["SMRCB"] = "}";
                 variables["SMSPACE"] = " ";
                 variables["SMENTER"] = "\n";
+            }
+
+            void SeedVariables()
+            {
+                SeedCharacters();
                 ScreenPoint cursor = Input.CursorPosition;
                 variables["MOUSE_X"] = cursor.X.ToString(CultureInfo.InvariantCulture);
                 variables["MOUSE_Y"] = cursor.Y.ToString(CultureInfo.InvariantCulture);
@@ -429,14 +442,22 @@ namespace MacroKit.Macros
                 if (!inner.Ok) throw new RunStopped("“" + other.Name + "” has a problem on line " + inner.Errors[0].Line + ": " + inner.Errors[0].Message);
                 Raise(frame.Prefix + step.Describe(), shownIndex, shownCount);
                 var chain = new List<string>(frame.Chain) { key };
-                RunSteps(inner.Steps, new Frame
+                try
                 {
-                    Key = frame.Key + ">" + key,
-                    Chain = chain,
-                    Prefix = frame.Prefix + other.Name + ": ",
-                    ReportIndex = shownIndex,
-                    ReportCount = shownCount
-                });
+                    RunSteps(inner.Steps, new Frame
+                    {
+                        Key = frame.Key + ">" + key,
+                        Chain = chain,
+                        Prefix = frame.Prefix + other.Name + ": ",
+                        ReportIndex = shownIndex,
+                        ReportCount = shownCount
+                    });
+                }
+                catch (RunStopped ex) when (ex.Message.StartsWith("Line ", StringComparison.Ordinal))
+                {
+                    // The line number belongs to the inner macro; say so. The message no longer starts with "Line ", so outer macros pass it on as it is.
+                    throw new RunStopped("In “" + other.Name + "”, l" + ex.Message.Substring(1));
+                }
             }
 
             const int MaxNesting = 8;
@@ -474,13 +495,59 @@ namespace MacroKit.Macros
                 awaitingOtherWindow = false;
             }
 
+            // After a {{RUN}}, a {{WAITWINDOW}} is for the window that run opens, not one that was already there (or the one in front).
+            // The first {{RUN}} since the last {{WAITWINDOW}} sets which windows count as already open; each {{RUN}} restarts the wait.
+            void NoteWindowsBeforeOpen()
+            {
+                if (windowsBeforeOpen == null)
+                    windowsBeforeOpen = new HashSet<IntPtr>(Windows.ListSwitchableWindows().Where(w => w != null).Select(w => w.Handle));
+                frontBeforeOpen = Windows.Foreground;
+                openedAtMs = Clock.NowMs;
+            }
+
+            const int ReusedWindowGraceMs = 1500;
+            const int ReusedWindowFallbackMs = 5000;   // after this long with no new window, any matching window will do, as without a {{RUN}}
+
+            // A window that matches and is new since the {{RUN}}. One that was already open counts once it has come to the front since then
+            // (the program reused it), or, when it was in front all along, after a short wait with no new window.
+            WindowInfo FindWindowAfterOpen(string text)
+            {
+                text = (text ?? "").Trim();
+                if (text.Length == 0) return null;
+                Func<WindowInfo, bool> matches = w => w != null
+                    && ((w.Title ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0 || (w.ProcessName ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0);
+                IList<WindowInfo> listed = Windows.ListSwitchableWindows();
+                WindowInfo fresh = listed.FirstOrDefault(w => matches(w) && !windowsBeforeOpen.Contains(w.Handle));
+                if (fresh != null) return fresh;
+                IntPtr front = Windows.Foreground;
+                if (front == IntPtr.Zero || Windows.IsOwnWindow(front)) return null;
+                WindowInfo inFront = Windows.Describe(front);
+                if (!matches(inFront)) return null;
+                if (front != frontBeforeOpen || Clock.NowMs - openedAtMs >= ReusedWindowGraceMs) return inFront;
+                return null;
+            }
+
             void WaitForWindow(MacroStep step)
             {
                 string wanted = Substitute(step.Value).Trim();
                 long deadline = Clock.NowMs + step.Ms;
+                try
+                {
+                    WaitForWindowCore(step, wanted, deadline);
+                }
+                finally
+                {
+                    windowsBeforeOpen = null;
+                }
+            }
+
+            void WaitForWindowCore(MacroStep step, string wanted, long deadline)
+            {
                 while (true)
                 {
-                    WindowInfo window = FindWindow(wanted);
+                    WindowInfo window = windowsBeforeOpen == null ? FindWindow(wanted) : FindWindowAfterOpen(wanted);
+                    if (window == null && windowsBeforeOpen != null && (Clock.NowMs >= deadline || Clock.NowMs - openedAtMs >= ReusedWindowFallbackMs))
+                        window = FindWindow(wanted);
                     if (window != null) { SwitchTo(window); return; }
                     if (Clock.NowMs >= deadline)
                         throw new RunStopped("Line " + step.Line + ": no window matching “" + wanted + "” opened within " + (step.Ms / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + " seconds.");
@@ -515,7 +582,7 @@ namespace MacroKit.Macros
             void RunStep(MacroStep step)
             {
                 if (step.IsDynamic) step = FillInNumbers(step);
-                if (step.SendsInput) CheckFocus();
+                if (step.SendsInput) { passBusy = true; CheckFocus(); }
 
                 switch (step.Kind)
                 {
@@ -619,6 +686,7 @@ namespace MacroKit.Macros
                             string what, arguments;
                             MacroParser.SplitRun(Substitute(step.Value), out what, out arguments);
                             if (what.Length == 0) throw new RunStopped("Line " + step.Line + ": {{RUN}} has nothing to open. Check that the variable it uses has been set.");
+                            NoteWindowsBeforeOpen();
                             Fail(step, owner.Actions.Open(what, arguments));
                             break;
                         }
@@ -685,11 +753,35 @@ namespace MacroKit.Macros
             // never drops or repeats characters.
             void TypePaced(string text)
             {
-                if (ShouldPaste(text) && PasteViaClipboard(text)) return;
+                if (ShouldPaste(text))
+                {
+                    // A line break at the end is a key press (it submits a form); only the rest is pasted.
+                    int end = text.Length, enters = 0;
+                    while (end > 0 && (text[end - 1] == '\n' || text[end - 1] == '\r'))
+                    {
+                        if (text[end - 1] == '\n') enters++;
+                        end--;
+                    }
+                    if (enters == 0)
+                    {
+                        if (PasteViaClipboard(text)) return;
+                    }
+                    else if (end >= PasteMinLength && PasteViaClipboard(text.Substring(0, end)))
+                    {
+                        for (int i = 0; i < enters; i++)
+                        {
+                            Wait(macro.KeyDelayMs);
+                            CheckFocus();
+                            PressCombo(new ushort[] { 0x0D });
+                        }
+                        return;
+                    }
+                }
                 Input.TypeTextPaced(text, () =>
                 {
                     Wait(macro.KeyDelayMs);
                     WaitForReady();
+                    CheckFocus();   // a long text must not keep typing into a window that took focus on the way
                 });
             }
 
@@ -898,7 +990,16 @@ namespace MacroKit.Macros
             string Lookup(string name)
             {
                 string value;
-                return variables.TryGetValue(name, out value) && value != null ? value : "";
+                if (variables.TryGetValue(name, out value)) return value ?? "";
+                return Now(name) ?? "";
+            }
+
+            // $DATE and $TIME are this PC's short date and time, read when they are used (the same as {date} and {time} in a phrase), unless the script set a variable of that name.
+            static string Now(string name)
+            {
+                if (name.Equals("DATE", StringComparison.OrdinalIgnoreCase)) return DateTime.Now.ToString("d", CultureInfo.CurrentCulture);
+                if (name.Equals("TIME", StringComparison.OrdinalIgnoreCase)) return DateTime.Now.ToString("t", CultureInfo.CurrentCulture);
+                return null;
             }
 
             string Substitute(string text)
@@ -912,6 +1013,8 @@ namespace MacroKit.Macros
             {
                 string value;
                 if (variables.TryGetValue(name, out value)) return value ?? "";
+                string now = Now(name);
+                if (now != null) return now;
                 foreach (string builtIn in BuiltInCharacters)
                 {
                     if (name.StartsWith(builtIn, StringComparison.OrdinalIgnoreCase)) return Lookup(builtIn) + name.Substring(builtIn.Length);
@@ -925,11 +1028,12 @@ namespace MacroKit.Macros
                 var remove = new List<string>();
                 foreach (string name in variables.Keys)
                 {
-                    bool builtIn = name.StartsWith("SM", StringComparison.OrdinalIgnoreCase)
+                    bool builtIn = BuiltInCharacters.Contains(name, StringComparer.OrdinalIgnoreCase)
                         || name.Equals("MOUSE_X", StringComparison.OrdinalIgnoreCase) || name.Equals("MOUSE_Y", StringComparison.OrdinalIgnoreCase);
                     if (!builtIn) remove.Add(name);
                 }
                 foreach (string name in remove) variables.Remove(name);
+                SeedCharacters();   // in case the script had overwritten one of them
             }
 
             MacroStep FillInNumbers(MacroStep step)
@@ -945,7 +1049,7 @@ namespace MacroKit.Macros
 
             void Wait(int ms)
             {
-                if (ms > 0) Clock.Sleep(ms, token);
+                if (ms > 0) { passBusy = true; Clock.Sleep(ms, token); }
                 else token.ThrowIfCancellationRequested();
             }
 

@@ -10,6 +10,7 @@ namespace MacroKit.Core
     public enum InsertMethod { Type, Paste }
     public enum RunOrigin { MainWindow, Deck, Hotkey, Tray, Schedule }
     public enum ScheduleKind { Off, Daily, Every, Once }
+    public enum ScheduleAction { Run, Wait, Skip }
 
     /// <summary>
     /// When a macro runs by itself (Macro Kit Pro). Runs happen only while Macro Kit is running; a time missed while it was
@@ -26,6 +27,10 @@ namespace MacroKit.Core
         public int Days { get; set; }
         public int EveryMinutes { get; set; }
         public string At { get; set; }
+        // The last time a scheduled run came due, as "yyyy-MM-dd HH:mm", and how it ended ("finished", "stopped", "skipped: ...").
+        // Not part of the schedule itself: changing the schedule keeps them.
+        public string LastRun { get; set; }
+        public string LastResult { get; set; }
 
         public MacroSchedule()
         {
@@ -34,6 +39,24 @@ namespace MacroKit.Core
             Days = EveryDay;
             EveryMinutes = 30;
             At = "";
+            LastRun = "";
+            LastResult = "";
+        }
+
+        /// <summary>"Last run Tue 17 Nov at 09:00: finished." or an empty text when it never ran.</summary>
+        public string DescribeLastRun()
+        {
+            DateTime when;
+            if (!DateTime.TryParseExact(LastRun ?? "", "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out when)) return "";
+            string result = (LastResult ?? "").Trim();
+            return "Last run " + when.ToString("ddd d MMM 'at' HH:mm", CultureInfo.InvariantCulture) + (result.Length == 0 ? "." : ": " + result + ".");
+        }
+
+        /// <summary>Notes how a scheduled run went, for <see cref="DescribeLastRun"/>.</summary>
+        public void NoteRun(DateTime when, string result)
+        {
+            LastRun = when.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+            LastResult = result ?? "";
         }
 
         public static bool TryParseTime(string text, out TimeSpan time)
@@ -96,6 +119,18 @@ namespace MacroKit.Core
             }
         }
 
+        /// <summary>
+        /// What to do with a run that is due: run it, wait (Macro Kit is busy, try again on the next check) or skip it. A run more
+        /// than <paramref name="grace"/> late is skipped even when Macro Kit is free, so a macro due at 09:00 never types into
+        /// whatever window is in front when the PC wakes up at 17:00.
+        /// </summary>
+        public static ScheduleAction Decide(DateTime now, DateTime due, bool busy, TimeSpan grace)
+        {
+            if (now < due) return ScheduleAction.Wait;
+            if (now - due > grace) return ScheduleAction.Skip;
+            return busy ? ScheduleAction.Wait : ScheduleAction.Run;
+        }
+
         static readonly string[] DayNames = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 
         public static string DaysText(int days)
@@ -144,6 +179,7 @@ namespace MacroKit.Core
         public string DeckColor { get; set; }             // "" = none, or Blue, Green, Orange, Red, Purple: a stripe on its Deck button
         public string DeckIcon { get; set; }              // "" = none, or a short emoji or symbol shown before the name on the Deck
         public MacroSchedule Schedule { get; set; }      // Pro; Off by default
+        public bool Enabled { get; set; }                 // off = its hotkey and schedule do nothing (it still runs from its button, the Deck or another macro)
 
         public MacroDef()
         {
@@ -165,6 +201,7 @@ namespace MacroKit.Core
             DeckColor = "";
             DeckIcon = "";
             Schedule = new MacroSchedule();
+            Enabled = true;
         }
     }
 
@@ -274,6 +311,8 @@ namespace MacroKit.Core
         public bool ShowAllCommands { get; set; }         // the Macros tab shows the full command palette
         public bool ShowMacroOptions { get; set; }        // the Macros tab shows the repeat, window, hotkey and schedule cards
         public string RecordKeyDelays { get; set; }       // Record keystrokes: "None", "Standard" (50 ms) or "Real" (the pauses as pressed)
+        public bool TrayCloseNoticeShown { get; set; }    // the first close to the tray said where Macro Kit went (shown once)
+        public bool WindowMaximized { get; set; }         // the main window was maximized when last used (the size above is the normal one)
 
         public AppSettings()
         {
@@ -370,6 +409,19 @@ namespace MacroKit.Core
         public static string DefaultName(DateTime when)
         {
             return "Recording " + when.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// A recording's name as a Deck button reads it: the default "Recording 2026-11-12 08:41" becomes "Replay 11-12 08:41", so
+        /// it cannot be taken for a button that records. A name the person chose is left alone.
+        /// </summary>
+        public static string DeckName(string name)
+        {
+            DateTime when;
+            const string prefix = "Recording ";
+            if (name == null || !name.StartsWith(prefix, StringComparison.Ordinal)) return name;
+            if (!DateTime.TryParseExact(name.Substring(prefix.Length), "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out when)) return name;
+            return "Replay " + when.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture);
         }
     }
 

@@ -22,7 +22,7 @@ namespace MacroKit.Core
         void KeyUp(ushort vk);
         void KeyCombo(IList<ushort> keys);       // all down in order, ~15 ms hold, all up in reverse order
         void TypeText(string text);              // Unicode; '\n' = Enter key, '\t' = Tab key, '\r' dropped
-        void TypeTextPaced(string text, Action betweenBatches); // the same, a few characters at a time, calling betweenBatches between them
+        void TypeTextPaced(string text, Action betweenBatches); // what macros use: real key presses on the layout of the window in front (Shift when needed, Caps Lock allowed for), a few characters at a time, calling betweenBatches between them; Unicode only for characters the layout lacks and dead keys
         void MouseMoveTo(int x, int y);          // absolute physical pixels on the virtual desktop
         void MouseMoveBy(int dx, int dy);        // relative, exact pixels (no mouse acceleration)
         void MouseButton(MouseButton button, bool down);
@@ -30,6 +30,17 @@ namespace MacroKit.Core
         ScreenPoint CursorPosition { get; }
         bool IsPhysicallyDown(ushort vk);        // GetAsyncKeyState
         void MouseMoveNormalized(int x65535, int y65535); // Super Macro's deprecated MOUSEPOS: 0..65535 over the primary monitor
+    }
+
+    /// <summary>
+    /// Optional extra of an <see cref="IInputSink"/>: a key with the scan code and extended flag a recording captured, so numpad
+    /// Enter, numpad keys with Num Lock off and games that read scan codes replay as the same keys. Real: Win32.SendInputSink.
+    /// Tests: Fakes.FakeInputSink. A sink without it gets the plain KeyDown/KeyUp.
+    /// </summary>
+    public interface IRawKeySink
+    {
+        void KeyDown(ushort vk, ushort scan, bool extended);
+        void KeyUp(ushort vk, ushort scan, bool extended);
     }
 
     /// <summary>Time. Real: SystemClock (Stopwatch + WaitHandle). Tests: FakeClock (virtual time).</summary>

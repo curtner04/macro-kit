@@ -12,7 +12,7 @@ namespace MacroKit.Tests
     /// Key names come from <see cref="Name"/>: L/R modifier names (LSHIFT, LCONTROL, LALT, LWIN...) and Super Macro tokens otherwise.
     /// Never sends real input.
     /// </summary>
-    public sealed class FakeInputSink : IInputSink
+    public sealed class FakeInputSink : IInputSink, IRawKeySink
     {
         public readonly List<string> Log = new List<string>();
         public readonly HashSet<ushort> HeldKeys = new HashSet<ushort>();             // base VKs
@@ -54,6 +54,15 @@ namespace MacroKit.Tests
         public void KeyDown(ushort vk) { string l = "down " + Name(vk); Record(l); HeldKeys.Add(KeyNames.BaseVk(vk)); Done(l); }
         public void KeyUp(ushort vk) { string l = "up " + Name(vk); Record(l); HeldKeys.Remove(KeyNames.BaseVk(vk)); Done(l); }
 
+        /// <summary>
+        /// The keys sent with their own scan code and extended flag (IRawKeySink), as "down RETURN 1C ext" or "up HOME 47".
+        /// They are logged in <see cref="Log"/> exactly like KeyDown/KeyUp too, so a test that only checks the keys sees no difference.
+        /// </summary>
+        public readonly List<string> RawKeys = new List<string>();
+
+        public void KeyDown(ushort vk, ushort scan, bool extended) { KeyDown(vk); RawKeys.Add("down " + Name(vk) + " " + scan.ToString("X2") + (extended ? " ext" : "")); }
+        public void KeyUp(ushort vk, ushort scan, bool extended) { KeyUp(vk); RawKeys.Add("up " + Name(vk) + " " + scan.ToString("X2") + (extended ? " ext" : "")); }
+
         public void KeyCombo(IList<ushort> keys)
         {
             string l = "combo " + string.Join("+", keys.Select(Name));
@@ -63,7 +72,18 @@ namespace MacroKit.Tests
 
         /// <summary>Logs one "text" line like TypeText; counts how often the runner asked to pace it.</summary>
         public int PacedCalls;
-        public void TypeTextPaced(string text, Action betweenBatches) { PacedCalls++; TypeText(text); }
+        /// <summary>When true, TypeTextPaced types one character per "text" line and calls betweenBatches between them, like the real pacing.</summary>
+        public bool PaceEachCharacter;
+        public void TypeTextPaced(string text, Action betweenBatches)
+        {
+            PacedCalls++;
+            if (!PaceEachCharacter) { TypeText(text); return; }
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (i > 0 && betweenBatches != null) betweenBatches();
+                TypeText(text.Substring(i, 1));
+            }
+        }
 
         public void TypeText(string text)
         {
@@ -275,8 +295,14 @@ namespace MacroKit.Tests
         public bool FailSnapshot;
         /// <summary>When true, Restore throws InvalidOperationException.</summary>
         public bool FailRestore;
+        /// <summary>When true, GetText throws InvalidOperationException (another program keeps the clipboard locked).</summary>
+        public bool FailReads;
 
-        public string GetText() { return Text; }
+        public string GetText()
+        {
+            if (FailReads) throw new InvalidOperationException("Clipboard busy (fake).");
+            return Text;
+        }
 
         public void SetText(string text)
         {

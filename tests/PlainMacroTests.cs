@@ -221,6 +221,20 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void FirstProblemNamesThePlainLine()
+        {
+            // The stored script is one line, so the parser says "Line 1" and quotes its own {{?:...}} token; this says the line typed.
+            var m = new MacroDef { Plain = "ctrl+c\r\nfrobnicate wildly" };
+            m.Script = PlainMacro.ToScript(m.Plain).Script;
+            Assert.False(MacroParser.Parse(m.Script, m.NewLineIsEnter).Ok);
+            string problem = PlainMacro.FirstProblem(m);
+            Assert.True(problem != null && problem.StartsWith("Line 2: ", StringComparison.Ordinal) && !problem.Contains("?:"), problem);
+            m.Plain = "ctrl+c";
+            m.Script = PlainMacro.ToScript(m.Plain).Script;
+            Assert.Null(PlainMacro.FirstProblem(m));
+        }
+
+        [Test]
         public static void EverySuggestionIsUnderstoodOrAStarter()
         {
             foreach (string[] s in PlainMacro.Suggestions)
@@ -234,6 +248,91 @@ namespace MacroKit.Tests
                 string error;
                 Assert.NotNull(PlainMacro.Translate(text, out kind, out error), "suggestion " + text + ": " + error);
             }
+        }
+
+        // ---- Sweep A1 ----
+
+        [Test]
+        public static void ANoteInCodeDoesNotSwallowTheLinesBelowIt()
+        {
+            ParseResult a = MacroParser.Parse(S("{{//}} x\nctrl+c"), true);
+            Assert.True(a.Ok);
+            Assert.Equal(1, a.Steps.Count(s => s.Kind == StepKind.Keys), "the Ctrl+C below a pasted note still runs");
+            ParseResult b = MacroParser.Parse(S("{{CTRL}{C}} {{// copy}}\ntab"), true);
+            Assert.True(b.Ok);
+            Assert.Equal(2, b.Steps.Count(s => s.Kind == StepKind.Keys), "both steps run");
+            Assert.Equal(0, b.Steps.Count(s => s.Kind == StepKind.Text && s.Text.Contains("\n")), "no Enter is typed");
+        }
+
+        [Test]
+        public static void WaitingForAWindowWithAClockTimeInItsTitleReadsBack()
+        {
+            Assert.Equal("{{WAITWINDOW:Clock 12:00:10000}}", S("wait for Clock 12:00"));
+            string window;
+            int ms;
+            Assert.True(MacroParser.TryWaitWindow("Clock 12:00:10000", out window, out ms));
+            Assert.Equal("Clock 12:00", window);
+            Assert.Equal(10000, ms);
+            Assert.Equal("{{WAITWINDOW:Notepad}}", MacroScript.WaitWindow("Notepad", MacroParser.DefaultWaitWindowMs));
+        }
+
+        [Test]
+        public static void HoldDownReadsAsTheWordsAndStillAsTheDownKey()
+        {
+            Assert.Equal("{{KEYDOWN:SHIFT}}", S("hold down shift"));
+            Assert.Equal("{{MLEFTDOWN}}", S("hold down left mouse"));
+            Assert.Equal("{{KEYDOWN:DOWN}}", S("hold down"));
+        }
+
+        [Test]
+        public static void ABraceAtTheEndOfTextCannotJoinTheNextLine()
+        {
+            ParseResult r = MacroParser.Parse(S("type \"a{\"\ntype \"{b}}\""), false);
+            Assert.True(r.Ok, string.Join("; ", r.Errors.Select(e => e.Message)));
+            Assert.Equal(1, r.Steps.Count(s => s.Kind == StepKind.OutputVar));
+            Assert.Equal("a|{b}}", string.Join("|", r.Steps.Where(s => s.Kind == StepKind.Text).Select(s => s.Text)));
+            ParseResult two = MacroParser.Parse(S("type \"{\"\ntype \"{\""), false);
+            Assert.True(two.Ok);
+            Assert.Equal("{{", string.Concat(two.Steps.Select(s => s.Kind == StepKind.Text ? s.Text : "{")));
+        }
+
+        [Test]
+        public static void TextEndingInABraceStaysOneStep()
+        {
+            Assert.Equal("a{{{ENTER}}", S("type \"a{\"\nenter"));
+            Assert.Equal("a{", MacroScript.Text("a{"));
+            PlainLine line = PlainMacro.ToScript("type \"a{\"").Lines[0];
+            Assert.False(line.Meaning.Contains("$SMLCB"), line.Meaning);
+            Assert.Equal("Type “{”", MacroParser.Parse("{{OUTPUT:SMLCB}}", true).Steps[0].Describe());
+        }
+
+        [Test]
+        public static void SavedLinesEndingInABraceKeepTheirText()
+        {
+            // Saved by 1.7.1: the script it made then is still what the lines make now, so the lines are shown as written.
+            var m = new MacroDef { Plain = "type \"if (x) {\"\n\nenter", Script = "if (x) {{{ENTER}}" };
+            Assert.Equal(m.Plain, PlainMacro.PlainFor(m));
+        }
+
+        [Test]
+        public static void AWindowTitleEndingInSpacedDigitsKeepsItsTimeLimit()
+        {
+            string token = MacroScript.WaitWindow("Score: 100", 10000);
+            Assert.Equal("{{WAITWINDOW:Score: 100:10000}}", token);
+            MacroStep step = MacroParser.Parse(token, true).Steps.Single();
+            Assert.Equal("Score: 100", step.Value);
+            Assert.Equal(10000, step.Ms);
+            MacroStep back = MacroParser.Parse(S(PlainMacro.ToPlain(token, true)), true).Steps.Single();
+            Assert.Equal("Score: 100", back.Value);
+            Assert.Equal(10000, back.Ms);
+        }
+
+        [Test]
+        public static void ANoteWrittenAsCodeShowsWithoutItsBraces()
+        {
+            Assert.Equal("note", PlainMacro.TileLabel(PlainMacro.ToScript("{{// note}}").Lines[0]));
+            Assert.Equal("note", PlainMacro.TileLabel(PlainMacro.ToScript("{{//}} note").Lines[0]));
+            Assert.Equal("note", PlainMacro.TileLabel(PlainMacro.ToScript("# note").Lines[0]));
         }
     }
 }

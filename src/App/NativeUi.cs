@@ -93,16 +93,28 @@ namespace MacroKit.App
             return hwnd == IntPtr.Zero ? 0 : GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
         }
 
-        [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
-
-        /// <summary>True when the rectangle (physical pixels) overlaps the virtual desktop by at least a small corner.</summary>
+        /// <summary>
+        /// True when the rectangle (physical pixels) shows at least a small corner (80 x 40) on one real monitor. The virtual
+        /// desktop's bounding box is not enough: with monitors of different sizes or positions it also holds gaps nobody can see.
+        /// </summary>
         public static bool IsOnScreen(double left, double top, double width, double height)
         {
-            // SM_XVIRTUALSCREEN 76, SM_YVIRTUALSCREEN 77, SM_CXVIRTUALSCREEN 78, SM_CYVIRTUALSCREEN 79
-            var screen = new Rect(GetSystemMetrics(76), GetSystemMetrics(77), GetSystemMetrics(78), GetSystemMetrics(79));
-            var area = new Rect(left, top, Math.Max(width, 1), Math.Max(height, 1));
-            area.Intersect(screen);
-            return !area.IsEmpty && area.Width >= 80 && area.Height >= 40;
+            var monitors = new System.Collections.Generic.List<Rect>();
+            foreach (System.Windows.Forms.Screen s in System.Windows.Forms.Screen.AllScreens)
+                monitors.Add(new Rect(s.Bounds.X, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+            return IsOnAnyMonitor(new Rect(left, top, Math.Max(width, 1), Math.Max(height, 1)), monitors);
+        }
+
+        /// <summary>The check behind <see cref="IsOnScreen"/>, for a given list of monitors.</summary>
+        public static bool IsOnAnyMonitor(Rect area, System.Collections.Generic.IEnumerable<Rect> monitors)
+        {
+            foreach (Rect monitor in monitors)
+            {
+                Rect shown = area;
+                shown.Intersect(monitor);
+                if (!shown.IsEmpty && shown.Width >= 80 && shown.Height >= 40) return true;
+            }
+            return false;
         }
     }
 }

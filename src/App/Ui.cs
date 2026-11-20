@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
@@ -12,7 +13,7 @@ namespace MacroKit.App
     /// <summary>
     /// Small factory helpers for code-built pages. Colours are theme resource keys (see Theme.cs and Styles.xaml):
     /// Bg, Card, Card2, Input, Border, Text, Muted, Accent, AccentFg, AccentText, BtnBg, Good, GoodBg, Warn, WarnBg, Bad, BadBg,
-    /// Info, InfoBg, Selected, Rec, and the palette key groups KeyClip, KeySwitch, KeyEdit, KeyArrow, KeyJump (+ "Bg"). Style keys: Primary, Danger, Ghost, Small, Chip, Transport, Link, MenuBtn (buttons),
+    /// Info, InfoBg, Selected, Rec, and the palette key groups KeyClip, KeySwitch, KeyEdit, KeyArrow, KeyJump (+ "Bg"). Style keys: Primary, Danger, Ghost, Small, SmallPrimary, Chip, Transport, Link, MenuBtn (buttons),
     /// Switch (check box), H1, H2, Cap, MutedText (text), CardBorder (border).
     /// </summary>
     public static class Ui
@@ -238,6 +239,10 @@ namespace MacroKit.App
             l.Margin = new Thickness(0, 0, 0, 3);
             p.Children.Add(l);
             p.Children.Add(control);
+            // Screen readers (and UI Automation) otherwise announce a bare "edit" or "slider".
+            var named = control as Control ?? (control as Panel)?.Children.OfType<TextBox>().FirstOrDefault();
+            if (named != null && string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(named)))
+                System.Windows.Automation.AutomationProperties.SetName(named, label);
             return p;
         }
 
@@ -272,6 +277,18 @@ namespace MacroKit.App
                 button.Click += (s, e) => { popup.IsOpen = false; action(); };
                 panel.Children.Add(button);
             }
+            // Keyboard: the first item takes focus, Up/Down move, Esc closes and gives focus back.
+            KeyboardNavigation.SetTabNavigation(panel, KeyboardNavigationMode.Cycle);
+            popup.Opened += (s, e) => panel.Dispatcher.BeginInvoke(new Action(() => { if (popup.IsOpen && panel.Children.Count > 0) ((UIElement)panel.Children[0]).Focus(); }), System.Windows.Threading.DispatcherPriority.Input);
+            panel.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Escape) { e.Handled = true; popup.IsOpen = false; if (anchor != null) anchor.Focus(); }
+                else if (e.Key == Key.Down || e.Key == Key.Up)
+                {
+                    e.Handled = true;
+                    ((UIElement)Keyboard.FocusedElement)?.MoveFocus(new TraversalRequest(e.Key == Key.Down ? FocusNavigationDirection.Next : FocusNavigationDirection.Previous));
+                }
+            };
             var border = new Border { Child = panel, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Margin = new Thickness(0, 4, 8, 12), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 12, ShadowDepth = 2, Opacity = 0.35 } };
             Ref(border, Border.BackgroundProperty, "Card");
             Ref(border, Border.BorderBrushProperty, "Border");

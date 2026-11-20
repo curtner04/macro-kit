@@ -66,8 +66,21 @@ namespace MacroKit.Macros
                     line.Kind = PlainKind.Problem;
                     token = UnknownPrefix + Escape(line.Source) + "}}";
                 }
-                else line.Kind = kind;
+                else
+                {
+                    line.Kind = kind;
+                    // A {{// note}} hides the rest of its line including the break, so a note after code must bring its own break or it swallows the next line.
+                    if (kind == PlainKind.Code && CommentText.IsMatch(token)) token += "\n";
+                }
                 line.Token = token;
+                // A "{" that ends the line before and a "{" that starts this one would make a "{{", so the first is typed as {{OUTPUT:SMLCB}}.
+                // (Before a {{command}} the three-brace rule already reads it as text.)
+                if (script.Length > 0 && script[script.Length - 1] == '{' && token.StartsWith("{", StringComparison.Ordinal) && !token.StartsWith("{{", StringComparison.Ordinal))
+                {
+                    script.Length--;
+                    script.Append("{{OUTPUT:SMLCB}}");
+                    starts[i] = script.Length;
+                }
                 script.Append(token);
             }
             result.Script = script.ToString();
@@ -117,6 +130,7 @@ namespace MacroKit.Macros
         static readonly Regex Count = new Regex(@"^(?<rest>.+?)\s*(?:(?:x|×)\s*(?<n>\d+)|(?<n>\d+)\s*(?:times?|x|×))$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         static readonly Regex Every = new Regex(@"^(?<rest>.+?)[\s,]+(?:every\s+(?<d>[\d.]+\s*[a-z]*)|(?<d>[\d.]+\s*[a-z]*)\s+apart)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         static readonly Regex Point = new Regex(@"^(?<x>-?\d+)\s*[, ]\s*(?<y>-?\d+)$", RegexOptions.Compiled);
+        static readonly Regex LeadingComment = new Regex(@"^\{\{[ \t]*//", RegexOptions.Compiled);
         static readonly Regex VariableName = new Regex(@"^\$?[A-Za-z0-9_]+$", RegexOptions.Compiled);
 
         /// <summary>One plain line to Super Macro text, or null with the reason.</summary>
@@ -132,6 +146,7 @@ namespace MacroKit.Macros
                 kind = PlainKind.Note;
                 return MacroScript.Comment(s.TrimStart('#', '/').Trim()) + "\n";
             }
+            if (LeadingComment.IsMatch(s)) { kind = PlainKind.Note; return s + "\n"; }
             if (s.StartsWith("{{", StringComparison.Ordinal)) { kind = PlainKind.Code; return s; }
 
             // Keys first: "ctrl+c", "enter", "space 10 times every 100ms".
@@ -170,8 +185,16 @@ namespace MacroKit.Macros
                 if (!TryDuration(rest, out ms)) { error = "Say how long, like: wait 50ms, wait 2s or wait 1 minute."; return null; }
                 return MacroScript.Pause(ms);
             }
-            if (Word(s, out rest, "hold", "hold down", "press and hold", "release", "let go of", "let go"))
+            string heldRest = null;
+            if (Word(s, out rest, "hold down") && rest.Length > 0)
             {
+                // "hold down shift" holds Shift; plain "hold down" (and "hold down+shift") still read as the Down key.
+                MouseButton probe;
+                if (TryMouseButton(rest, out probe) || ParseKeys(rest) != null) heldRest = rest;
+            }
+            if (heldRest != null || Word(s, out rest, "hold", "hold down", "press and hold", "release", "let go of", "let go"))
+            {
+                if (heldRest != null) rest = heldRest;
                 bool down = lower.StartsWith("hold", StringComparison.Ordinal) || lower.StartsWith("press", StringComparison.Ordinal);
                 MouseButton button;
                 if (TryMouseButton(rest, out button))
@@ -652,7 +675,7 @@ namespace MacroKit.Macros
                 case StepKind.FocusWindow: return "switch to " + literal;
                 case StepKind.WaitWindow:
                     // A window name ending in ":digits" or in a time would read back differently.
-                    if (Regex.IsMatch(literal, @":\d+$") || TrailingDuration.IsMatch(literal)) return null;
+                    if (Regex.IsMatch(literal, @":\s*\d+\s*$") || TrailingDuration.IsMatch(literal)) return null;
                     return "wait for " + literal + (s.Ms == MacroParser.DefaultWaitWindowMs ? "" : " " + Ms(s.Ms));
             }
             return null;
@@ -726,11 +749,25 @@ namespace MacroKit.Macros
             return ToPlain(m.Script, m.NewLineIsEnter);
         }
 
+        /// <summary>"Line 2: ..." for the first line of a macro's plain text that is not understood, or null when every line is.
+        /// The parser's own line numbers count the stored script, which is one line, so they mean nothing to the person.</summary>
+        public static string FirstProblem(MacroDef m)
+        {
+            if (m == null) return null;
+            PlainLine first = ToScript(PlainFor(m)).Lines.FirstOrDefault(l => l.Error != null);
+            return first == null ? null : "Line " + (first.Number + 1) + ": " + first.Error;
+        }
+
         /// <summary>A short tile label for a line: "Ctrl + C", "hello", "50 ms", "Repeat 3 times".</summary>
         public static string TileLabel(PlainLine line)
         {
             if (line.Error != null) return line.Source;
-            if (line.Kind == PlainKind.Note) return line.Source.TrimStart('#', '/').Trim();
+            if (line.Kind == PlainKind.Note)
+            {
+                if (!LeadingComment.IsMatch(line.Source)) return line.Source.TrimStart('#', '/').Trim();
+                string note = CommentText.Match(line.Source).Groups["note"].Value.Trim();
+                return (note.StartsWith("}}", StringComparison.Ordinal) ? note.Substring(2) : note.EndsWith("}}", StringComparison.Ordinal) ? note.Substring(0, note.Length - 2) : note).Trim();
+            }
             if (line.Steps.Count == 1)
             {
                 MacroStep s = line.Steps[0];

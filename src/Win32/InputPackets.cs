@@ -32,8 +32,14 @@ namespace MacroKit.Win32
         /// </summary>
         public static Native.INPUT Key(ushort vk, bool down, ushort scan)
         {
+            return Key(vk, down, scan, KeyNames.IsExtended(vk));
+        }
+
+        /// <summary>One key event with the extended flag given (a recording's own scan code and flag, for example numpad Enter).</summary>
+        public static Native.INPUT Key(ushort vk, bool down, ushort scan, bool extended)
+        {
             uint flags = down ? 0u : Native.KEYEVENTF_KEYUP;
-            if (KeyNames.IsExtended(vk)) flags |= Native.KEYEVENTF_EXTENDEDKEY;
+            if (extended) flags |= Native.KEYEVENTF_EXTENDEDKEY;
             var input = new Native.INPUT { type = Native.INPUT_KEYBOARD };
             input.ki.wVk = KeyNames.BaseVk(vk);
             input.ki.wScan = scan;

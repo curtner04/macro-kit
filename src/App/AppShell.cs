@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -72,7 +73,26 @@ namespace MacroKit.App
                 IntPtr handle = new WindowInteropHelper(w).Handle;
                 if (handle != IntPtr.Zero) handles.Add(handle);
             }
+            handles.AddRange(extraOwnWindows);
             c.SetOwnWindows(handles.ToArray());
+        }
+
+        readonly List<IntPtr> extraOwnWindows = new List<IntPtr>();
+
+        /// <summary>
+        /// Counts a window that is not a WPF window (the tray icon's menu) as Macro Kit's own while it is open, so clicks on it are
+        /// left out of a recording like clicks on the recorder bar. Call <see cref="RemoveOwnWindow"/> when it closes.
+        /// </summary>
+        public void AddOwnWindow(IntPtr handle)
+        {
+            if (handle == IntPtr.Zero || extraOwnWindows.Contains(handle)) return;
+            extraOwnWindows.Add(handle);
+            RefreshOwnWindows();
+        }
+
+        public void RemoveOwnWindow(IntPtr handle)
+        {
+            if (extraOwnWindows.Remove(handle)) RefreshOwnWindows();
         }
 
         public DeckWindow Deck { get { return deck; } }
@@ -98,10 +118,19 @@ namespace MacroKit.App
             c.TrayAvailable = tray != null;
             ApplyDeck();
             if (!(startHidden && tray != null)) Main.Reveal(true);
-            if (c.Storage.Warnings.Count > 0)
-                c.SetStatus("A damaged data file was set aside and replaced with defaults: " + string.Join(", ", c.Storage.Warnings) + ".", true);
-            string readOnly = c.ReadOnlyNotice();
-            if (readOnly != null) c.SetStatus(readOnly, true);
+            IList<string> warnings = c.Storage.Warnings;
+            if (warnings.Count > 0) c.SetStatus(StartupStatus(warnings, c.LastStatus, c.LastStatusIsError), true);
+        }
+
+        /// <summary>
+        /// The status line at startup when there are storage warnings. Each warning is a whole sentence: a damaged file set aside
+        /// (and restored or replaced) or a file that was in use. An error already showing (hotkeys that could not be set up) is kept after them.
+        /// </summary>
+        public static string StartupStatus(IList<string> warnings, string current, bool currentIsError)
+        {
+            string text = string.Join(" ", warnings);
+            if (currentIsError && !string.IsNullOrEmpty(current) && !text.Contains(current)) text += " " + current;
+            return text;
         }
 
         void ApplyDeck()
@@ -114,8 +143,15 @@ namespace MacroKit.App
             else deck.Hide();
         }
 
-        /// <summary>Opens (or brings forward) the main window: tray double-click, tray menu, a second launch.</summary>
-        public void OpenMain() { Main.Reveal(true); }
+        /// <summary>
+        /// Opens (or brings forward) the main window: tray double-click, tray menu, a second launch. A playback is stopped first:
+        /// the window takes the focus, so the rest of the recording would go into Macro Kit (a macro's focus guard stops it the same way).
+        /// </summary>
+        public void OpenMain()
+        {
+            if (c.Activity.Kind == ActivityKind.Playing) c.Stop();
+            Main.Reveal(true);
+        }
 
         public void ShowChangelog()
         {
@@ -142,6 +178,14 @@ namespace MacroKit.App
             return flushed && c.Pending == null;
         }
 
+        /// <summary>Windows is signing out or shutting down: everything is saved, an unsaved recording too, and nothing is asked.</summary>
+        public void SaveForSessionEnd()
+        {
+            if (!SaveAll()) Log.Warn("Not everything could be saved at sign-out.");
+            IList<string> blocked = c.Storage.UnsavedBlockedFiles;
+            if (blocked.Count > 0) Log.Warn("Changes to files that were in use at startup were not saved at sign-out: " + string.Join(", ", blocked));
+        }
+
         string RefuseWhileBusy(string what)
         {
             string busy = c.BusyReason();
@@ -153,12 +197,12 @@ namespace MacroKit.App
 
         public void Restart()
         {
-            string refusal = RefuseWhileBusy("restart");
-            if (refusal != null) { Ui.Info(Main, refusal); return; }
-            if (!SaveAll())
+            if (!ReadyToRestart()) return;
+            string blocked = BlockedChangesQuestion(c.Storage.UnsavedBlockedFiles, "Restart");
+            if (blocked != null && c.InputEnabled)
             {
-                Ui.Info(Main, "Macro Kit can't restart until your latest changes are saved. Check the message at the bottom of the window.");
-                return;
+                if (!Ui.Confirm(Main, blocked)) return;
+                if (!ReadyToRestart()) return;   // a run or recording may have started while the question was open
             }
             var before = new Dictionary<string, string>();
             try
@@ -180,6 +224,19 @@ namespace MacroKit.App
             {
                 foreach (var pair in before) Environment.SetEnvironmentVariable(pair.Key, pair.Value);
             }
+        }
+
+        // Nothing is running and every change is saved; otherwise says why and returns false.
+        bool ReadyToRestart()
+        {
+            string refusal = RefuseWhileBusy("restart");
+            if (refusal != null) { Ui.Info(Main, refusal); return false; }
+            if (!SaveAll())
+            {
+                Ui.Info(Main, "Macro Kit can't restart until your latest changes are saved. Check the message at the bottom of the window.");
+                return false;
+            }
+            return true;
         }
 
         // Sets an environment variable for the replacement process (null leaves it as it is) and remembers the old value.
@@ -224,9 +281,23 @@ namespace MacroKit.App
             {
                 c.Stop();
                 if (!SaveAll() && c.InputEnabled && !Ui.Confirm(Main, "Your latest changes could not be saved. Exit anyway?")) return;
+                string blocked = BlockedChangesQuestion(c.Storage.UnsavedBlockedFiles);
+                if (blocked != null && c.InputEnabled && !Ui.Confirm(Main, blocked)) return;
                 Quit();
             }
             finally { exitInProgress = false; }
+        }
+
+        /// <summary>
+        /// The question Exit and Restart ask when changes went to files that were in use at startup (so they were never saved over);
+        /// null when there were none. Restart asks too: the new copy reads those files from disk, so the changes would be lost.
+        /// </summary>
+        public static string BlockedChangesQuestion(IList<string> files, string action = "Exit")
+        {
+            if (files == null || files.Count == 0) return null;
+            string names = files.Count == 1 ? files[0] : string.Join(", ", files.Take(files.Count - 1)) + " and " + files[files.Count - 1];
+            return "Changes to " + names + " made this session can't be saved because " + (files.Count == 1 ? "the file was" : "the files were")
+                + " in use when Macro Kit started. " + action + " anyway?";
         }
 
         // Always ends the application, even if closing one of the windows throws. The main window is closed by Shutdown itself:
@@ -235,6 +306,7 @@ namespace MacroKit.App
         {
             if (Exiting) return;
             Exiting = true;
+            c.BeginQuit();   // anything still running is cancelled, and its end no longer touches the windows being closed
             try
             {
                 if (tray != null) { tray.Dispose(); tray = null; }

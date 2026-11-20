@@ -57,6 +57,7 @@ namespace MacroKit.App
             startWithWindows.Click += (s, e) => ToggleStartup();
             if (!c.InputEnabled) { startWithWindows.IsEnabled = false; startWithWindows.ToolTip = "Not available in this session."; }
             var deckColumns = new NumberBox(c.Settings.DeckColumns, 1, 8, 50);
+            deckColumns.ToolTip = "How many buttons per row on the Deck, the small always-on-top button panel.";
             deckColumns.Changed += () => Change(() => c.Settings.DeckColumns = deckColumns.Value);
             theme.Items.Add("Follow Windows");
             theme.Items.Add("Light");
@@ -72,8 +73,7 @@ namespace MacroKit.App
             var behavior = Ui.Card(Ui.Stack(9,
                 Ui.Heading("Behavior"),
                 esc, showAfter, closeToTray, startWithWindows,
-                Ui.Row(10, Ui.Text("Deck columns", "Muted", false, 12), deckColumns),
-                Ui.Row(10, Ui.Text("Theme", "Muted", false, 12), theme)));
+                LabelRows(new KeyValuePair<string, UIElement>("Deck columns", deckColumns), new KeyValuePair<string, UIElement>("Theme", theme))));
 
             // ---- status popup
             var pillShow = Ui.Button("Show popup", ShowPill, "Small", "Show the status popup now, so you can drag it where you want it. Press Done on it when it is in place.");
@@ -127,7 +127,7 @@ namespace MacroKit.App
                 Ui.Para("Windows stops programs from typing into, or watching, programs that run as administrator. To use Macro Kit with those, run Macro Kit as administrator too. Macro Kit warns you when the window it works in runs as administrator.", "Muted", 12)));
 
             // The macro editor: typed lines or key tiles. Asked once on the first launch.
-            var typed = new RadioButton { Content = "Type it: one step per line, like ctrl+c or wait 50ms", GroupName = "macroEditor" };
+            var typed = new RadioButton { Content = "Lines: one step per line, like ctrl+c or wait 50ms", GroupName = "macroEditor" };
             var tiles = new RadioButton { Content = "Key tiles: build it from tiles like Ctrl + C, with a + button", GroupName = "macroEditor" };
             typed.IsChecked = EditorKinds.Normal(c.Settings.MacroEditor) == EditorKinds.Text;
             tiles.IsChecked = !typed.IsChecked;
@@ -167,10 +167,35 @@ namespace MacroKit.App
             ShowHotkeyErrors();
         }
 
+        // Labels in one column and their controls in another, so the controls line up.
+        static FrameworkElement LabelRows(params KeyValuePair<string, UIElement>[] rows)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            for (int i = 0; i < rows.Length; i++)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var control = (FrameworkElement)rows[i].Value;
+                var label = Ui.Text(rows[i].Key, "Muted", false, 12);
+                label.Margin = new Thickness(0, i == 0 ? 0 : 9, 0, 0);
+                label.ToolTip = control.ToolTip;
+                Grid.SetRow(label, i);
+                grid.Children.Add(label);
+                control.HorizontalAlignment = HorizontalAlignment.Left;
+                control.Margin = new Thickness(0, i == 0 ? 0 : 9, 0, 0);
+                Grid.SetRow(control, i);
+                Grid.SetColumn(control, 1);
+                grid.Children.Add(control);
+            }
+            return grid;
+        }
+
         void AddHotkey(StackPanel panel, string key, string label, Func<string> get, Action<string> set)
         {
             var box = new HotkeyBox(true, 200);
             box.SetText(get());
+            System.Windows.Automation.AutomationProperties.SetName(box, label);
             box.Changed += () =>
             {
                 set(box.Value.IsEmpty ? "" : box.Value.ToString());

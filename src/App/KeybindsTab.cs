@@ -40,6 +40,9 @@ namespace MacroKit.App
         readonly TextBlock summary = Ui.Text("", "Muted", false, 12);
         KeybindCatalog catalog;
         Dictionary<Keybind, string> clashNotes = new Dictionary<Keybind, string>();
+        int clashCount;
+        string boxSearch = "";   // the search text the key box wrote, so Clear can take it back out (and only that)
+        readonly Dictionary<string, Button> appCards = new Dictionary<string, Button>();
         bool loading;
 
         public KeybindsTab(AppController controller)
@@ -52,14 +55,14 @@ namespace MacroKit.App
             checkBox.ReleasesHotkeys = true;   // Macro Kit's own hotkeys must not run while you press keys here
             checkBox.Placeholder = "Click, then press keys";
             checkBox.Changed += () => Check(checkBox.Value, true);
-            var clear = Ui.GlyphButton(Ui.GlyphClose, "Clear", () => { checkBox.SetText(""); verdict.Visibility = Visibility.Collapsed; });
+            var clear = Ui.GlyphButton(Ui.GlyphClose, "Clear", ClearCheck);
             clear.Margin = new Thickness(6, 0, 0, 0);
             var boxRow = Ui.Row(0, checkBox, clear);
             var verdictGrid = new Grid();
             verdict.Child = verdictText;
             var checkCard = Ui.Card(Ui.Stack(6,
                 Ui.Heading("Is it free?"),
-                Ui.Para("Press a key combination to see which of your apps already use it, and whether it needs that app to be the active window.", "Muted", 12),
+                Ui.Para("Press keys to see which of your apps already use them.", "Muted", 12),
                 boxRow,
                 verdict,
                 Ui.Para("Keys another app grabs in every window (such as Snipline's PrtSc) may run that app instead of appearing here. Type them in the search box instead, for example ctrl+prtsc.", "Muted", 11.5)));
@@ -84,9 +87,9 @@ namespace MacroKit.App
             var leftScroll = new ScrollViewer { Content = left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, 10, 0) };
 
             // ---- shortcut list
-            scopeFilter.Items.Add("Any window and in-app");
-            scopeFilter.Items.Add("Any window (global)");
-            scopeFilter.Items.Add("Only when the app is active");
+            scopeFilter.Items.Add("All shortcuts");
+            scopeFilter.Items.Add("Any window");
+            scopeFilter.Items.Add("Only in the app");
             scopeFilter.SelectedIndex = 0;
             sort.Items.Add("Sort by app");
             sort.Items.Add("Sort by keys");
@@ -95,7 +98,7 @@ namespace MacroKit.App
             appFilter.SelectedIndex = 0;
             search.TextChanged += (s, e) => { if (!loading) { Fill(); CheckTyped(); } };
             scopeFilter.SelectionChanged += (s, e) => { if (!loading) Fill(); };
-            appFilter.SelectionChanged += (s, e) => { if (!loading) Fill(); };
+            appFilter.SelectionChanged += (s, e) => { MarkActiveCard(); if (!loading) Fill(); };
             sort.SelectionChanged += (s, e) => { if (!loading) Fill(); };
             builtIn.Click += (s, e) => Fill();
             ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
@@ -137,7 +140,7 @@ namespace MacroKit.App
             var listCard = Ui.Card(listGrid);
 
             var grid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { MinWidth = 420 });
             grid.Children.Add(leftScroll);
             Grid.SetColumn(listCard, 1);
@@ -162,12 +165,8 @@ namespace MacroKit.App
                 c.SetStatus("Could not read the apps' shortcuts: " + ex.Message, true);
                 catalog = new KeybindCatalog();
             }
-            clashNotes = new Dictionary<Keybind, string>();
-            foreach (Keybind k in catalog.All)
-            {
-                string note = catalog.ClashNote(k);
-                if (note != null) clashNotes[k] = note;
-            }
+            clashNotes = catalog.ClashNotes();
+            clashCount = catalog.Clashes().Count;
 
             loading = true;
             string chosen = appFilter.SelectedItem as string;
@@ -206,6 +205,7 @@ namespace MacroKit.App
         void FillApps()
         {
             apps.Children.Clear();
+            appCards.Clear();
             foreach (AppKeybinds app in catalog.Apps)
             {
                 int global = app.Keybinds.Count(k => k.Enabled && k.Scope == KeybindScope.Global);
@@ -223,7 +223,7 @@ namespace MacroKit.App
                     Grid.SetColumn(pill, 1);
                     top.Children.Add(pill);
                 }
-                var counts = Ui.Text(Count(global, "any window") + " · " + Count(local, "in-app"), "Muted", false, 12);
+                var counts = Ui.Text(Count(global, "in any window") + " · " + Count(local, "app-only"), "Muted", false, 12);
                 var stack = Ui.Stack(2, top, counts);
                 if (app.Source.Length > 0)
                 {
@@ -245,6 +245,7 @@ namespace MacroKit.App
                 var button = new Button { Content = stack, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 6), ToolTip = "Show only " + app.App + "'s shortcuts." };
                 button.SetResourceReference(FrameworkElement.StyleProperty, "Ghost");
                 string appName = app.App;
+                appCards[appName] = button;
                 button.Click += (s, e) => appFilter.SelectedItem = (appFilter.SelectedItem as string) == appName ? "All apps" : appName;
                 if (app.CustomId == null) { apps.Children.Add(button); continue; }
 
@@ -260,6 +261,29 @@ namespace MacroKit.App
                 Grid.SetColumn(edit, 1);
                 row.Children.Add(edit);
                 apps.Children.Add(row);
+            }
+            MarkActiveCard();
+        }
+
+        /// <summary>Marks the app card whose shortcuts the list is narrowed to, and says how to go back.</summary>
+        void MarkActiveCard()
+        {
+            string active = appFilter.SelectedItem as string;
+            foreach (KeyValuePair<string, Button> card in appCards)
+            {
+                bool on = card.Key == active;
+                // Only the active card gets its own colours; the others keep the style's, hover included.
+                if (on)
+                {
+                    Ui.Ref(card.Value, Control.BorderBrushProperty, "Accent");
+                    Ui.Ref(card.Value, Control.BackgroundProperty, "Selected");
+                }
+                else
+                {
+                    card.Value.ClearValue(Control.BorderBrushProperty);
+                    card.Value.ClearValue(Control.BackgroundProperty);
+                }
+                card.Value.ToolTip = on ? "Show all apps again." : "Show only " + card.Key + "'s shortcuts.";
             }
         }
 
@@ -339,7 +363,7 @@ namespace MacroKit.App
             listEmpty.Visibility = sorted.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             int all = catalog.All.Count();
             int global = catalog.All.Count(k => k.Enabled && k.Scope == KeybindScope.Global);
-            int clashes = catalog.Clashes().Count;
+            int clashes = clashCount;
             summary.Text = (sorted.Count == all ? all + " shortcuts" : sorted.Count + " of " + all + " shortcuts") + " · " + global + " work in any window"
                 + (clashes > 0 ? " · " + clashes + (clashes == 1 ? " overlap" : " overlaps") : "");
         }
@@ -349,10 +373,10 @@ namespace MacroKit.App
         static Grid RowGrid()
         {
             var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(125) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { MinWidth = 120 });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(125) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
             return grid;
         }
 
@@ -373,11 +397,11 @@ namespace MacroKit.App
             keys.Child = keyText;
             AddCell(grid, keys, 0);
 
-            var app = Ui.Text(k.App, "Text", false, 12.5);
+            var app = Ui.Text(k.App, k.Enabled ? "Text" : "Muted", false, 12.5);
             app.Margin = new Thickness(0, 0, 8, 0);
             AddCell(grid, app, 1);
 
-            var action = Ui.Stack(1, Ui.Text(k.Action, "Text", false, 12.5, true));
+            var action = Ui.Stack(1, Ui.Text(k.Action, k.Enabled ? "Text" : "Muted", false, 12.5, true));
             string note = k.Note;
             if (!k.Saved) note = note.Length == 0 ? "Built in" : "Built in · " + note;
             if (!k.Enabled) note = "Switched off" + (note.Length > 0 ? " · " + note : "");
@@ -403,12 +427,11 @@ namespace MacroKit.App
 
             var scope = k.Scope == KeybindScope.Global
                 ? Ui.Pill("Any window", "Info", "InfoBg", 11)
-                : Ui.Pill("Only when active", "Muted", "Card2", 11);
+                : Ui.Pill("Only in the app", "Muted", "Card2", 11);
             scope.ToolTip = k.Scope == KeybindScope.Global
                 ? k.App + " reacts to these keys whichever window is active, as long as " + k.App + " is running."
                 : "Only while " + k.App + " is the active window. In every other app these keys are free.";
             AddCell(grid, scope, 3);
-            if (!k.Enabled) grid.Opacity = 0.6;
             return new ListBoxItem { Content = grid, Tag = k, Padding = new Thickness(10, 5, 10, 5) };
         }
 
@@ -421,7 +444,7 @@ namespace MacroKit.App
             HotkeyModifiers mods;
             ushort key;
             // A whole shortcut in any order ("s ctrl alt") is checked too; modifiers alone only filter the list.
-            if (query.Length > 1 && KeyText.TryParseLoose(query, out mods, out key) && key != 0 && (mods != HotkeyModifiers.None || query.Length > 2)) Check(new Hotkey(mods, key), false);
+            if (query.Length > 1 && KeyText.TryParseLoose(query, out mods, out key) && key != 0 && (mods != HotkeyModifiers.None || query.Length > 2 || (key >= 0x70 && key <= 0x87))) Check(new Hotkey(mods, key), false);
             else verdict.Visibility = Visibility.Collapsed;
         }
 
@@ -441,13 +464,23 @@ namespace MacroKit.App
             Ui.Ref(verdict, Border.BackgroundProperty, kind + "Bg");
             verdictText.Text = ComboCheck.Explain(combo, users, free);
             verdict.Visibility = Visibility.Visible;
-            if (fromBox && users.Count > 0)
+            if (fromBox)
             {
+                // The list follows the keys just checked, even when nobody uses them (an empty list agrees with "free").
                 loading = true;
-                search.Text = combo.ToString();
+                search.Text = boxSearch = combo.ToString();
                 loading = false;
                 Fill();
             }
+        }
+
+        /// <summary>Empties the key box and the answer, and lifts the narrowing the box put on the list (a search the person typed stays).</summary>
+        public void ClearCheck()
+        {
+            checkBox.SetText("");
+            verdict.Visibility = Visibility.Collapsed;
+            if (boxSearch.Length > 0 && search.Text == boxSearch) search.Text = "";
+            boxSearch = "";
         }
 
         /// <summary>Text of the latest answer (self test).</summary>

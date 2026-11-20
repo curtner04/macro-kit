@@ -354,6 +354,76 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void EverydayShortcutsAreNamed()
+        {
+            Assert.Equal("Copy", Hotkey.EverydayUse(Parse("Ctrl+C")));
+            Assert.Equal("Paste", Hotkey.EverydayUse(Parse("ctrl+v")));
+            Assert.Equal("Undo", Hotkey.EverydayUse(Parse("Ctrl+Z")));
+            Assert.Equal("Reopen closed tab", Hotkey.EverydayUse(Parse("Ctrl+Shift+T")));
+            Assert.Equal("Task Manager", Hotkey.EverydayUse(Parse("Ctrl+Shift+Esc")));
+            Assert.Equal("Close window", Hotkey.EverydayUse(Parse("Alt+F4")));
+            Assert.Equal("Switch windows", Hotkey.EverydayUse(Parse("Alt+Tab")));
+            // The defaults and the usual choices are fine.
+            foreach (string text in new[] { "Ctrl+Shift+Alt+R", "Ctrl+Alt+C", "Ctrl+Shift+C", "Alt+C", "Ctrl+B", "Ctrl+Alt+1", "F13", "Ctrl+Shift+Esc+" })
+            {
+                Hotkey h;
+                if (Hotkey.TryParse(text, out h)) Assert.Null(Hotkey.EverydayUse(h), text);
+            }
+            Assert.Null(Hotkey.EverydayUse(default(Hotkey)));
+        }
+
+        [Test]
+        public static void EverydayShortcutsGetAWarningWithAnotherChoice()
+        {
+            Assert.Equal("Ctrl+C is Copy in almost every program; while Macro Kit holds it, Copy won't work there. Try Ctrl+Alt+C.", Hotkey.EverydayWarning(Parse("Ctrl+C")));
+            Assert.Contains(Hotkey.EverydayWarning(Parse("Ctrl+Shift+T")), "Try Ctrl+Shift+Alt+T.");
+            Assert.Contains(Hotkey.EverydayWarning(Parse("Alt+F4")), "Try Ctrl+Alt+F4.");
+            string tab = Hotkey.EverydayWarning(Parse("Alt+Tab"));
+            Assert.Contains(tab, "Switch windows");
+            Assert.False(tab.Contains("Try"), "Tab combinations all belong to Windows: " + tab);
+            Assert.Null(Hotkey.EverydayWarning(Parse("Ctrl+Alt+C")));
+        }
+
+        [Test]
+        public static void HotkeyProblemsAreReportedInPlainWords()
+        {
+            var used = new System.Collections.Generic.Dictionary<string, string>();
+            Hotkey hk;
+            Assert.Null(Hotkey.Problem("", used, out hk), "empty means no hotkey, not a problem");
+            Assert.True(hk.IsEmpty);
+            Assert.Null(Hotkey.Problem("   ", used, out hk));
+            Assert.Null(Hotkey.Problem("Ctrl+Alt+R", used, out hk));
+            Assert.Equal("Ctrl+Alt+R", hk.ToString());
+            Assert.Contains(Hotkey.Problem("banana", used, out hk), "is not a hotkey Macro Kit understands");
+            Assert.Contains(Hotkey.Problem("Shift+R", used, out hk), "Shift+R would get in the way of normal typing. Add Ctrl, Alt or Win, for example Ctrl+Alt+R.");
+            // A key that does not type is not called typing, and the keys that work alone are named.
+            Assert.Equal("F5 needs Ctrl, Alt or Win (F13–F24 and Pause also work on their own).", Hotkey.Problem("F5", used, out hk));
+            Assert.Equal("Shift+F13 needs Ctrl, Alt or Win, or use F13 on its own.", Hotkey.Problem("Shift+F13", used, out hk));
+            Assert.Null(Hotkey.Problem("F13", used, out hk));
+            // A combination somebody already has: the second one to ask is told who has it, whatever the order of the settings.
+            used["Ctrl+Alt+R"] = "Record";
+            Assert.Equal("Macro Kit already uses Ctrl+Alt+R for Record. Press a different combination.", Hotkey.Problem("alt+ctrl+r", used, out hk));
+            Assert.Null(Hotkey.Problem("Ctrl+Alt+T", used, out hk));
+            // Macros that share a hotkey: the first keeps it.
+            used["Ctrl+Alt+T"] = "“First”";
+            Assert.Contains(Hotkey.Problem("Ctrl+Alt+T", used, out hk), "for “First”.");
+            // Everyday shortcuts are not problems (they only get a warning), so a saved setup keeps working.
+            Assert.Null(Hotkey.Problem("Ctrl+C", used, out hk));
+        }
+
+        [Test]
+        public static void DeckReadsADefaultRecordingNameAsAReplay()
+        {
+            Assert.Equal("Replay 11-12 09:30", MacroKit.Core.Recording.DeckName("Recording 2026-11-12 09:30"));
+            Assert.Equal("Replay 11-12 09:30", MacroKit.Core.Recording.DeckName(MacroKit.Core.Recording.DefaultName(new DateTime(2026, 11, 12, 9, 30, 0))));
+            Assert.Equal("Recording of the form", MacroKit.Core.Recording.DeckName("Recording of the form"), "a name the person chose");
+            Assert.Equal("Recording 2026-11-12 09:30 copy", MacroKit.Core.Recording.DeckName("Recording 2026-11-12 09:30 copy"));
+            Assert.Equal("Fill the form", MacroKit.Core.Recording.DeckName("Fill the form"));
+            Assert.Equal("", MacroKit.Core.Recording.DeckName(""));
+            Assert.Null(MacroKit.Core.Recording.DeckName(null));
+        }
+
+        [Test]
         public static void EmptyHotkey()
         {
             Hotkey none = default(Hotkey);
@@ -768,6 +838,15 @@ namespace MacroKit.Tests
             Assert.True(m.ShowOnDeck);
             Assert.Equal(32, m.Id.Length);
             Assert.True(m.TargetWindow.IsEmpty);
+            Assert.True(m.Enabled);   // a macro saved before there was an on/off switch stays on
+        }
+
+        [Test]
+        public static void AMacroSwitchedOffStaysOffWhenSaved()
+        {
+            var m = new MacroDef { Name = "Paused", Enabled = false };
+            var back = Json.Deserialize<MacroDef>(Json.Serialize(m));
+            Assert.False(back.Enabled);
         }
 
         [Test]
@@ -885,6 +964,18 @@ namespace MacroKit.Tests
             Assert.Equal(2, r.Events.Count);
             Assert.Equal(0, r.Events[0].T);
             Assert.Equal(3, r.Events[1].T);
+        }
+
+        [Test]
+        public static void NullListEntriesAreSkipped()
+        {
+            var phrases = Json.Deserialize<PhrasesFile>("{\"Schema\":1,\"Phrases\":[null,{\"Trigger\":\"/a\"}]}");
+            Assert.Equal(1, phrases.Phrases.Count);
+            Assert.Equal("/a", phrases.Phrases[0].Trigger);
+            var r = Json.Deserialize<Recording>("{\"Schema\":1,\"Events\":[[0,0,1,1],null]}");
+            Assert.Equal(1, r.Events.Count, "a null event is not turned into a zero event");
+            var s = Json.Deserialize<AppSettings>("{\"ExcludedPrograms\":[\"game.exe\",null]}");
+            Assert.SequenceEqual(new[] { "game.exe" }, s.ExcludedPrograms);
         }
 
         [Test]
@@ -1334,12 +1425,18 @@ namespace MacroKit.Tests
                 {
                     Assert.Null(fresh.LoadRecording(r.Id), "cannot be opened right now");
                     Assert.True(File.Exists(file), "and the file is still there");
-                    Assert.SequenceEqual(new[] { r.Id + ".json" }, fresh.ReadOnlyFiles);
+                    Assert.Equal(0, fresh.ReadOnlyFiles.Count, "a recording is not one of the files a restart fixes");
+                    Assert.Equal(1, fresh.Warnings.Count);
+                    Assert.Equal("A recording (“Precious steps”) is in use or can't be opened right now; try again in a moment.", fresh.Warnings[0]);
                 }
                 Recording replacement = Sample("Other");
                 replacement.Id = r.Id;
-                fresh.SaveRecording(replacement);             // same id: refused for this session
+                string indexBefore = File.ReadAllText(dir.File("data\\recordings.json"));
+                // Same id, not read since: refused, with the index left alone.
+                Assert.Throws<IOException>(() => fresh.SaveRecording(replacement));
                 Assert.Equal(before, File.ReadAllText(file));
+                Assert.Equal(indexBefore, File.ReadAllText(dir.File("data\\recordings.json")));
+                Assert.Equal(0, fresh.UnsavedBlockedFiles.Count);
                 Assert.Equal("Precious steps", new Storage(dir.File("data")).LoadRecording(r.Id).Name);
             });
         }
@@ -1624,6 +1721,255 @@ namespace MacroKit.Tests
                 foreach (Thread thread in threads) thread.Join();
                 Assert.Equal(20, new Storage(dir.File("data")).LoadRecordingIndex().Count);
                 Assert.Equal(0, storage.Warnings.Count);
+            });
+        }
+
+        // ---- 1.7.2: locked, damaged and null-filled files ----
+
+        [Test]
+        public static void ALockOfHalfASecondIsStillWaitedOut()
+        {
+            Run((storage, dir) =>
+            {
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/mine", Replacement = "precious" } });
+                var fresh = new Storage(dir.File("data"));
+                FileStream held = Lock(dir.File("data\\phrases.json"));
+                var releaser = new Thread(() => { Thread.Sleep(500); held.Dispose(); });
+                releaser.Start();
+                List<PhraseDef> phrases = fresh.LoadPhrases();
+                releaser.Join();
+                Assert.Equal("/mine", phrases[0].Trigger, "the real phrases, not the examples");
+                Assert.Equal(0, fresh.ReadOnlyFiles.Count);
+            });
+        }
+
+        [Test]
+        public static void ChangesToALockedFileAreListedAsUnsaved()
+        {
+            Run((storage, dir) =>
+            {
+                storage.SaveSettings(new AppSettings());
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/mine", Replacement = "precious" } });
+                var fresh = new Storage(dir.File("data"));
+                using (Lock(dir.File("data\\phrases.json")))
+                using (Lock(dir.File("data\\settings.json")))
+                {
+                    fresh.LoadSettings();
+                    fresh.LoadPhrases();   // seeding the examples in memory is not a change of the person's
+                }
+                Assert.Equal(0, fresh.UnsavedBlockedFiles.Count, "nothing was changed yet");
+                fresh.SaveSettings(new AppSettings { Theme = "Dark" });
+                fresh.SavePhrases(new[] { new PhraseDef { Trigger = "/new", Replacement = "x" } });
+                fresh.SaveMacros(new[] { new MacroDef { Name = "Saved fine" } });
+                Assert.SequenceEqual(new[] { "phrases.json", "settings.json" }, fresh.UnsavedBlockedFiles);
+                Assert.Equal("precious", new Storage(dir.File("data")).LoadPhrases()[0].Replacement, "still never saved over");
+                Assert.Equal(0, storage.UnsavedBlockedFiles.Count);
+            });
+        }
+
+        [Test]
+        public static void ADamagedFileIsRestoredFromAnEarlierSavedCopy()
+        {
+            Run((storage, dir) =>
+            {
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/one", Replacement = "1" } });
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/two", Replacement = "2" } });   // /one is now .previous
+                string file = dir.File("data\\phrases.json");
+                File.WriteAllText(file, "{ broken");
+                var fresh = new Storage(dir.File("data"));
+                List<PhraseDef> phrases = fresh.LoadPhrases();
+                Assert.Equal(1, phrases.Count);
+                Assert.Equal("/one", phrases[0].Trigger, "the copy from before the latest save, not the examples");
+                Assert.Contains(File.ReadAllText(file), "/one", "and it is back in place");
+                string[] aside = Directory.GetFiles(dir.File("data"), "phrases.json.unreadable-*");
+                Assert.Equal(1, aside.Length);
+                Assert.Equal("{ broken", File.ReadAllText(aside[0]));
+                Assert.Equal(1, fresh.Warnings.Count);
+                Assert.Contains(fresh.Warnings[0], "phrases.json could not be read and was set aside as phrases.json.unreadable-");
+                Assert.Contains(fresh.Warnings[0], "; an earlier saved copy was put back, so your most recent change to it may be missing.");
+                Assert.Equal(0, fresh.ReadOnlyFiles.Count);
+            });
+        }
+
+        [Test]
+        public static void OnlyARealSaveOfALockedFileCountsAsUnsaved()
+        {
+            Run((storage, dir) =>
+            {
+                storage.SaveSettings(new AppSettings());
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/mine", Replacement = "precious" } });
+                var fresh = new Storage(dir.File("data"));
+                AppSettings settings = fresh.LoadSettings();
+                using (Lock(dir.File("data\\phrases.json"))) fresh.LoadPhrases();
+                Assert.True(Examples.TargetsBlocked(fresh.ReadOnlyFiles));
+                // Startup with phrases.json in use saves settings only (no examples are added), and nothing is reported.
+                fresh.SaveSettings(settings);
+                Assert.Equal(0, fresh.UnsavedBlockedFiles.Count);
+                // A real change to the locked file is not written, and it is reported.
+                fresh.SavePhrases(new[] { new PhraseDef { Trigger = "/new", Replacement = "x" } });
+                Assert.SequenceEqual(new[] { "phrases.json" }, fresh.UnsavedBlockedFiles);
+                Assert.Contains(File.ReadAllText(dir.File("data\\phrases.json")), "precious");
+            });
+        }
+
+        [Test]
+        public static void ALockedRecordingCanBeRenamedOnceItReadsAgain()
+        {
+            Run((storage, dir) =>
+            {
+                Recording r = Sample("Before");
+                storage.SaveRecording(r);
+                string file = dir.File("data\\recordings\\" + r.Id + ".json");
+                var fresh = new Storage(dir.File("data"));
+                using (Lock(file))
+                {
+                    Assert.Null(fresh.LoadRecording(r.Id));
+                    Assert.Throws<IOException>(() => fresh.RenameRecording(r.Id, "During"));   // not while it is in use
+                }
+                fresh.RenameRecording(r.Id, "After");
+                Assert.Equal("After", new Storage(dir.File("data")).LoadRecording(r.Id).Name, "the file has the new name");
+                Assert.Equal("After", fresh.LoadRecordingIndex().Single(i => i.Id == r.Id).Name, "and so has the index");
+                Assert.Equal("After", new Storage(dir.File("data")).LoadRecordingIndex().Single(i => i.Id == r.Id).Name);
+                Assert.Equal(0, fresh.UnsavedBlockedFiles.Count);
+            });
+        }
+
+        [Test]
+        public static void ADamagedFileWithADamagedCopyFallsBackToTheExamples()
+        {
+            Run((storage, dir) =>
+            {
+                Directory.CreateDirectory(dir.File("data"));
+                File.WriteAllText(dir.File("data\\macros.json"), "{ broken");
+                File.WriteAllText(dir.File("data\\macros.json.previous"), "also broken");
+                List<MacroDef> macros = storage.LoadMacros();
+                Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
+                Assert.Equal(1, storage.Warnings.Count);
+                Assert.Contains(storage.Warnings[0], "defaults are being used");
+            });
+        }
+
+        [Test]
+        public static void AFileThatCannotBeSetAsideIsNeverOverwritten()
+        {
+            Run((storage, dir) =>
+            {
+                Directory.CreateDirectory(dir.File("data"));
+                string file = dir.File("data\\macros.json");
+                File.WriteAllText(file, "{ broken");
+                // Readable, but another program holds it open without delete sharing, so it cannot be moved.
+                using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    storage.LoadMacros();
+                    Assert.SequenceEqual(new[] { "macros.json" }, storage.ReadOnlyFiles);
+                }
+                storage.SaveMacros(new[] { new MacroDef { Name = "New" } });
+                Assert.Equal("{ broken", File.ReadAllText(file), "left exactly as it was");
+                Assert.False(File.Exists(file + ".previous"), "and not rotated");
+                Assert.Contains(storage.Warnings[0], "could not be set aside");
+            });
+        }
+
+        [Test]
+        public static void NullEntriesDoNotStopTheLoad()
+        {
+            Run((storage, dir) =>
+            {
+                Directory.CreateDirectory(dir.File("data"));
+                File.WriteAllText(dir.File("data\\phrases.json"), "{\"Schema\":1,\"Phrases\":[null,{\"Trigger\":\"/a\"}]}");
+                File.WriteAllText(dir.File("data\\macros.json"), "{\"Schema\":1,\"Macros\":[{\"Name\":\"M\"},null]}");
+                Assert.Equal(1, storage.LoadPhrases().Count);
+                Assert.Equal(1, storage.LoadMacros().Count);
+                Assert.Equal(0, storage.Warnings.Count);
+            });
+        }
+
+        [Test]
+        public static void ExportingARecordingLeavesNoExtraFiles()
+        {
+            Run((storage, dir) =>
+            {
+                Recording r = Sample("Shared");
+                storage.SaveRecording(r);
+                string target = dir.File("shared.json");
+                storage.ExportRecording(r.Id, target);
+                storage.ExportRecording(r.Id, target);   // over the earlier export
+                Assert.True(File.Exists(target));
+                Assert.False(File.Exists(target + ".previous"), "no .previous beside a shared file");
+                Assert.False(File.Exists(target + ".tmp"));
+            });
+        }
+
+        [Test]
+        public static void ASessionCopyKeepsTheFileAsItWasAtStart()
+        {
+            Run((storage, dir) =>
+            {
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/start", Replacement = "s" } });
+                string file = dir.File("data\\phrases.json");
+                var fresh = new Storage(dir.File("data"));   // the next session
+                fresh.SavePhrases(new[] { new PhraseDef { Trigger = "/b", Replacement = "b" } });
+                var latest = new[] { new PhraseDef { Trigger = "/c", Replacement = "c" } };
+                fresh.SavePhrases(latest);
+                fresh.SavePhrases(latest);   // the same again
+                Assert.Contains(File.ReadAllText(file + ".session"), "/start");
+                Assert.Contains(File.ReadAllText(file + ".previous"), "/b", "saving the same text again keeps the version before");
+                Assert.Contains(File.ReadAllText(file), "/c");
+                Assert.False(File.Exists(dir.File("data\\recordings.json.session")), "only settings, phrases, macros and keybinds");
+            });
+        }
+
+        [Test]
+        public static void ALockedRecordingStaysListedAndDoesNotForceRebuilds()
+        {
+            Run((storage, dir) =>
+            {
+                Recording r = Sample("Locked");
+                storage.SaveRecording(r);
+                string file = dir.File("data\\recordings\\" + r.Id + ".json");
+                var fresh = new Storage(dir.File("data"));
+                using (Lock(file))
+                {
+                    Assert.Null(fresh.LoadRecording(r.Id));
+                    Assert.Equal(1, fresh.LoadRecordingIndex().Count, "still listed");
+                    // No rebuild while only the locked one is unread: a rebuild always rewrites recordings.json.
+                    string indexPath = dir.File("data\\recordings.json");
+                    var past = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                    File.SetLastWriteTimeUtc(indexPath, past);
+                    Assert.Equal(1, fresh.LoadRecordingIndex().Count);
+                    Assert.Equal(1, fresh.LoadRecordingIndex().Count);
+                    Assert.Equal(past, File.GetLastWriteTimeUtc(indexPath), "recordings.json was not rewritten");
+                    // A recording file the index does not list yet forces a rebuild; the locked one keeps its entry.
+                    Recording added = Sample("Added elsewhere");
+                    added.Id = Guid.NewGuid().ToString("N");
+                    File.WriteAllText(dir.File("data\\recordings\\" + added.Id + ".json"), Json.Serialize(added));
+                    List<RecordingInfo> index = fresh.LoadRecordingIndex();
+                    Assert.Equal(2, index.Count);
+                    Assert.True(index.Any(i => i.Id == r.Id && i.Name == "Locked"));
+                }
+            });
+        }
+
+        [Test]
+        public static void EverythingIsSavedInsideTheDataFolder()
+        {
+            Run((storage, dir) =>
+            {
+                storage.LoadSettings();
+                storage.SavePhrases(new[] { new PhraseDef { Trigger = "/a", Replacement = "b" } });
+                storage.SaveMacros(new[] { new MacroDef { Name = "M" } });
+                storage.SaveKeybindApps(new[] { new KeybindAppDef { Name = "App" } });
+                Recording r = Sample("R");
+                storage.SaveRecording(r);
+                storage.SaveLicenseKey("MK1-TEST");
+                string data = dir.File("data");
+                foreach (string name in new[] { "settings.json", "phrases.json", "macros.json", "keybinds.json", "recordings.json", "license.key", "recordings\\" + r.Id + ".json" })
+                    Assert.True(File.Exists(Path.Combine(data, name)), name);
+                foreach (string path in Directory.GetFileSystemEntries(dir.Path))
+                {
+                    string name = Path.GetFileName(path);
+                    Assert.True(name == "data" || name == "logs", "nothing saved outside the data folder but the log: " + name);
+                }
             });
         }
 

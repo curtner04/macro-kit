@@ -119,14 +119,15 @@ namespace MacroKit.App
 
             // Quick ways to add a step, for when you don't know what to type.
             Button record = Chip("Record keys", () => StepActions.Record(owner(), this), "Press keys to add them as steps.");
+            record.SetResourceReference(Control.ForegroundProperty, "AccentText");   // the easiest way in for a newcomer
             Button text = Chip("Type text", () => InsertLines("type \"\""), "Type some text. Put it between the quotes.");
             Button wait = Chip("Wait", () => InsertLines("wait 100ms"), "Pause before the next step.");
-            Button click = Chip("Click", () => InsertLines("click"), "A left click. Also: right click, double click.");
+            Button click = Chip("Click", () => InsertLines("click"), "Clicks wherever the mouse pointer is when this step runs. Add a “move mouse to” step before it to click a fixed spot. Also: right click, double click.");
             Button repeat = Chip("Repeat", () => WrapBlock("repeat 3 times", 0, "end repeat"), "Repeat the selected lines (or add an empty repeat).");
             Button open = Chip("Open app", () => StepActions.Launch(owner(), this), "Open a program or file.");
             Button more = null;
             more = Chip("More…", () => StepActions.ShowAddMenu(more, owner, this), "Every kind of step.");
-            var chips = Ui.Wrap(Ui.Text("Add", "Muted", false, 12), record, text, wait, click, repeat, open, more);
+            var chips = Ui.Wrap(Ui.Text("Add a step:", "Muted", false, 12), record, text, wait, click, repeat, open, more);
             ((FrameworkElement)chips.Children[0]).Margin = new Thickness(0, 0, 8, 5);
 
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -427,6 +428,8 @@ namespace MacroKit.App
         readonly Func<Window> owner;
         List<string> lines = new List<string>();
         int selected = -1;
+        string original;   // the selected step as it was when picked, for Esc
+        int insertAfter = -1;   // after an empty block is added with no step selected: new steps go inside it, after this line
         bool editing;
         PlainResult shown;
         Button addTile;
@@ -450,12 +453,24 @@ namespace MacroKit.App
                 lines[selected] = editBox.Text;
                 Changed();
             };
-            editBox.PreviewKeyDown += (s, e) => { if (e.Key == Key.Enter || e.Key == Key.Escape) { e.Handled = true; Select(-1); } };
+            editBox.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.System && e.KeyboardDevice.Modifiers == ModifierKeys.Alt && (e.SystemKey == Key.Left || e.SystemKey == Key.Right))
+                {
+                    e.Handled = true;   // Alt+Left / Alt+Right keeps moving the step from the edit box
+                    Move(e.SystemKey == Key.Left ? -1 : 1);
+                    return;
+                }
+                if (e.Key != Key.Enter && e.Key != Key.Escape) return;
+                e.Handled = true;
+                Finish(e.Key == Key.Escape);
+            };
             editInfo = Ui.Text("", "Muted", false, 12);
             moveLeft = Ui.Button("◀", () => Move(-1), "Small", "Move this step earlier.");
             moveRight = Ui.Button("▶", () => Move(1), "Small", "Move this step later.");
-            var delete = Ui.Button("Delete", () => Delete(selected), "Small", "Remove this step.");
-            var done = Ui.Button("Done", () => Select(-1), "Small", "Finish editing this step.");
+            var delete = Ui.Button("Delete", () => Delete(selected), "Ghost", "Remove this step.");
+            var done = Ui.Button("Done", () => Select(-1), "Primary", "Finish editing this step.");
+            foreach (var small in new[] { delete, done }) { small.Padding = new Thickness(9, 3, 9, 3); small.FontSize = 12; }
             var editDock = new DockPanel();
             var editButtons = Ui.Row(6, moveLeft, moveRight, delete, done);
             editButtons.Margin = new Thickness(8, 0, 0, 0);
@@ -484,6 +499,7 @@ namespace MacroKit.App
                 lines = (value ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').ToList();
                 if (lines.Count == 1 && lines[0].Length == 0) lines.Clear();
                 selected = -1;
+                insertAfter = -1;
                 editBar.Visibility = Visibility.Collapsed;
             }
         }
@@ -577,13 +593,25 @@ namespace MacroKit.App
             b.Margin = new Thickness(0, 0, 6, 8);
             b.VerticalAlignment = VerticalAlignment.Center;
             AutomationProperties.SetName(b, label);
-            b.KeyDown += (s, e) => { if (e.Key == Key.Delete) { e.Handled = true; Delete(number); } };
+            b.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Delete) { e.Handled = true; Delete(number); }
+                else if (e.KeyboardDevice.Modifiers == ModifierKeys.Alt && (e.SystemKey == Key.Left || e.SystemKey == Key.Right))
+                {
+                    e.Handled = true;   // Alt+Left / Alt+Right moves the step, like the arrow buttons
+                    selected = number;
+                    Move(e.SystemKey == Key.Left ? -1 : 1);
+                }
+            };
+            if (number == selected) b.Loaded += (s, e) => b.BringIntoView();   // a step far down the list stays in sight
             return b;
         }
 
         void Select(int number)
         {
             selected = number;
+            original = number >= 0 && number < lines.Count ? lines[number] : null;
+            insertAfter = -1;
             editing = true;
             editBox.Text = number >= 0 && number < lines.Count ? lines[number].Trim() : "";
             editing = false;
@@ -591,6 +619,17 @@ namespace MacroKit.App
             Render();
             ShowEditInfo();
             if (number >= 0) { editBox.Focus(); editBox.CaretIndex = editBox.Text.Length; }
+        }
+
+        /// <summary>Closes the edit bar. Esc cancels the edit; Enter and Done keep it.</summary>
+        void Finish(bool cancel)
+        {
+            if (cancel && selected >= 0 && selected < lines.Count && original != null && lines[selected] != original)
+            {
+                lines[selected] = original;
+                Changed();
+            }
+            Select(-1);
         }
 
         void ShowEditInfo()
@@ -630,11 +669,15 @@ namespace MacroKit.App
             if (number < 0 || number >= lines.Count) return;
             lines.RemoveAt(number);
             selected = -1;
+            insertAfter = -1;
             editBar.Visibility = Visibility.Collapsed;
             Changed();
         }
 
-        int InsertAt { get { return selected >= 0 ? selected + 1 : TrimmedCount(); } }
+        int InsertAt
+        {
+            get { return selected >= 0 ? selected + 1 : insertAfter >= 0 && insertAfter < lines.Count ? insertAfter + 1 : TrimmedCount(); }
+        }
 
         /// <summary>The line count without blank lines at the end, so new steps go after the last real one.</summary>
         int TrimmedCount()
@@ -649,8 +692,10 @@ namespace MacroKit.App
             var add = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Where(l => l.Trim().Length > 0).ToList();
             if (add.Count == 0) return;
             int at = InsertAt;
+            bool inside = selected < 0 && insertAfter >= 0 && at == insertAfter + 1;
             lines.InsertRange(at, add);
             selected = -1;
+            insertAfter = inside ? at + add.Count - 1 : -1;   // the next step follows this one, still inside the block
             editBar.Visibility = Visibility.Collapsed;
             Changed();
         }
@@ -668,8 +713,10 @@ namespace MacroKit.App
             else at = TrimmedCount();
             for (int i = 0; i < separators; i++) block.Add("or");
             block.Add(end);
+            bool empty = selected < 0;
             lines.InsertRange(at, block);
             selected = -1;
+            insertAfter = empty ? at : -1;   // an empty block takes the steps added next inside it, not after its end
             editBar.Visibility = Visibility.Collapsed;
             Changed();
         }
@@ -679,6 +726,8 @@ namespace MacroKit.App
         public string[] TileLabels { get { return tiles.Children.OfType<Button>().Where(b => b != addTile).Select(b => AutomationProperties.GetName(b)).ToArray(); } }
         public void SelectTile(int lineNumber) { Select(lineNumber); }
         public void MoveSelected(int direction) { Move(direction); }
+        public void TypeInEditBox(string text) { editBox.Text = text; }
+        public void CancelEdit() { Finish(true); }
     }
 
     // ====================================================================== adding steps
@@ -887,6 +936,7 @@ namespace MacroKit.App
         ushort lone;              // a modifier pressed with no other key yet
         uint loneTime;
         KeyCapture capture;
+        TextBlock help;
         bool hotkeysSuspended;
         bool closing;
 
@@ -908,11 +958,7 @@ namespace MacroKit.App
 
             var dot = Ui.Shape("record", 12, "Rec");
             var title = Ui.Row(9, dot, Ui.Text("Recording keys", "Text", true, 15));
-            var help = Ui.Para(UseKeyboardHook
-                ? "Press keys and shortcuts the way you want the macro to, including Alt+Tab, the Windows key and PrtSc. Each shortcut becomes one step, such as Ctrl + C. " +
-                  "Click Done when you have finished. Only Ctrl+Alt+Delete and Win+L stay with Windows; add those by typing them."
-                : "Press keys and shortcuts the way you want the macro to. Each shortcut becomes one step, such as Ctrl + C. " +
-                  "Click Done when you have finished. Shortcuts Windows keeps for itself, like Alt+Tab or Win+L, can't be recorded here; add those by typing them.", "Muted", 12);
+            help = Ui.Para(UseKeyboardHook ? HookHelp : NoHookHelp, "Muted", 12);
             var frame = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Padding = new Thickness(10, 10, 4, 4), MinHeight = 86 };
             Ui.Ref(frame, Border.BackgroundProperty, "Input");
             Ui.Ref(frame, Border.BorderBrushProperty, "Border");
@@ -963,6 +1009,11 @@ namespace MacroKit.App
             delayButtons[kind] = b;
             row.Children.Add(b);
         }
+
+        const string HookHelp = "Press keys and shortcuts the way you want the macro to, including Alt+Tab, the Windows key and PrtSc. Each shortcut becomes one step, such as Ctrl + C. " +
+            "Click Done when you have finished. Only Ctrl+Alt+Delete and Win+L stay with Windows; add those by typing them.";
+        const string NoHookHelp = "Press keys and shortcuts the way you want the macro to. Each shortcut becomes one step, such as Ctrl + C. " +
+            "Click Done when you have finished. Shortcuts Windows keeps for itself, like Alt+Tab or Win+L, can't be recorded here; add those by typing them.";
 
         static Button Button(string label, Action click, string style)
         {
@@ -1021,7 +1072,9 @@ namespace MacroKit.App
         void RecordDown(object sender, KeyEventArgs e)
         {
             e.Handled = true;
-            if (capture != null) return;   // the hook records the keys
+            // While the hook works it takes every key pressed in this window, so a key that reaches WPF means Windows removed
+            // the hook (it does that to a hook that once answered too slowly). Record from here on the way the window gets keys.
+            if (capture != null) HookLost();
             KeyPressed(Vk(e), unchecked((uint)e.Timestamp), e.IsRepeat);
         }
 
@@ -1030,6 +1083,14 @@ namespace MacroKit.App
             e.Handled = true;
             if (capture != null) return;
             KeyReleased(Vk(e));
+        }
+
+        void HookLost()
+        {
+            Log.Warn("The key recorder's hook stopped getting keys; it now records the keys the window gets.");
+            capture.Dispose();
+            capture = null;
+            help.Text = NoHookHelp;
         }
 
         void KeyPressed(ushort key, uint time, bool repeat)

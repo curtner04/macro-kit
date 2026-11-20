@@ -2011,6 +2011,17 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void Placeholders_OneLetterFormats()
+        {
+            Assert.Equal(Noon.ToString("d"), Placeholders.Fill("{date:d}", Noon, null), "a standard format stays standard");
+            Assert.Equal(Noon.ToString("D"), Placeholders.Fill("{date:D}", Noon, null));
+            Assert.Equal(Noon.Hour.ToString(), Placeholders.Fill("{time:H}", Noon, null), "H alone is the hour");
+            Assert.Equal("12", Placeholders.Fill("{time:h}", Noon, null));
+            Assert.Equal("{date:Q}", Placeholders.Fill("{date:Q}", Noon, null), "a letter that means nothing stays as typed");
+            Assert.Equal("{date:yyyy-\"}", Placeholders.Fill("{date:yyyy-\"}", Noon, null), "a broken format stays as typed");
+        }
+
+        [Test]
         public static void Placeholders_LeaveOtherBracesAlone()
         {
             foreach (string text in new[] { "{{CTRL}{C}}", "if (a) { b(); }", "{name}", "{", "}{", "{date", "{clipboard:x}", "" })
@@ -2042,6 +2053,47 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void Placeholders_BusyClipboardLeavesTheTriggerInsteadOfAnEmptySpot()
+        {
+            foreach (InsertMethod method in new[] { InsertMethod.Type, InsertMethod.Paste })
+            {
+                using (var rig = Inline(PhraseRig.Make("/re", "Re: {clipboard}", method: method)))
+                {
+                    var failures = new List<string>();
+                    rig.Engine.ExpansionFailed += failures.Add;
+                    rig.Clip.Text = "Invoice 42";
+                    rig.Clip.FailReads = true;
+                    rig.Type("/re");
+                    Assert.Equal("/re", rig.Text, method + ": the trigger stays as typed");
+                    Assert.Equal(0, rig.Backspaces, method.ToString());
+                    Assert.Equal(1, failures.Count, method.ToString());
+                    Assert.Contains(failures[0], "another app was using the clipboard");
+                    Assert.Equal(0, rig.Clip.History.Count, method + ": the clipboard was not written");
+                    Assert.False(rig.Engine.IsExpanding);
+
+                    rig.Clip.FailReads = false;
+                    rig.Type(" /re");
+                    if (method == InsertMethod.Type) Assert.Equal("/re Re: Invoice 42", rig.Text, "works again once the clipboard is free");
+                    else Assert.Equal("Re: Invoice 42", rig.Clip.PrivateHistory[0], "pastes again once the clipboard is free");
+                }
+            }
+        }
+
+        [Test]
+        public static void Placeholders_ClipboardWithNoTextIsStillEmpty()
+        {
+            using (var rig = Inline(PhraseRig.Make("/re", "Re: [{clipboard}]")))
+            {
+                var failures = new List<string>();
+                rig.Engine.ExpansionFailed += failures.Add;
+                rig.Clip.Text = null;
+                rig.Type("/re");
+                Assert.Equal("Re: []", rig.Text);
+                Assert.Equal(0, failures.Count);
+            }
+        }
+
+        [Test]
         public static void Placeholders_PastedPhrasePastesTheFilledTextAndRestoresTheClipboard()
         {
             using (var rig = Inline(PhraseRig.Make("/q", "> {clipboard}", method: InsertMethod.Paste)))
@@ -2058,14 +2110,45 @@ namespace MacroKit.Tests
         [Test]
         public static void Placeholders_CursorCountsLeftPressesFromTheEnd()
         {
-            int left;
-            Assert.Equal("Dear ,\r\nBye", Placeholders.SplitCursor(Placeholders.Fill("Dear {cursor},\r\nBye", Noon, null), out left));
-            Assert.Equal(5, left, "a comma, a line break and three letters");
-            Assert.Equal("ab", Placeholders.SplitCursor(Placeholders.Fill("ab", Noon, null), out left));
-            Assert.Equal(0, left);
-            Assert.Equal("a😀b", Placeholders.SplitCursor(Placeholders.Fill("a{cursor}😀b", Noon, null), out left));
-            Assert.Equal(2, left, "an emoji is one press");
+            int at;
+            string text = Placeholders.Fill("Dear {cursor},\r\nBye", Noon, null, null, out at);
+            Assert.Equal("Dear ,\r\nBye", text);
+            Assert.Equal(5, Placeholders.LeftPresses(text, at), "a comma, a line break and three letters");
+            text = Placeholders.Fill("ab", Noon, null, null, out at);
+            Assert.Equal("ab", text);
+            Assert.Equal(-1, at);
+            Assert.Equal(0, Placeholders.LeftPresses(text, at));
+            text = Placeholders.Fill("a{cursor}😀b", Noon, null, null, out at);
+            Assert.Equal("a😀b", text);
+            Assert.Equal(2, Placeholders.LeftPresses(text, at), "an emoji is one press");
             Assert.Equal("{cursor:x}", Placeholders.Fill("{cursor:x}", Noon, null));
+            Assert.Equal("ab", Placeholders.Fill("a{cursor}b{cursor}", Noon, null, null, out at));
+            Assert.Equal(1, at, "the first {cursor} counts");
+        }
+
+        [Test]
+        public static void Placeholders_CursorIsNotConfusedWithACharacterOnTheClipboard()
+        {
+            // U+E000 is a private-use character that icon fonts use; it once marked the {cursor} spot inside the text.
+            string copied = "a\uE000b";
+            int at;
+            string text = Placeholders.Fill("{clipboard}{cursor}!", Noon, () => copied, null, out at);
+            Assert.Equal("a\uE000b!", text, "the copied text is kept as it is");
+            Assert.Equal(3, at);
+            Assert.Equal(1, Placeholders.LeftPresses(text, at));
+            Assert.Equal("\uE000", Placeholders.Fill("{clipboard}", Noon, () => "\uE000"));
+        }
+
+        [Test]
+        public static void Placeholders_TypedPhraseKeepsAPrivateUseCharacterAndTheCaretSpot()
+        {
+            using (var rig = Inline(PhraseRig.Make("/q", "{cursor}{clipboard}")))
+            {
+                rig.Clip.Text = "x\uE000y";
+                rig.Type("/q");
+                Assert.Equal("x\uE000y", rig.Text);
+                Assert.Equal(3, rig.Sink.Log.Count(l => l == "down LEFT"), "back over all three copied characters");
+            }
         }
 
         [Test]
@@ -2109,6 +2192,138 @@ namespace MacroKit.Tests
                 rig.Engine.AskForFields = (p, names) => null;
                 rig.Type("/hi");
                 Assert.Equal("/hi", rig.Text);
+            }
+        }
+
+        // ---- password boxes ----
+
+        [Test]
+        public static void PasswordBox_TriggerIsLeftAlone()
+        {
+            using (var rig = Inline(PhraseRig.Make("/shrug", PhraseRig.Shrug), PhraseRig.Make("brb", "be right back", ExpandWhen.AfterDelimiter)))
+            {
+                bool password = true;
+                int checks = 0;
+                rig.Engine.InPasswordField = () => { checks++; return password; };
+                rig.Type("ab");
+                Assert.Equal(0, checks, "only asked when a trigger was typed");
+                Assert.Equal(0, rig.Type("/shrug brb "), "nothing swallowed");
+                Assert.Equal("ab/shrug brb ", rig.Text);
+                Assert.Equal(0, rig.Sink.Log.Count, "nothing typed or erased");
+                Assert.Equal(2, checks);
+
+                password = false;
+                rig.Type(" /shrug");
+                Assert.Equal("ab/shrug brb  " + PhraseRig.Shrug, rig.Text, "outside a password box it expands again");
+            }
+        }
+
+        [Test]
+        public static void PasswordBox_ACheckThatFailsCountsAsNoPasswordBox()
+        {
+            using (var rig = Inline())
+            {
+                rig.Engine.InPasswordField = () => { throw new InvalidOperationException("window gone"); };
+                rig.Type("/shrug");
+                Assert.Equal(PhraseRig.Shrug, rig.Text);
+            }
+        }
+
+        // ---- the window in front ----
+
+        [Test]
+        public static void AnotherWindowInFront_NothingIsErasedOrTyped()
+        {
+            using (var rig = Inline())
+            {
+                IntPtr front = new IntPtr(100);
+                var failures = new List<string>();
+                rig.Engine.ExpansionFailed += failures.Add;
+                rig.Engine.Foreground = () => front;
+                rig.Engine.BeforeExecute = () => front = new IntPtr(200);   // a chat window pops up as the expansion starts
+                rig.Type("/shrug");
+                Assert.Equal("/shru", rig.Text, "the last key went nowhere, so it is not typed into the new window");
+                Assert.Equal(0, rig.Backspaces);
+                Assert.Equal(0, rig.Sink.Log.Count(l => l.StartsWith("text ")));
+                Assert.Equal(1, failures.Count);
+                Assert.Contains(failures[0], "another window came to the front");
+                Assert.False(rig.Engine.IsExpanding);
+            }
+        }
+
+        [Test]
+        public static void AnotherWindowInFront_PastePutsTheClipboardBack()
+        {
+            using (var rig = Inline(PhraseRig.Make("/shrug", PhraseRig.Shrug, method: InsertMethod.Paste)))
+            {
+                IntPtr front = new IntPtr(100);
+                rig.Clip.Text = "mine";
+                rig.Engine.Foreground = () => front;
+                rig.Engine.BeforeExecute = () => front = new IntPtr(200);
+                rig.Type("/shrug");
+                Assert.Equal(0, rig.Backspaces);
+                Assert.Equal(0, rig.Sink.Log.Count(l => l.StartsWith("combo")), "no Ctrl+V");
+                Assert.Equal("mine", rig.Clip.Text);
+            }
+        }
+
+        [Test]
+        public static void SameWindowInFront_ExpandsAsUsual()
+        {
+            using (var rig = Inline())
+            {
+                rig.Engine.Foreground = () => new IntPtr(100);
+                rig.Type("/shrug");
+                Assert.Equal(PhraseRig.Shrug, rig.Text);
+            }
+        }
+
+        // ---- what can come before an "after a space or punctuation" trigger ----
+
+        [Test]
+        public static void Delimited_DoesNotExpandInsideJoinedWords()
+        {
+            foreach (string prefix in new[] { "it_", "o'", "o\u2019", "well-", "me@" })
+            {
+                using (var rig = Inline(PhraseRig.Make("teh", "the", ExpandWhen.AfterDelimiter)))
+                {
+                    rig.Type(prefix + "teh ");
+                    Assert.Equal(prefix + "teh ", rig.Text, "prefix " + prefix);
+                    Assert.Equal(0, rig.Sink.Log.Count, "prefix " + prefix);
+                }
+            }
+            foreach (string prefix in new[] { "(", "\"", "/", "done." })
+            {
+                using (var rig = Inline(PhraseRig.Make("teh", "the", ExpandWhen.AfterDelimiter)))
+                {
+                    rig.Type(prefix + "teh ");
+                    Assert.Equal(prefix + "the ", rig.Text, "prefix " + prefix);
+                }
+            }
+        }
+
+        [Test]
+        public static void Delimited_ExpandsAfterAnOpeningQuoteHyphenOrUnderscore()
+        {
+            // A joiner with no letter or digit before it starts a word: British quotes, a list line, _emphasis_.
+            string[,] cases = { { " 'teh' ", " 'the' " }, { " ’teh ", " ’the " }, { " _teh_", " _the_" }, { "-teh ", "-the " }, { " @teh ", " @the " } };
+            for (int i = 0; i < cases.GetLength(0); i++)
+            {
+                using (var rig = Inline(PhraseRig.Make("teh", "the", ExpandWhen.AfterDelimiter)))
+                {
+                    rig.Type(cases[i, 0]);
+                    Assert.Equal(cases[i, 1], rig.Text, "typed " + cases[i, 0]);
+                }
+            }
+        }
+
+        [Test]
+        public static void Delimited_TheEndingKeyCanStillBeAHyphenOrApostrophe()
+        {
+            using (var rig = Inline(PhraseRig.Make("teh", "the", ExpandWhen.AfterDelimiter)))
+            {
+                rig.Type("teh-");
+                Assert.Equal("the-", rig.Text);
             }
         }
     }

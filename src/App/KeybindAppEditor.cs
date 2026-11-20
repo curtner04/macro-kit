@@ -30,6 +30,7 @@ namespace MacroKit.App
         readonly List<ShortcutRow> shortcutRows = new List<ShortcutRow>();
         Window window;
         Outcome outcome = Outcome.Cancelled;
+        string initial = "";   // what the form held when it opened, to notice unsaved typing
 
         /// <summary>What was saved (valid after Save).</summary>
         public KeybindAppDef Result { get; private set; }
@@ -55,10 +56,10 @@ namespace MacroKit.App
             var head = ShortcutRow.Columns(Ui.Text("Keys", "Muted", true, 11.5), Ui.Text("What it does", "Muted", true, 11.5), Ui.Text("Works in", "Muted", true, 11.5), new Border());
             head.Margin = new Thickness(0, 14, 0, 4);
             var hint = Ui.Para("Click a Keys box and press the keys, or type them, such as ctrl+shift+m, F9 or prtsc.", "Muted", 11.5);
-            var scroll = new ScrollViewer { Content = rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             var addRow = Ui.IconButton(Ui.GlyphAdd, "Add shortcut", () => { ShortcutRow row = AddRow("", "", false); row.Keys.Focus(); }, "Small");
             addRow.HorizontalAlignment = HorizontalAlignment.Left;
             addRow.Margin = new Thickness(0, 8, 0, 0);
+            var scroll = new ScrollViewer { Content = new StackPanel { Children = { rows, addRow } }, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
 
             save = Ui.Button(existing == null ? "Add app" : "Save", () => { if (Save()) Close(); }, "Primary");
             save.MinWidth = 90;
@@ -79,9 +80,9 @@ namespace MacroKit.App
             problemsText.Margin = new Thickness(0, 10, 0, 0);
 
             var grid = new Grid { Margin = new Thickness(22, 20, 22, 18) };
-            foreach (GridLength height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto, GridLength.Auto })
+            foreach (GridLength height in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto })
                 grid.RowDefinitions.Add(new RowDefinition { Height = height });
-            UIElement[] parts = { title, intro, fields, head, hint, scroll, addRow, problemsText, buttons };
+            UIElement[] parts = { title, intro, fields, head, hint, scroll, problemsText, buttons };
             for (int i = 0; i < parts.Length; i++) { Grid.SetRow(parts[i], i); grid.Children.Add(parts[i]); }
             hint.Margin = new Thickness(0, 0, 0, 6);
             Root = grid;
@@ -89,6 +90,7 @@ namespace MacroKit.App
             if (existing != null) foreach (KeybindDef shortcut in existing.Shortcuts) AddRow(shortcut.Keys, shortcut.Action, shortcut.OnlyWhenActive);
             if (shortcutRows.Count == 0) AddRow("", "", false);
             Validate();
+            initial = Describe();
         }
 
         // ------------------------------------------------------------------ showing
@@ -103,10 +105,22 @@ namespace MacroKit.App
             };
             if (owner != null && owner.IsVisible) window.Owner = owner;
             Theme.Style(window);
+            // Esc or the X would otherwise throw away everything typed.
+            window.Closing += (s, e) =>
+            {
+                if (outcome == Outcome.Cancelled && Describe() != initial && !Ui.Confirm(window, "Discard your changes to this app?")) e.Cancel = true;
+            };
             window.Loaded += (s, e) => { if (existing == null) name.Focus(); };
             window.ShowDialog();
             window.Content = null;
             return outcome;
+        }
+
+        /// <summary>The form's content as one string (without the id), to compare with how it started.</summary>
+        string Describe()
+        {
+            KeybindAppDef def = Collect();
+            return def.Name + "\n" + def.Program + "\n" + string.Join("\n", def.Shortcuts.Select(k => k.Keys + "|" + k.Action + "|" + k.OnlyWhenActive));
         }
 
         void Close() { if (window != null) window.Close(); }
@@ -219,13 +233,16 @@ namespace MacroKit.App
                 Keys = new KeysBox { Text = keys ?? "" };
                 Action.Text = action ?? "";
                 scope.Items.Add("Any window");
-                scope.Items.Add("That app only");
+                scope.Items.Add("Only in the app");
                 scope.SelectedIndex = onlyWhenActive ? 1 : 0;
-                scope.ToolTip = "Any window: the program reacts whichever window is active. That app only: only while that program is the active window.";
+                scope.ToolTip = "Any window: the program reacts whichever window is active. Only in the app: only while that program is the active window.";
                 Keys.TextChanged += (s, e) => Changed();
                 Action.TextChanged += (s, e) => Changed();
                 scope.SelectionChanged += (s, e) => Changed();
                 var remove = Ui.GlyphButton(Ui.GlyphClose, "Remove this shortcut", () => Removed());
+                System.Windows.Automation.AutomationProperties.SetName(Keys, "Keys");
+                System.Windows.Automation.AutomationProperties.SetName(Action, "What it does");
+                System.Windows.Automation.AutomationProperties.SetName(scope, "Works in");
                 Root = Columns(Keys, Action, scope, remove);
                 Root.Margin = new Thickness(0, 0, 0, 6);
             }

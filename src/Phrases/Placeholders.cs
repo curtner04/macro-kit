@@ -16,9 +16,6 @@ namespace MacroKit.Phrases
         /// <summary>The placeholders, for help text and the editor's hint.</summary>
         public const string Help = "{date}, {time}, {clipboard}, {cursor}, {fill:Name}; a format such as {date:dd MMM yyyy} or {time:HH:mm}";
 
-        /// <summary>Marks where {cursor} was in the filled text (a private-use character; see <see cref="SplitCursor"/>).</summary>
-        public const char CursorMark = '\uE000';
-
         /// <summary>The {fill:Name} names in the text, in order, each once (names compare ignoring case).</summary>
         public static List<string> Fields(string text)
         {
@@ -55,28 +52,37 @@ namespace MacroKit.Phrases
         }
 
         /// <summary>
-        /// Takes the {cursor} mark out of filled text. <paramref name="leftPresses"/> is how many Left-arrow presses move the
-        /// caret from the end back to the mark: a line break (CR LF or LF) and a surrogate pair each count once. 0 without a mark.
+        /// How many Left-arrow presses move the caret from the end of <paramref name="text"/> back to position
+        /// <paramref name="at"/>: a line break (CR LF or LF) and a surrogate pair each count once. 0 when at is -1 (no {cursor}).
         /// </summary>
-        public static string SplitCursor(string filled, out int leftPresses)
+        public static int LeftPresses(string text, int at)
         {
-            leftPresses = 0;
-            int at = filled.IndexOf(CursorMark);
-            if (at < 0) return filled;
-            string text = filled.Replace(CursorMark.ToString(), "");
+            if (at < 0 || text == null) return 0;
+            int presses = 0;
             for (int i = text.Length - 1; i >= at; i--)
             {
                 if (text[i] == '\n' && i > at && text[i - 1] == '\r') i--;
                 else if (char.IsLowSurrogate(text[i]) && i > at && char.IsHighSurrogate(text[i - 1])) i--;
-                leftPresses++;
+                presses++;
             }
-            return text;
+            return presses;
+        }
+
+        /// <summary>
+        /// Like <see cref="Fill(string, DateTime, Func{string}, IDictionary{string, string})"/>; <paramref name="cursorAt"/> is where
+        /// the first {cursor} was in the filled text, or -1. The position is kept apart from the text, so nothing the
+        /// clipboard or an answer holds can be mistaken for it.
+        /// </summary>
+        public static string Fill(string text, DateTime now, Func<string> clipboard, IDictionary<string, string> fields, out int cursorAt)
+        {
+            return FillCore(text, now, clipboard, fields, out cursorAt);
         }
 
         /// <summary>Like <see cref="Fill(string, DateTime, Func{string})"/>, with the answers for {fill:Name} (missing ones are empty).</summary>
         public static string Fill(string text, DateTime now, Func<string> clipboard, IDictionary<string, string> fields)
         {
-            return FillCore(text, now, clipboard, fields);
+            int cursorAt;
+            return FillCore(text, now, clipboard, fields, out cursorAt);
         }
 
         /// <summary>
@@ -85,11 +91,13 @@ namespace MacroKit.Phrases
         /// </summary>
         public static string Fill(string text, DateTime now, Func<string> clipboard)
         {
-            return FillCore(text, now, clipboard, null);
+            int cursorAt;
+            return FillCore(text, now, clipboard, null, out cursorAt);
         }
 
-        static string FillCore(string text, DateTime now, Func<string> clipboard, IDictionary<string, string> fields)
+        static string FillCore(string text, DateTime now, Func<string> clipboard, IDictionary<string, string> fields, out int cursorAt)
         {
+            cursorAt = -1;
             if (string.IsNullOrEmpty(text) || text.IndexOf('{') < 0) return text ?? "";
             var sb = new StringBuilder(text.Length + 16);
             string clip = null;
@@ -110,6 +118,12 @@ namespace MacroKit.Phrases
                             if (!clipRead) { clip = (clipboard == null ? null : clipboard()) ?? ""; clipRead = true; }
                             return clip;
                         }, fields);
+                        if (ReferenceEquals(value, CursorValue))
+                        {
+                            if (cursorAt < 0) cursorAt = sb.Length;   // the first {cursor} counts; any later one just goes
+                            i = end + 1;
+                            continue;
+                        }
                         if (value != null) { sb.Append(value); i = end + 1; continue; }
                     }
                 }
@@ -119,7 +133,10 @@ namespace MacroKit.Phrases
             return sb.ToString();
         }
 
-        // The value of one placeholder, or null when the braces hold something else.
+        // What Value gives for {cursor}: told apart by reference, so no real text can ever look like it.
+        static readonly string CursorValue = new string('|', 1);
+
+        // The value of one placeholder (CursorValue for {cursor}), or null when the braces hold something else.
         static string Value(string inner, DateTime now, Func<string> clipboard, IDictionary<string, string> fields)
         {
             string field = FieldName(inner);
@@ -145,15 +162,20 @@ namespace MacroKit.Phrases
                 case "clipboard":
                     return format == null ? clipboard() : null;
                 case "cursor":
-                    return format == null ? CursorMark.ToString() : null;
+                    return format == null ? CursorValue : null;
                 default:
                     return null;
             }
         }
 
+        // A one-letter format is a .NET standard format ("d", "t"...). The four letters that are only custom formats (h, H, K, z)
+        // would throw there, so they are read as custom ones: {time:H} is the hour rather than braces left as typed.
         static string Format(DateTime now, string format)
         {
             try { return now.ToString(format, CultureInfo.CurrentCulture); }
+            catch (FormatException) { }
+            if (format.Length != 1 || "hHKz".IndexOf(format[0]) < 0) return null;
+            try { return now.ToString("%" + format, CultureInfo.CurrentCulture); }
             catch (FormatException) { return null; }
         }
     }

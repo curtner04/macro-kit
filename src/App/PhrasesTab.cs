@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Threading;
 using MacroKit.Core;
 
@@ -26,11 +27,19 @@ namespace MacroKit.App
         readonly Button deleteButton, undoButton, removeExamples;
         readonly ComboBox group;
         // What Undo puts back: the phrase just deleted, or the examples just removed, at their old places.
-        List<KeyValuePair<int, PhraseDef>> undoItems = new List<KeyValuePair<int, PhraseDef>>();
+        // Every delete is its own step, newest last, so a second delete does not lose the first.
+        readonly List<UndoBatch> undoStack = new List<UndoBatch>();
+        const int UndoDepth = 10;
+
+        sealed class UndoBatch
+        {
+            public List<KeyValuePair<int, PhraseDef>> Items;
+            public string Label;
+        }
         readonly TextBox trigger, replacement;
         readonly RadioButton immediately, afterDelimiter, typeIt, pasteIt;
         readonly CheckBox matchCase, phraseEnabled;
-        readonly TextBlock triggerNote;
+        readonly TextBlock triggerNote, preview;
         readonly FrameworkElement editor;
         readonly DispatcherTimer warningTimer;
         bool loading;
@@ -49,9 +58,10 @@ namespace MacroKit.App
             warning = Ui.Note("PhraseExpress is also running. Both programs may expand the same trigger, so you could see the text twice. Close one of them, or use different triggers.", "Warn");
             warning.Margin = new Thickness(0, 10, 0, 0);
 
-            listEmpty = Ui.Para("No phrases yet. Press New, then type a trigger such as /shrug and the text to put in its place.");
+            listEmpty = Ui.Para("No phrases yet. Press New phrase, then type a trigger such as /shrug and the text to put in its place.");
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
             list.SelectionChanged += (s, e) => { if (!loading) LoadEditor(); };
+            list.KeyDown += (s, e) => { if (e.Key == Key.Delete && Selected != null) { e.Handled = true; Delete(); } };
             var newButton = Ui.Button("New phrase", NewPhrase, null, "Add a phrase.");
             deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected phrase. You can undo it.");
             undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the phrase you just deleted.");
@@ -127,20 +137,31 @@ namespace MacroKit.App
 
             var placeholderNote = Ui.Para("Put in the date, the time, what you copied, where the caret ends up, or a fill-in you are asked for: " + MacroKit.Phrases.Placeholders.Help + ".", "Muted", 11.5);
             placeholderNote.TextWrapping = TextWrapping.Wrap;
+            preview = Ui.Para("", "Muted", 11.5);
+            preview.Visibility = Visibility.Collapsed;
             var form = Ui.Stack(10,
                 Ui.Field("Trigger", trigger), triggerNote,
-                Ui.Field("Replacement", replacement), placeholderNote,
+                Ui.Field("Replacement", replacement), preview, placeholderNote,
                 Ui.Field("Group (optional)", group),
                 Ui.Stack(6, Ui.Caption("EXPAND"), immediately, afterDelimiter),
                 Ui.Stack(6, Ui.Caption("INSERT"), typeIt, pasteIt, pasteNote),
                 Ui.Row(22, matchCase, phraseEnabled));
             triggerNote.Margin = new Thickness(0, -4, 0, 0);
+            preview.Margin = new Thickness(0, -4, 0, 0);
             placeholderNote.Margin = new Thickness(0, -4, 0, 0);
             editor = form;
             var editorScroll = new ScrollViewer { Content = Ui.Card(form, new Thickness(16)), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             editorScroll.Margin = new Thickness(0);
 
-            var top = Ui.Stack(0, enabledSwitch, warning);
+            var tryIt = Ui.Button("Try it", () => new InputCheckWindow(owner, c).ShowDialog(), "Small", c.InputEnabled ? "Check that phrases expand on this PC, with a safe test phrase." : "Not available in this session (input is turned off).");
+            tryIt.IsEnabled = c.InputEnabled;
+            tryIt.Margin = new Thickness(10, 0, 0, 0);
+            var howItWorks = Ui.Para("Type a trigger in any other program (Notepad, email, a browser) and it turns into its text. Phrases never expand inside Macro Kit itself.", "Muted", 12);
+            var howRow = new DockPanel { Margin = new Thickness(0, 4, 0, 0), LastChildFill = true };
+            DockPanel.SetDock(tryIt, Dock.Right);
+            howRow.Children.Add(tryIt);
+            howRow.Children.Add(howItWorks);
+            var top = Ui.Stack(0, enabledSwitch, howRow, warning);
             var grid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition());
@@ -189,7 +210,16 @@ namespace MacroKit.App
             list.SelectedItem = match;
             loading = false;
             FilterList();
+            // A selection the search hides would leave the editor open on a row nobody can see.
+            var chosen = list.SelectedItem as ListBoxItem;
+            if (chosen != null && chosen.Visibility != Visibility.Visible)
+            {
+                loading = true;
+                list.SelectedItem = list.Items.Cast<ListBoxItem>().FirstOrDefault(i => i.Tag is PhraseDef && i.Visibility == Visibility.Visible);
+                loading = false;
+            }
             LoadEditor();
+            if (list.SelectedItem != null) list.ScrollIntoView(list.SelectedItem);
         }
 
         /// <summary>Hides the phrases that don't match the search box, and says so when none are left.</summary>
@@ -214,7 +244,7 @@ namespace MacroKit.App
             }
             if (header != null) header.Visibility = headerUsed ? Visibility.Visible : Visibility.Collapsed;
             listEmpty.Text = c.Phrases.Count == 0
-                ? "No phrases yet. Press New, then type a trigger such as /shrug and the text to put in its place."
+                ? "No phrases yet. Press New phrase, then type a trigger such as /shrug and the text to put in its place."
                 : "No phrases match “" + listSearch.Text.Trim() + "”.";
             listEmpty.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -239,6 +269,12 @@ namespace MacroKit.App
 
         /// <summary>Self-test: deletes the selected phrase; true when Undo delete is offered.</summary>
         public bool DeleteSelected() { Delete(); return undoButton.Visibility == Visibility.Visible; }
+
+        /// <summary>Self-test: presses New phrase.</summary>
+        public void AddNew() { NewPhrase(); }
+
+        /// <summary>Self-test: true when the selected phrase's row is showing in the list.</summary>
+        public bool SelectionShown { get { var item = list.SelectedItem as ListBoxItem; return item != null && item.Visibility == Visibility.Visible; } }
 
         /// <summary>Self-test: presses Undo delete.</summary>
         public void Undo() { UndoDelete(); }
@@ -275,6 +311,7 @@ namespace MacroKit.App
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.9, GridUnitType.Star), MinWidth = 70 });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.6, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             string name = p.Trigger.Length == 0 ? "(no trigger yet)" : p.Trigger;
             var t = Ui.Text(name, p.Enabled && p.Trigger.Length > 0 ? "AccentText" : "Muted", true);
             t.FontFamily = Ui.MonoFont;
@@ -284,7 +321,15 @@ namespace MacroKit.App
             Grid.SetColumn(r, 1);
             grid.Children.Add(t);
             grid.Children.Add(r);
-            if (!p.Enabled) grid.Opacity = 0.65;
+            if (!p.Enabled)
+            {
+                // The muted text already says "off"; dimming it again made it hard to read, so a label says it instead.
+                var off = Ui.Pill("Off", "Muted", "Card2", 10.5);
+                off.Margin = new Thickness(8, 0, 0, 0);
+                off.ToolTip = "This phrase is switched off, so it does not expand.";
+                Grid.SetColumn(off, 2);
+                grid.Children.Add(off);
+            }
             return new ListBoxItem { Content = grid, Tag = p };
         }
 
@@ -329,6 +374,7 @@ namespace MacroKit.App
                 phraseEnabled.IsChecked = p.Enabled;
                 UpdateTriggerNote(p);
             }
+            ShowPreview(p);
             loading = false;
         }
 
@@ -338,9 +384,69 @@ namespace MacroKit.App
             else if (p.Trigger.Trim().Length != p.Trigger.Length) triggerNote.Text = "The trigger starts or ends with a space. That works, but make sure it is what you want.";
             else if (c.Phrases.Any(o => !ReferenceEquals(o, p) && o.Enabled && o.Trigger.Equals(p.Trigger, p.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)))
                 triggerNote.Text = "Another phrase uses the same trigger. Only one of them will expand.";
-            else triggerNote.Text = "";
+            else triggerNote.Text = OverlapNote(p, c.Phrases) ?? "";
             triggerNote.Visibility = triggerNote.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
+
+        /// <summary>
+        /// A warning when an Immediately trigger is the start of a longer one: the short one expands as soon as it is typed, so the
+        /// longer one is never finished. Null when there is nothing to say. The engine is unchanged; this only tells the person.
+        /// </summary>
+        public static string OverlapNote(PhraseDef p, IEnumerable<PhraseDef> all)
+        {
+            if (p == null || !p.Enabled || p.Trigger.Length == 0) return null;
+            foreach (PhraseDef o in all)
+            {
+                if (ReferenceEquals(o, p) || !o.Enabled || o.Trigger.Length == 0 || o.Trigger.Length == p.Trigger.Length) continue;
+                if (Blocks(o, p))
+                    return "Typing “" + p.Trigger + "” will first expand “" + o.Trigger + "”. Set “" + o.Trigger + "” to expand after a space.";
+                if (Blocks(p, o))
+                    return "Typing “" + o.Trigger + "” will first expand this phrase. Set this one to expand after a space.";
+            }
+            return null;
+        }
+
+        // True when the short Immediately trigger fires while the longer one is being typed: inside it, or at its end when it waits for a delimiter.
+        static bool Blocks(PhraseDef shortOne, PhraseDef longOne)
+        {
+            if (shortOne.When != ExpandWhen.Immediately || shortOne.Trigger.Length >= longOne.Trigger.Length) return false;
+            StringComparison cmp = shortOne.MatchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            int last = longOne.Trigger.Length - shortOne.Trigger.Length;
+            for (int i = 0; i < last; i++)
+                if (string.Compare(longOne.Trigger, i, shortOne.Trigger, 0, shortOne.Trigger.Length, cmp) == 0) return true;
+            return longOne.When == ExpandWhen.AfterDelimiter && longOne.Trigger.EndsWith(shortOne.Trigger, cmp);
+        }
+
+        /// <summary>What the replacement would look like now: the date and time filled in, the clipboard as a stand-in, fill-ins by name. Null when it has no placeholders.</summary>
+        public static string PreviewOf(string replacement, DateTime now)
+        {
+            if (string.IsNullOrEmpty(replacement) || replacement.IndexOf('{') < 0) return null;
+            try
+            {
+                var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string n in MacroKit.Phrases.Placeholders.Fields(replacement)) names[n] = "{" + n + "}";
+                int cursorAt;
+                string text = MacroKit.Phrases.Placeholders.Fill(replacement, now, () => "(clipboard)", names, out cursorAt);
+                if (text == replacement) return null;
+                if (cursorAt >= 0 && cursorAt <= text.Length) text = text.Insert(cursorAt, "|");   // where the cursor ends up
+                text = text.Replace("\r", "").Replace("\n", " / ");
+                return text.Length > 200 ? text.Substring(0, 200) + "…" : text;
+            }
+            catch (Exception) { return null; }
+        }
+
+        void ShowPreview(PhraseDef p)
+        {
+            string text = p == null ? null : PreviewOf(p.Replacement, DateTime.Now);
+            preview.Text = text == null ? "" : "Preview: " + text;
+            preview.Visibility = text == null ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        /// <summary>Self-test: the preview line under the replacement, or "" while hidden.</summary>
+        public string PreviewText { get { return preview.Visibility == Visibility.Visible ? preview.Text : ""; } }
+
+        /// <summary>Self-test: the note under the trigger, or "" while hidden.</summary>
+        public string TriggerNoteText { get { return triggerNote.Visibility == Visibility.Visible ? triggerNote.Text : ""; } }
 
         void Apply(Action<PhraseDef> change)
         {
@@ -348,6 +454,7 @@ namespace MacroKit.App
             if (loading || p == null) return;
             change(p);
             UpdateTriggerNote(p);
+            ShowPreview(p);
             c.MarkDirty(SaveParts.Phrases);
             var item = (ListBoxItem)list.SelectedItem;
             // Rebuild only the list row, not the editor (the caret would jump).
@@ -364,6 +471,7 @@ namespace MacroKit.App
         {
             PhraseDef at = Selected;
             var p = new PhraseDef { Group = at == null ? "" : GroupOf(at) };
+            listSearch.Text = "";   // the new row would otherwise be hidden by the search
             c.Phrases.Add(p);
             c.MarkDirty(SaveParts.Phrases);
             Reload(p);
@@ -378,25 +486,37 @@ namespace MacroKit.App
             int index = c.Phrases.IndexOf(p);
             c.Phrases.Remove(p);
             c.MarkDirty(SaveParts.Phrases);
-            undoItems = new List<KeyValuePair<int, PhraseDef>> { new KeyValuePair<int, PhraseDef>(index, p) };
-            undoButton.Content = "Undo delete";
-            undoButton.Visibility = Visibility.Visible;
+            PushUndo(new List<KeyValuePair<int, PhraseDef>> { new KeyValuePair<int, PhraseDef>(index, p) }, "Undo delete");
             Reload(c.Phrases.Count == 0 ? null : c.Phrases[Math.Min(index, c.Phrases.Count - 1)]);
             c.SetStatus("Deleted " + name + ". Press Undo delete to put it back.", false);
         }
 
         void UndoDelete()
         {
-            List<KeyValuePair<int, PhraseDef>> items = undoItems;
-            undoItems = new List<KeyValuePair<int, PhraseDef>>();
-            undoButton.Visibility = Visibility.Collapsed;
-            if (items.Count == 0) return;
+            if (undoStack.Count == 0) return;
+            List<KeyValuePair<int, PhraseDef>> items = undoStack[undoStack.Count - 1].Items;
+            undoStack.RemoveAt(undoStack.Count - 1);
+            ShowUndo();
             foreach (var item in items.OrderBy(i => i.Key)) c.Phrases.Insert(Math.Min(Math.Max(0, item.Key), c.Phrases.Count), item.Value);
             c.MarkDirty(SaveParts.Phrases);
             listSearch.Text = "";
             PhraseDef p = items[0].Value;
             Reload(p);
             c.SetStatus(items.Count > 1 ? "Put back " + items.Count + " example phrases." : "Put back " + (p.Trigger.Length == 0 ? "the phrase" : "“" + p.Trigger + "”") + ".", false);
+        }
+
+        void PushUndo(List<KeyValuePair<int, PhraseDef>> items, string label)
+        {
+            undoStack.Add(new UndoBatch { Items = items, Label = label });
+            if (undoStack.Count > UndoDepth) undoStack.RemoveAt(0);
+            ShowUndo();
+        }
+
+        void ShowUndo()
+        {
+            if (undoStack.Count == 0) { undoButton.Visibility = Visibility.Collapsed; return; }
+            undoButton.Content = undoStack[undoStack.Count - 1].Label;
+            undoButton.Visibility = Visibility.Visible;
         }
 
         /// <summary>Removes every example phrase still as shipped in one go; Undo puts them all back.</summary>
@@ -406,9 +526,7 @@ namespace MacroKit.App
             if (items.Count == 0) return;
             foreach (var item in items) c.Phrases.Remove(item.Value);
             c.MarkDirty(SaveParts.Phrases);
-            undoItems = items;
-            undoButton.Content = "Undo remove";
-            undoButton.Visibility = Visibility.Visible;
+            PushUndo(items, "Undo remove");
             Reload(c.Phrases.Count == 0 ? null : c.Phrases[0]);
             c.SetStatus("Removed " + items.Count + " example phrases. Press Undo remove to put them back.", false);
         }

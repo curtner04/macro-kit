@@ -71,6 +71,7 @@
   <Style x:Key="Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="{DynamicResource Accent}"/><Setter Property="Foreground" Value="{DynamicResource AccentFg}"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
   <Style x:Key="Danger" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="{DynamicResource BadBg}"/><Setter Property="Foreground" Value="{DynamicResource Bad}"/></Style>
   <Style x:Key="Ghost" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/></Style>
+  <Style x:Key="SmallPrimary" TargetType="Button" BasedOn="{StaticResource Primary}"><Setter Property="Padding" Value="9,3"/><Setter Property="FontSize" Value="12"/></Style>
   <Style x:Key="Small" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="9,3"/><Setter Property="FontSize" Value="12"/></Style>
   <Style x:Key="Chip" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="8,2"/><Setter Property="FontSize" Value="12"/><Setter Property="Margin" Value="0,0,5,5"/><Setter Property="Background" Value="{DynamicResource Card2}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/></Style>
   <Style x:Key="Transport" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="14,10"/><Setter Property="FontSize" Value="14"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="HorizontalContentAlignment" Value="Center"/></Style>
@@ -172,7 +173,7 @@
 
   <!-- Text boxes -->
   <Style TargetType="TextBox">
-    <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
+    <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
     <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="7,3"/><Setter Property="MinHeight" Value="28"/><Setter Property="VerticalContentAlignment" Value="Center"/>
     <Setter Property="CaretBrush" Value="{DynamicResource Text}"/><Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
@@ -212,7 +213,7 @@
     </ControlTemplate></Setter.Value></Setter>
   </Style>
   <Style TargetType="ComboBox">
-    <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource Border}"/>
+    <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
     <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="8,3,28,3"/><Setter Property="MinHeight" Value="28"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
       <Grid>

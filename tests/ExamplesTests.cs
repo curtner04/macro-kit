@@ -33,6 +33,17 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void EveryExampleMacroSaysWhatItDoes()
+        {
+            foreach (MacroDef m in Examples.Macros())
+                Assert.True(Examples.Describe(m.Name).Length > 10, m.Name + " has no description");
+            string paste = Examples.Describe("Paste down 10 rows");
+            Assert.True(paste.Contains("Copies") && !paste.Contains("what you copied"), "paste note: " + paste);
+            Assert.Equal("", Examples.Describe("A macro of my own"));
+            Assert.Equal("", Examples.Describe(null));
+        }
+
+        [Test]
         public static void NewInstallsStartWithTheExamples()
         {
             Assert.Equal(10, Storage.SeedPhrases().Count);
@@ -50,6 +61,39 @@ namespace MacroKit.Tests
             Assert.Equal("Mine", phrases.First(p => p.Trigger == ";sig").Replacement);
             Assert.True(macros.Skip(1).All(m => !m.ShowOnDeck), "examples added to a setup never land on its Deck");
             Assert.Equal(0, Examples.AddMissing(phrases, macros));
+        }
+
+        [Test]
+        public static void ExamplesAreNotAddedBackWhenSettingsAreLost()
+        {
+            using (var dir = new TempDir())
+            {
+                try
+                {
+                    string data = dir.File("data");
+                    Paths.Override(data);   // keeps the log out of the real folder
+                    // A cleaned-up library: one example deleted, then settings.json is lost (or set aside).
+                    List<PhraseDef> mine = Examples.Phrases().Where(p => p.Trigger != ";em").ToList();
+                    new Storage(data).SavePhrases(mine);
+                    var lost = new Storage(data);
+                    AppSettings settings = lost.LoadSettings();
+                    Assert.False(lost.SettingsFromFile);
+                    Assert.False(Examples.ShouldAddMissing(settings, lost.SettingsFromFile), ";em does not come back");
+
+                    var upgraded = new Storage(data);   // settings.json now exists, without ExamplesAdded: an older version's file
+                    AppSettings older = upgraded.LoadSettings();
+                    Assert.True(upgraded.SettingsFromFile);
+                    Assert.True(Examples.ShouldAddMissing(older, upgraded.SettingsFromFile), "an older setup still gets them once");
+                    // ...but not while phrases.json or macros.json is in use: they could not be saved, so a later start adds them.
+                    Assert.False(Examples.ShouldAddMissing(older, true, new[] { "phrases.json" }));
+                    Assert.False(Examples.ShouldAddMissing(older, true, new[] { "MACROS.json" }));
+                    Assert.True(Examples.ShouldAddMissing(older, true, new string[0]));
+                    Assert.True(Examples.ShouldAddMissing(older, true, new[] { "keybinds.json" }));
+                    older.ExamplesAdded = true;
+                    Assert.False(Examples.ShouldAddMissing(older, true));
+                }
+                finally { Paths.Override(null); }
+            }
         }
 
         [Test]

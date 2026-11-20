@@ -1,6 +1,7 @@
 # Compiles one module with its tests into a private temp folder and runs it, so parallel module work never breaks another module's build.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\Test-Module.ps1 -Module Core|Macros|Phrases|Recording|Win32|Keybinds [-Filter name-part]
-# Sources: src\Core\*.cs (always) + src\<Module>\*.cs (not for Core) + tests\TestKit.cs + tests\Fakes.cs + tests\<Module>Tests.cs.
+# Sources: src\Core\*.cs (always) + src\<Module>\*.cs (not for Core) + tests\TestKit.cs + tests\Fakes.cs + tests\<Module>Tests.cs,
+# plus the extra test files listed for the module in $extraTests below (Macros also runs the plain-line, actions, Pro, recording-to-macro and example tests).
 # The test exe is a console app that opens no windows, sends no input, installs no hooks and never touches the real clipboard.
 # Exit code = number of failed tests (1 when the build fails).
 param(
@@ -26,7 +27,15 @@ function Get-Sources([string]$Folder, [string]$Pattern = '*.cs') {
 
 $sources = @(Get-Sources (Join-Path $root 'src\Core'))
 if ($Module -ne 'Core') { $sources += Get-Sources (Join-Path $root "src\$Module") }
-$sources += @('TestKit.cs', 'Fakes.cs', "${Module}Tests.cs") | ForEach-Object { Join-Path $root "tests\$_" } | Where-Object { Test-Path -LiteralPath $_ }
+# The example tests also read the Keybinds and Recording code, so Macros compiles those folders too.
+$extraFolders = @{ Macros = @('Keybinds', 'Recording') }
+if ($extraFolders.ContainsKey($Module)) { foreach ($folder in $extraFolders[$Module]) { $sources += Get-Sources (Join-Path $root "src\$folder") } }
+# Test files that belong to a module's area but are not named after it, so the per-module run covers every test file.
+$extraTests = @{
+    Macros = @('ActionsTests.cs', 'PlainMacroTests.cs', 'ProTests.cs', 'RecordingToMacroTests.cs', 'ExamplesTests.cs')
+}
+$more = @(); if ($extraTests.ContainsKey($Module)) { $more = $extraTests[$Module] }
+$sources += @('TestKit.cs', 'Fakes.cs', "${Module}Tests.cs") + $more | ForEach-Object { Join-Path $root "tests\$_" } | Where-Object { Test-Path -LiteralPath $_ }
 
 $work = Join-Path ([IO.Path]::GetTempPath()) ('MacroKit-module-' + $Module + '-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work -Force | Out-Null

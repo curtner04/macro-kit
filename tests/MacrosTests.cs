@@ -575,8 +575,12 @@ namespace MacroKit.Tests
             macro.KeyDelayMs = 10;
             Assert.Equal(410L, P("{{KEYPRESS:DOWN:5:100}}").EstimatedMs(macro));
             Assert.Equal(50L, P("{{KEYPRESS:DOWN:5}}").EstimatedMs(macro));
-            Assert.Equal(20L, P("hi{{VARSET:a:1}}{{ENTER}}").EstimatedMs(macro));
+            Assert.Equal(30L, P("hi{{VARSET:a:1}}{{ENTER}}").EstimatedMs(macro), "typed text counts a key delay per character");
             Assert.Equal(0L, P("{{VARSET:a:1}}").EstimatedMs(macro));
+            Assert.Equal(3000L, P(new string('x', 300), false).EstimatedMs(macro), "300 characters at 10 ms");
+            macro.PasteText = true;
+            Assert.Equal(260L, P(new string('x', 300), false).EstimatedMs(macro), "pasted text waits for the paste once");
+            Assert.Equal(20L, P("hi", false).EstimatedMs(macro), "short text is still typed");
         }
 
         [Test]
@@ -2076,6 +2080,78 @@ namespace MacroKit.Tests
             RunResult result = rig.Run("{{ENTER}}");
             Assert.True(result.Completed, result.Error);
             Assert.Equal(0, rig.Windows.ActivateLog.Count);
+        }
+
+        // ---- Sweep A1 ----
+
+        [Test]
+        public static void TypingStopsWhenAnotherWindowTakesFocusPartWayThrough()
+        {
+            var rig = new Rig();
+            rig.Input.PaceEachCharacter = true;
+            int typed = 0;
+            rig.Input.OnCall = line =>
+            {
+                if (line.StartsWith("text ", StringComparison.Ordinal) && ++typed == 3) rig.Windows.SetForeground(rig.Notepad.Handle);
+            };
+            RunResult result = rig.Run("abcdefgh", RunInExcel);
+            Assert.False(result.Completed);
+            Assert.Equal("Stopped because Untitled - Notepad took focus.", result.Error);
+            Assert.Equal("text a|text b|text c", rig.Log, "the rest of the text is not sent");
+        }
+
+        [Test]
+        public static void ErrorsInsideANestedMacroNameThatMacro()
+        {
+            var rig = new Rig();
+            var inner = new MacroDef { Name = "Copy row", Script = "a\n{{FOCUS:nothing}}", KeyDelayMs = 0 };
+            var outer = new MacroDef { Name = "Outer", Script = "{{MACRO:Copy row}}", KeyDelayMs = 0 };
+            rig.Runner.FindMacro = n => n == "Copy row" ? inner : n == "Outer" ? outer : null;
+            RunResult result = rig.Run("{{MACRO:Outer}}");
+            Assert.False(result.Completed);
+            Assert.True(result.Error.StartsWith("In \u201CCopy row\u201D, line 2: ", StringComparison.Ordinal), result.Error);
+        }
+
+        [Test]
+        public static void ForgetAllVariablesKeepsOnlyTheBuiltInOnes()
+        {
+            var rig = new Rig();
+            rig.Run("{{VARSET:small:x}}{{VARUNSETALL}}{{OUTPUT:small}}{{OUTPUT:SMSPACE}}");
+            Assert.Equal("text  ", rig.Log, "a variable called small is forgotten; $SMSPACE still works");
+        }
+
+        [Test]
+        public static void DateAndTimeAreBuiltInVariables()
+        {
+            var rig = new Rig();
+            RunResult result = rig.Run("{{OUTPUT:DATE}}{{OUTPUT:TIME}}{{VARSET:DATE:mine}}{{OUTPUT:DATE}}", m => m.NewLineIsEnter = false);
+            Assert.True(result.Completed, result.Error);
+            string today = DateTime.Now.ToString("d", System.Globalization.CultureInfo.CurrentCulture);
+            Assert.True(rig.Input.Log.Contains("text " + today), rig.Log);
+            Assert.Equal("text mine", rig.Input.Log.Last());
+        }
+
+        [Test]
+        public static void ContinuousPassesThatSendNothingDoNotSpin()
+        {
+            var rig = new Rig();
+            rig.Clock.At(1000, () => rig.Cts.Cancel());
+            RunResult result = rig.Run("{{VARSET:a:1}}", m => m.Repeat = RepeatMode.Continuous);
+            Assert.True(result.Cancelled, result.Error);
+            Assert.True(result.PassesDone <= 1000 / 25 + 1, "passes: " + result.PassesDone);
+            Assert.Equal(0, rig.Input.Log.Count);
+        }
+
+        [Test]
+        public static void PasteTextPressesEnterForALineBreakAtTheEnd()
+        {
+            var rig = new Rig();
+            string pasted = null;
+            rig.Input.OnCall = line => { if (line == "combo LCONTROL+V") pasted = rig.Clipboard.Text; };
+            RunResult result = rig.Run("Hello, World!\n", m => { m.PasteText = true; m.KeyDelayMs = 0; });
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal("Hello, World!", pasted);
+            Assert.Equal("combo LCONTROL+V|combo ENTER", rig.Log);
         }
     }
 }

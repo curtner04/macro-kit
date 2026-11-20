@@ -12,7 +12,7 @@ namespace MacroKit.Win32
     /// The real keyboard and mouse output (SendInput / SetCursorPos). Every event carries dwExtraInfo "MKIT" and is marked
     /// injected by Windows, so Macro Kit's own hook ignores it. Safe to call from any thread.
     /// </summary>
-    public sealed class SendInputSink : IInputSink
+    public sealed class SendInputSink : IInputSink, IRawKeySink
     {
         const int ComboHoldMs = 15;
         static readonly Func<ushort, ushort> scanFor = InputPackets.ScanFor;
@@ -20,6 +20,11 @@ namespace MacroKit.Win32
         public void KeyDown(ushort vk) { Send(new[] { InputPackets.Key(vk, true, InputPackets.ScanFor(vk)) }); }
 
         public void KeyUp(ushort vk) { Send(new[] { InputPackets.Key(vk, false, InputPackets.ScanFor(vk)) }); }
+
+        /// <summary>A recorded key as it was captured: its own scan code and extended flag, not the ones Macro Kit's layout would give.</summary>
+        public void KeyDown(ushort vk, ushort scan, bool extended) { Send(new[] { InputPackets.Key(vk, true, scan, extended) }); }
+
+        public void KeyUp(ushort vk, ushort scan, bool extended) { Send(new[] { InputPackets.Key(vk, false, scan, extended) }); }
 
         public void KeyCombo(IList<ushort> keys)
         {

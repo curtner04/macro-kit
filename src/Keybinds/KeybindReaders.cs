@@ -28,15 +28,15 @@ namespace MacroKit.Keybinds
             AddMacroKitHotkey(app, "Stop everything", settings.StopHotkey);
             AddMacroKitHotkey(app, "Show or hide the Deck", settings.DeckHotkey);
             foreach (MacroDef macro in macros ?? Enumerable.Empty<MacroDef>())
-                if (!string.IsNullOrWhiteSpace(macro.Hotkey)) AddMacroKitHotkey(app, "Run macro “" + macro.Name + "”", macro.Hotkey);
+                if (!string.IsNullOrWhiteSpace(macro.Hotkey)) AddMacroKitHotkey(app, "Run macro “" + macro.Name + "”", macro.Hotkey, macro.Enabled);
             app.Add("Stop playback or a macro", "Esc", KeybindScope.Global, true, "Only while a playback or macro runs (Settings: Esc stops playback and macros)", settings.EscStops).Momentary = true;
             return app;
         }
 
-        static void AddMacroKitHotkey(AppKeybinds app, string action, string text)
+        static void AddMacroKitHotkey(AppKeybinds app, string action, string text, bool enabled = true)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
-            app.Add(action, text, KeybindScope.Global, true);
+            app.Add(action, text, KeybindScope.Global, true, enabled ? "" : "Switched off in Macro Kit", enabled);
         }
 
         // ---------------------------------------------------------------- Snipline

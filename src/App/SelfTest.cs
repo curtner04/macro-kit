@@ -132,7 +132,10 @@ namespace MacroKit.App
             Settle(main);
 
             // ---- logic checks, headless
+            string firstScript = controller.Macros[0].Script, firstPlain = controller.Macros[0].Plain;
             RunLogicChecks(controller, shell, main, data);
+            // The pictures show the seeded macros, so a check that edits one must use its own.
+            Check("the logic checks leave the seeded first macro as it was", () => controller.Macros[0].Script == firstScript && controller.Macros[0].Plain == firstPlain);
 
             // ---- pictures
             foreach (string theme in new[] { "Light", "Dark" })
@@ -281,12 +284,165 @@ namespace MacroKit.App
                 });
             }
 
+            Check("a saved recording is read from disk once and again after a rename", () =>
+            {
+                RecordingInfo info = controller.Recordings.FirstOrDefault(r => r.Name == "Copy table rows");
+                if (info == null) return false;
+                Rec first = controller.LoadRecording(info.Id), again = controller.LoadRecording(info.Id);
+                controller.RenameRecording(info.Id, "Copy table rows (renamed)");
+                Rec renamed = controller.LoadRecording(info.Id);
+                controller.RenameRecording(info.Id, "Copy table rows");
+                return first != null && ReferenceEquals(first, again) && renamed != null && !ReferenceEquals(first, renamed)
+                    && renamed.Name == "Copy table rows (renamed)" && controller.LoadRecording(info.Id).Name == "Copy table rows";
+            });
+
             Check("floating windows are no-activate tool windows", () =>
             {
                 long deck = NativeUi.ExStyle(shell.Deck), pill = NativeUi.ExStyle(shell.Pill);
                 const long need = NativeUi.WS_EX_NOACTIVATE | NativeUi.WS_EX_TOOLWINDOW;
                 return (deck & need) == need && (pill & need) == need && (deck & NativeUi.WS_EX_APPWINDOW) == 0 && (pill & NativeUi.WS_EX_APPWINDOW) == 0
                     && !shell.Deck.ShowActivated && !shell.Pill.ShowActivated && shell.Deck.Topmost && shell.Pill.Topmost;
+            });
+
+            Check("the changelog window shows bold and code as formatting, not as markers", () =>
+            {
+                var log = new ChangelogWindow(null);
+                var texts = new List<string>();
+                var groups = new List<string>();
+                Action<object> walk = null;
+                walk = node =>
+                {
+                    var tb = node as System.Windows.Controls.TextBlock;
+                    if (tb != null)
+                    {
+                        // The text as drawn: every run of the block, whether it was built from plain text or from formatted pieces.
+                        string shown = string.Concat(tb.Inlines.OfType<System.Windows.Documents.Run>().Select(r => r.Text));
+                        texts.Add(shown);
+                        if (tb.Tag as string == "Group") groups.Add(shown);
+                    }
+                    var d = node as DependencyObject;
+                    if (d != null) foreach (object child in LogicalTreeHelper.GetChildren(d)) walk(child);
+                };
+                walk(log.Content);
+                log.Close();
+                // A line that is only bold (a group such as Recorder inside a version) is drawn as a group title.
+                return texts.Count > 5 && !texts.Any(t => t.Contains("**") || t.Contains("`")) && groups.Contains("Recorder");
+            });
+            Check("a new phrase shows even while the phrase search hides everything, and each delete has its own undo", () =>
+            {
+                int n = controller.Phrases.Count;
+                main.Phrases.ListSearch = "";
+                main.Phrases.Select(0);
+                PhraseDef a = controller.Phrases[0];
+                main.Phrases.DeleteSelected();
+                main.Phrases.Select(0);
+                PhraseDef b = controller.Phrases[0];
+                main.Phrases.DeleteSelected();
+                bool twoGone = controller.Phrases.Count == n - 2;
+                main.Phrases.Undo();
+                bool secondBack = controller.Phrases.Count == n - 1 && ReferenceEquals(controller.Phrases[0], b);
+                main.Phrases.Undo();
+                bool bothBack = controller.Phrases.Count == n && ReferenceEquals(controller.Phrases[0], a) && ReferenceEquals(controller.Phrases[1], b);
+                main.Phrases.ListSearch = "no such phrase qqq";
+                main.Phrases.AddNew();
+                bool shown = main.Phrases.ListSearch == "" && main.Phrases.SelectionShown && controller.Phrases.Count == n + 1;
+                main.Phrases.DeleteSelected();
+                if (!(twoGone && secondBack && bothBack && shown && controller.Phrases.Count == n))
+                    throw new Exception(string.Join(",", twoGone, secondBack, bothBack, shown, controller.Phrases.Count == n));
+                return true;
+            });
+            Check("Is it free? narrows the list to the keys, Clear lifts that, and a lone F key gets an answer", () =>
+            {
+                main.SelectTab(4);
+                Settle(main);
+                main.Keybinds.SetSearch("");
+                int everything = main.Keybinds.ShownRows.Count;
+                main.Keybinds.Check(new Hotkey(HotkeyModifiers.Ctrl | HotkeyModifiers.Shift | HotkeyModifiers.Alt, 0x4B), true);
+                bool narrowed = main.Keybinds.ShownRows.Count == 0 && main.Keybinds.VerdictText.Length > 0;
+                main.Keybinds.ClearCheck();
+                bool cleared = main.Keybinds.ShownRows.Count > 0 && main.Keybinds.VerdictText.Length == 0;
+                main.Keybinds.SetSearch("prtsc");
+                main.Keybinds.ClearCheck();
+                bool kept = main.Keybinds.ShownRows.Count > 0 && main.Keybinds.ShownRows.Count < everything;   // the person's own search survives Clear
+                main.Keybinds.SetSearch("f9");
+                Settle(main);
+                bool fKey = main.Keybinds.VerdictText.Length > 0;
+                main.Keybinds.SetSearch("");
+                if (!(narrowed && cleared && kept && fKey)) throw new Exception(string.Join(",", narrowed, cleared, kept, fKey));
+                return true;
+            });
+
+            Check("a short Immediately trigger warns about a longer one that starts with it, and the preview shows placeholders", () =>
+            {
+                var shortOne = new PhraseDef { Trigger = "/sig", Replacement = "a" };
+                var longOne = new PhraseDef { Trigger = "/sig2", Replacement = "b" };
+                var all = new List<PhraseDef> { shortOne, longOne };
+                string forLong = PhrasesTab.OverlapNote(longOne, all), forShort = PhrasesTab.OverlapNote(shortOne, all);
+                bool warns = forLong != null && forLong.Contains("first expand") && forShort != null && forShort.Contains("/sig2");
+                shortOne.When = ExpandWhen.AfterDelimiter;
+                bool quiet = PhrasesTab.OverlapNote(longOne, all) == null && PhrasesTab.OverlapNote(shortOne, all) == null;
+                shortOne.When = ExpandWhen.Immediately;
+                shortOne.Enabled = false;
+                bool offQuiet = PhrasesTab.OverlapNote(longOne, all) == null;
+                string preview = PhrasesTab.PreviewOf("Hi {fill:Name}, {clipboard}{cursor} on {date:yyyy}", new DateTime(2030, 5, 6));
+                bool filled = preview != null && preview.Contains("{Name}") && preview.Contains("(clipboard)") && preview.Contains("|") && preview.Contains("2030");
+                bool plain = PhrasesTab.PreviewOf("no placeholders", DateTime.Now) == null;
+                var bt = new PhraseDef { Trigger = "bt", Replacement = "a" };
+                var inside = new PhraseDef { Trigger = "/abtx", Replacement = "b" };
+                bool middle = PhrasesTab.OverlapNote(inside, new List<PhraseDef> { bt, inside }) != null;
+                var sig = new PhraseDef { Trigger = "sig", Replacement = "a" };
+                var slashSig = new PhraseDef { Trigger = "/sig", Replacement = "b", When = ExpandWhen.AfterDelimiter };
+                bool atEnd = PhrasesTab.OverlapNote(slashSig, new List<PhraseDef> { sig, slashSig }) != null;
+                slashSig.When = ExpandWhen.Immediately;
+                bool longerWins = PhrasesTab.OverlapNote(slashSig, new List<PhraseDef> { sig, slashSig }) == null;
+                if (!(warns && quiet && offQuiet && filled && plain && middle && atEnd && longerWins)) throw new Exception(string.Join(",", warns, quiet, offQuiet, filled, plain, middle, atEnd, longerWins) + " " + preview);
+                return true;
+            });
+            Check("the recording list searches and duplicates, and the next button to press is blue", () =>
+            {
+                string before = controller.Settings.SelectedRecordingId;
+                var one = new Rec { Name = "Zed alpha" };
+                var two = new Rec { Name = "Zed beta" };
+                controller.Storage.SaveRecording(one);
+                controller.Storage.SaveRecording(two);
+                controller.RefreshRecordings();
+                bool ok = false;
+                string detail = "";
+                try
+                {
+                    main.Recorder.ListSearch = "beta";
+                    bool searched = main.Recorder.ShownRecordings.SequenceEqual(new[] { "Zed beta" });
+                    main.Recorder.ListSearch = "";
+                    controller.SelectRecording(one.Id);
+                    controller.RefreshRecordings();
+                    bool play = main.Recorder.PrimaryButtons == "Play";
+                    int count = controller.Recordings.Count;
+                    controller.EditPlayback(one.Id, p => p.Speed = 2);
+                    main.Recorder.DuplicateSelected();
+                    RecordingInfo copy = controller.Recordings.FirstOrDefault(r => r.Name == "Zed alpha copy");
+                    bool duplicated = copy != null && controller.Recordings.Count == count + 1 && controller.Settings.SelectedRecordingId == copy.Id
+                        && controller.PlaybackFor(copy.Id).Speed == 2 && string.IsNullOrEmpty(controller.OptionsFor(copy.Id).Hotkey) && !controller.OptionsFor(copy.Id).ShowOnDeck;
+                    if (copy != null) controller.DeleteRecording(copy.Id);
+                    var taken = new Rec { Name = "Zed gamma" };
+                    main.Recorder.ListSearch = "beta";
+                    controller.Pending = taken;
+                    controller.Settings.SelectedRecordingId = taken.Id;
+                    controller.RefreshRecordings();
+                    bool shown = main.Recorder.ListSearch == "" && controller.Settings.SelectedRecordingId == taken.Id && main.Recorder.PrimaryButtons.Contains("+Save");
+                    ok = searched && play && duplicated && shown;
+                    detail = string.Join(",", searched, play, duplicated, shown);
+                }
+                finally
+                {
+                    controller.Pending = null;
+                    main.Recorder.ListSearch = "";
+                    controller.DeleteRecording(one.Id);
+                    controller.DeleteRecording(two.Id);
+                    controller.SelectRecording(before);
+                    controller.RefreshRecordings();
+                }
+                if (!ok) throw new Exception(detail);
+                return true;
             });
 
             Step("the status popup goes where it was dragged and back to the corner on reset", () =>
@@ -368,6 +524,143 @@ namespace MacroKit.App
                 Settle(main);
                 front.Close();
                 if (!ok) throw new Exception(got);
+            });
+            Step("a damaged recording found after startup is reported in the status line", () =>
+            {
+                string bad = Path.Combine(data, "recordings", "0123456789abcdef0123456789abcdef.json");
+                File.WriteAllText(bad, "{ damaged");
+                controller.SetStatus("", false);
+                controller.RefreshRecordings();   // the index no longer matches the folder, so it is rebuilt and the file is set aside
+                Pump();
+                string status = controller.LastStatus;
+                bool reported = controller.LastStatusIsError && status.Contains("0123456789abcdef0123456789abcdef.json could not be read") && status.Contains("set aside");
+                bool aside = !File.Exists(bad) && Directory.GetFiles(Path.Combine(data, "recordings"), "0123456789abcdef*.unreadable-*").Length == 1;
+                controller.SetStatus("", false);
+                controller.RefreshRecordings();
+                Pump();
+                bool once = controller.LastStatus == "";
+                if (!(reported && aside && once)) throw new Exception(string.Join(",", reported, aside, once) + " " + status);
+            });
+            Check("Exit asks about changes to files that were in use at startup, and only then", () =>
+                AppShell.BlockedChangesQuestion(new List<string>()) == null
+                && AppShell.BlockedChangesQuestion(new[] { "phrases.json" }) == "Changes to phrases.json made this session can't be saved because the file was in use when Macro Kit started. Exit anyway?"
+                && AppShell.BlockedChangesQuestion(new[] { "macros.json", "phrases.json", "settings.json" }).StartsWith("Changes to macros.json, phrases.json and settings.json made this session can't be saved because the files were"));
+            Check("Restart asks about them too, in its own words", () =>
+                AppShell.BlockedChangesQuestion(new[] { "phrases.json" }, "Restart").EndsWith(" in use when Macro Kit started. Restart anyway?")
+                && AppShell.BlockedChangesQuestion(new[] { "phrases.json" }).EndsWith(" Exit anyway?")
+                && AppShell.BlockedChangesQuestion(new List<string>(), "Restart") == null);
+            Step("the startup storage warnings keep a hotkey error that was already showing", () =>
+            {
+                const string hotkeys = "Some hotkeys could not be set up (another program may use them). See Settings.";
+                const string warning = "phrases.json is in use or can't be opened right now.";
+                controller.SetStatus(hotkeys, true);
+                controller.SetStatus(AppShell.StartupStatus(new[] { warning }, controller.LastStatus, controller.LastStatusIsError), true);
+                bool both = main.StatusText.Contains(warning) && main.StatusText.Contains(hotkeys);
+                bool plain = AppShell.StartupStatus(new[] { warning }, "Imported “Login steps”.", false) == warning;
+                bool once = AppShell.StartupStatus(new[] { warning, hotkeys }, hotkeys, true) == warning + " " + hotkeys;
+                controller.SetStatus("", false);
+                if (!(both && plain && once)) throw new Exception(string.Join(",", both, plain, once) + " " + main.StatusText);
+            });
+            Step("the status line clears an ordinary message after a while and keeps an error", () =>
+            {
+                controller.SetStatus("Imported “Login steps”.", false);
+                bool shown = main.StatusText == "Imported “Login steps”.";
+                main.ExpireStatusForTest();
+                bool cleared = main.StatusText == "" && controller.LastStatus == "Imported “Login steps”.";
+                controller.SetStatus("Could not save your changes: the disk is full.", true);
+                main.ExpireStatusForTest();
+                bool kept = main.StatusText == "Could not save your changes: the disk is full.";
+                controller.SetStatus("", false);
+                if (!(shown && cleared && kept)) throw new Exception(string.Join(",", shown, cleared, kept));
+            });
+            Step("the popup says where Macro Kit went when the window closes to the tray", () =>
+            {
+                if (!shell.Pill.Flash("Still running", MainWindow.TrayCloseNotice, "Warn", 15)) throw new Exception("the notice was not shown while nothing ran");
+                Settle(shell.Pill);
+                bool shown = shell.Pill.IsVisible;
+                shell.Pill.Hide();
+                if (!shown) throw new Exception("the popup did not show");
+                if (new AppSettings().TrayCloseNoticeShown) throw new Exception("a new setup should get the notice");
+            });
+            Step("leaving saves the last edits, window moves included, without waiting for the save timer", () =>
+            {
+                string other = Path.Combine(data, "leave-check");
+                Directory.CreateDirectory(other);
+                var quick = new AppController(app.Dispatcher, new Storage(other), false);
+                int edited = 0;
+                quick.Edited += parts => edited++;
+                quick.Flush();
+                quick.Settings.WindowLeft = 321;
+                quick.MarkPlacementDirty();
+                bool quiet = edited == 0;
+                quick.Settings.DeckColumns = 5;
+                quick.MarkDirty(SaveParts.Settings);
+                quick.Dispose();
+                AppSettings saved = new Storage(other).LoadSettings();
+                if (!(quiet && saved.WindowLeft == 321 && saved.DeckColumns == 5)) throw new Exception(string.Join(",", quiet, saved.WindowLeft, saved.DeckColumns));
+            });
+            Step("starting while phrases.json is in use neither adds the examples nor marks them added", () =>
+            {
+                string other = Path.Combine(data, "locked-examples-check");
+                Directory.CreateDirectory(other);
+                var seed = new Storage(other);
+                seed.SaveSettings(new AppSettings());
+                seed.SavePhrases(new[] { new PhraseDef { Trigger = "/mine", Replacement = "kept" } });
+                bool flagged;
+                using (new FileStream(Path.Combine(other, "phrases.json"), FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    var quick = new AppController(app.Dispatcher, new Storage(other), false);
+                    flagged = quick.Settings.ExamplesAdded;
+                    quick.Dispose();
+                }
+                bool saved = new Storage(other).LoadSettings().ExamplesAdded;
+                if (flagged || saved) throw new Exception(string.Join(",", flagged, saved));
+            });
+            Check("a window in the gap between two monitors is not on a screen", () =>
+            {
+                // Left monitor 0..1920 x 0..1080, right monitor 2000..3920 x 300..1380: the box around both holds a gap and a corner nobody sees.
+                var monitors = new[] { new Rect(0, 0, 1920, 1080), new Rect(2000, 300, 1920, 1080) };
+                bool onLeft = NativeUi.IsOnAnyMonitor(new Rect(100, 100, 300, 200), monitors);
+                bool onRight = NativeUi.IsOnAnyMonitor(new Rect(2500, 900, 300, 200), monitors);
+                bool inGap = NativeUi.IsOnAnyMonitor(new Rect(1930, 100, 60, 200), monitors);
+                bool aboveRight = NativeUi.IsOnAnyMonitor(new Rect(2500, 0, 300, 200), monitors);   // only 0 px of it is on a screen
+                bool edgeOnly = NativeUi.IsOnAnyMonitor(new Rect(1900, 100, 300, 200), monitors);   // 20 px on the left monitor: too little
+                bool corner = NativeUi.IsOnAnyMonitor(new Rect(1800, 1000, 300, 200), monitors);    // 120 x 80 on the left monitor
+                return onLeft && onRight && !inGap && !aboveRight && !edgeOnly && corner;
+            });
+            Step("the window remembers being maximized", () =>
+            {
+                bool before = controller.Settings.WindowMaximized;
+                main.WindowState = WindowState.Maximized;
+                Pump();
+                bool whenMaximized = controller.Settings.WindowMaximized;
+                main.WindowState = WindowState.Normal;
+                Pump();
+                bool whenNormal = controller.Settings.WindowMaximized;
+                if (before || !whenMaximized || whenNormal) throw new Exception(string.Join(",", before, whenMaximized, whenNormal));
+            });
+            Step("picking a window still ends when bringing the window back fails, and says nothing while leaving", () =>
+            {
+                string other = Path.Combine(data, "pick-check");
+                Directory.CreateDirectory(other);
+                var quick = new AppController(app.Dispatcher, new Storage(other), false);
+                int changes = 0;
+                quick.ActivityChanged += () => changes++;
+                quick.IsMainWindowVisible = () => true;
+                quick.ShowMainWindow = activate => { throw new InvalidOperationException("the window could not be shown"); };
+                if (!quick.BeginPick(info => { })) throw new Exception("picking did not begin");
+                quick.Stop();
+                bool ended = !quick.IsBusy && quick.LastStatus == "Picking cancelled." && changes >= 2;
+                // Leaving: the end of a pick no longer touches the windows or the status line.
+                quick.SetStatus("");
+                quick.IsMainWindowVisible = () => false;
+                quick.BeginPick(info => { });
+                int before = changes;
+                quick.BeginQuit();
+                quick.Stop();
+                bool quiet = !quick.IsBusy && changes == before && quick.LastStatus == "";
+                quick.Dispose();
+                if (!(ended && quiet)) throw new Exception(string.Join(",", ended, quiet, changes));
             });
             Step("closing the window with the close button leaves without a nested close", () =>
             {
@@ -469,6 +762,36 @@ namespace MacroKit.App
                 if (!(warned && icon)) throw new Exception("warned " + string.Join("|", shell.Deck.WarnedButtons) + "; labels " + string.Join("|", shell.Deck.ButtonLabels));
                 return true;
             });
+            Check("the Deck names the line to fix and leaves out a switched-off macro's hotkey", () =>
+            {
+                var typo = new MacroDef { Name = "Deck typo test", ShowOnDeck = true, Plain = "ctrl+c\r\nfrobnicate wildly" };
+                typo.Script = MacroKit.Macros.PlainMacro.ToScript(typo.Plain).Script;
+                var paused = new MacroDef { Name = "Deck paused test", Script = "{{CTRL}{C}}", Hotkey = "Ctrl+Alt+F9", ShowOnDeck = true };
+                c.Macros.Add(typo);
+                c.Macros.Add(paused);
+                bool compactWas = c.Settings.DeckCompact;
+                try
+                {
+                    c.Settings.DeckCompact = false;
+                    shell.Deck.Update();
+                    string tip = shell.Deck.ButtonTips[typo.Name];
+                    bool line = tip.Contains("Line 2") && !tip.Contains("?:");
+                    bool hinted = shell.Deck.HintedButtons.Contains(paused.Name);
+                    paused.Enabled = false;
+                    shell.Deck.Update();
+                    string offTip = shell.Deck.ButtonTips[paused.Name];
+                    bool off = !shell.Deck.HintedButtons.Contains(paused.Name) && offTip.Contains("Switched off") && !offTip.Contains("Hotkey:");
+                    if (!(line && hinted && off)) throw new Exception(string.Join(",", line, hinted, off) + " " + tip + " | " + offTip);
+                    return true;
+                }
+                finally
+                {
+                    c.Settings.DeckCompact = compactWas;
+                    c.Macros.Remove(typo);
+                    c.Macros.Remove(paused);
+                    shell.Deck.Update();
+                }
+            });
             Check("the recorder bar has Stop, Restart and Discard", () =>
                 shell.RecorderBar.ButtonLabels.SequenceEqual(new[] { "Stop", "Restart", "Discard" }) && !shell.RecorderBar.IsVisible);
             Check("a recording turns into a macro and gets its own hotkey, Deck button and speed", () =>
@@ -526,6 +849,202 @@ namespace MacroKit.App
                 if (!(added && removed && back && c.Phrases.Count == phrases && c.Macros.Count == macros))
                     throw new Exception(string.Join(",", added, removed, back, removedPhrases, removedMacros));
                 return true;
+            });
+            Check("an example says what it does until it is changed", () =>
+            {
+                MacroDef ex = Examples.Macros()[0];
+                c.Macros.Add(ex);
+                try
+                {
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(c.Macros.IndexOf(ex));
+                    string note = main.Macros.ExampleNoteText;
+                    main.Macros.SetPlain("click");
+                    string after = main.Macros.ExampleNoteText;
+                    if (note != Examples.Describe(ex.Name) || after.Length != 0) throw new Exception("note “" + note + "”, after a change “" + after + "”");
+                    return true;
+                }
+                finally { c.Macros.Remove(ex); main.Macros.ReloadList(); }
+            });
+            Check("New macro and Duplicate show the new row through a search; a copy has no schedule and its own name", () =>
+            {
+                MacroDef first = c.Macros[0];
+                ScheduleKind kind = first.Schedule.Kind;
+                var original = c.Macros.ToList();
+                first.Schedule.Kind = ScheduleKind.Daily;
+                try
+                {
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(0);
+                    main.Macros.ListSearch = "no such macro qqq";
+                    main.Macros.PressNew();
+                    bool shown = main.Macros.ListSearch == "" && main.Macros.ShownMacros.Contains("New macro");
+                    main.Macros.SelectMacro(0);
+                    main.Macros.PressDuplicate();
+                    MacroDef a = c.Macros[1];
+                    main.Macros.SelectMacro(0);
+                    main.Macros.PressDuplicate();
+                    MacroDef b = c.Macros[1];
+                    bool copies = a.Name == first.Name + " copy" && b.Name == first.Name + " copy 2" && a.Schedule.Kind == ScheduleKind.Off
+                        && b.Schedule.Kind == ScheduleKind.Off && first.Schedule.Kind == ScheduleKind.Daily && c.Macros.Count == original.Count + 3;
+                    if (!(shown && copies)) throw new Exception(string.Join(",", shown, copies, a.Name, b.Name));
+                    return true;
+                }
+                finally
+                {
+                    foreach (MacroDef x in c.Macros.Where(x => !original.Contains(x)).ToList()) c.Macros.Remove(x);
+                    first.Schedule.Kind = kind;
+                    main.Macros.ListSearch = "";
+                    main.Macros.ReloadList();
+                }
+            });
+            Check("Delete with a search active keeps the next macro in view", () =>
+            {
+                var extra = new MacroDef { Name = "Search delete test" };
+                c.Macros.Add(extra);
+                try
+                {
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(c.Macros.IndexOf(extra));
+                    main.Macros.ListSearch = "Search delete test";
+                    main.Macros.DeleteSelected();
+                    bool shown = main.Macros.SelectedName == null || main.Macros.ShownMacros.Contains(main.Macros.SelectedName);
+                    if (!shown) throw new Exception("selected " + main.Macros.SelectedName + " is hidden by the search");
+                    return true;
+                }
+                finally
+                {
+                    if (!c.Macros.Contains(extra)) main.Macros.UndoLastDelete();   // so no Undo delete is left showing
+                    c.Macros.Remove(extra);
+                    main.Macros.ListSearch = "";
+                    main.Macros.ReloadList();
+                    c.SetStatus("", false);
+                }
+            });
+            Check("Run names the step that needs fixing, and the summary follows the repeat count and a missing macro", () =>
+            {
+                var m = new MacroDef { Name = "Typo test" };
+                c.Macros.Add(m);
+                try
+                {
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(c.Macros.IndexOf(m));
+                    main.Macros.SetPlain("ctrl+c\r\nfrobnicate wildly");
+                    c.SetStatus("", false);
+                    main.Macros.PressRun();
+                    bool named = c.LastStatusIsError && c.LastStatus.Contains("Typo test") && c.LastStatus.Contains("Line 2") && !c.IsBusy;
+                    main.Macros.SetPlain("wait 1s");
+                    bool once = main.Macros.PlainSummaryText.Contains("per pass") && !main.Macros.PlainSummaryText.Contains("in all");
+                    main.Macros.TypeRepeatCount("4");
+                    bool times = main.Macros.PlainSummaryText.Contains("in all");
+                    main.Macros.SetPlain(MacroKit.Macros.PlainMacro.ToPlain(MacroKit.Macros.MacroScript.Macro("No such macro qqq"), true));
+                    bool missing = main.Macros.PlainSummaryText.Contains("no macro called “No such macro qqq”");
+                    if (!(named && once && times && missing)) throw new Exception(string.Join(",", named, once, times, missing) + " " + c.LastStatus + " | " + main.Macros.PlainSummaryText);
+                    return true;
+                }
+                finally { c.Macros.Remove(m); main.Macros.ReloadList(); }
+            });
+            Check("a macro can be switched off, and the options open from their line", () =>
+            {
+                var m = new MacroDef { Name = "Paused test", Hotkey = "" };
+                m.Schedule.Kind = ScheduleKind.Daily;
+                c.Macros.Add(m);
+                bool optionsWere = c.Settings.ShowMacroOptions;
+                LicenseInfo licenseWas = Edition.License;
+                try
+                {
+                    // Pro for the schedule line; nothing runs, as input is off in the self test and the macro is empty.
+                    Edition.Set(new LicenseInfo { Serial = 1, Issued = new DateTime(2026, 11, 17), Name = "Test" });
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(c.Macros.IndexOf(m));
+                    bool onNext = c.NextScheduledRun(m).HasValue && main.Macros.ScheduleStatusText.Contains("Next run");
+                    main.Macros.PressEnabled(false);
+                    string line = main.Macros.ScheduleStatusText;
+                    bool offNext = c.NextScheduledRun(m) == null && line.Contains("Paused") && !line.Contains("Type the time");
+                    bool dim = main.Macros.ShowsAsOff(m) && !m.Enabled;
+                    main.Macros.PressEnabled(true);
+                    bool back = !main.Macros.ShowsAsOff(m) && m.Enabled && main.Macros.ScheduleStatusText.Contains("Next run");
+                    main.Macros.ToggleOptions(false);
+                    main.Macros.ClickOptionsLine();
+                    bool opened = main.Macros.OptionsVisible;
+                    if (!(onNext && offNext && dim && back && opened)) throw new Exception(string.Join(",", onNext, offNext, dim, back, opened) + " " + line);
+                    return true;
+                }
+                finally { Edition.Set(licenseWas); c.Macros.Remove(m); main.Macros.ToggleOptions(optionsWere); main.Macros.ReloadList(); }
+            });
+            Check("Paste text updates the per-pass estimate on the code card", () =>
+            {
+                var m = new MacroDef { Name = "Paste estimate test" };
+                c.Macros.Add(m);
+                try
+                {
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(c.Macros.IndexOf(m));
+                    main.Macros.SetPlain("type \"" + new string('a', 500) + "\"");
+                    main.Macros.RefreshPreview();
+                    string typed = main.Macros.StepsSummaryText;
+                    main.Macros.ClickPasteText(true);
+                    string pasted = main.Macros.StepsSummaryText;
+                    if (!m.PasteText || typed.Length == 0 || pasted == typed) throw new Exception(m.PasteText + " | " + typed + " | " + pasted);
+                    return true;
+                }
+                finally { c.Macros.Remove(m); main.Macros.ReloadList(); }
+            });
+            Check("in Tiles, steps added after an empty block go inside it", () =>
+            {
+                var m = new MacroDef { Name = "Block test" };
+                c.Macros.Add(m);
+                string editorWas = c.Settings.MacroEditor;
+                try
+                {
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(c.Macros.IndexOf(m));
+                    c.Settings.MacroEditor = EditorKinds.Tiles;
+                    c.MarkDirty(SaveParts.Settings);
+                    main.Macros.SetPlain("");
+                    main.Macros.TileEditor.WrapBlock("repeat 3 times", 0, "end repeat");
+                    main.Macros.Insert("{{ENTER}}");
+                    main.Macros.Insert("{{TAB}}");
+                    string[] lines = main.Macros.PlainText.Split(new[] { "\r\n" }, StringSplitOptions.None);
+                    if (lines.Length != 4 || lines[0] != "repeat 3 times" || lines[3] != "end repeat" || lines[1] != "Enter") throw new Exception(main.Macros.PlainText.Replace("\r\n", " | "));
+                    return true;
+                }
+                finally
+                {
+                    c.Settings.MacroEditor = editorWas;
+                    c.MarkDirty(SaveParts.Settings);
+                    c.Macros.Remove(m);
+                    main.Macros.ReloadList();
+                }
+            });
+            Step("Esc in the tiles editor puts the step back, and labelled boxes have names", () =>
+            {
+                var m = new MacroDef { Name = "Esc test" };
+                c.Macros.Add(m);
+                string editorWas = c.Settings.MacroEditor;
+                try
+                {
+                    main.Macros.ReloadList();
+                    main.Macros.SelectMacro(c.Macros.IndexOf(m));
+                    c.Settings.MacroEditor = EditorKinds.Tiles;
+                    c.MarkDirty(SaveParts.Settings);
+                    main.Macros.SetPlain("ctrl+c\r\nwait 50ms");
+                    main.Macros.TileEditor.SelectTile(0);
+                    main.Macros.TileEditor.TypeInEditBox("ctrl+v");
+                    if (main.Macros.PlainText != "ctrl+v\r\nwait 50ms") throw new Exception("typing gave " + main.Macros.PlainText);
+                    main.Macros.TileEditor.CancelEdit();
+                    if (main.Macros.PlainText != "ctrl+c\r\nwait 50ms") throw new Exception("Esc left " + main.Macros.PlainText);
+                    var field = Ui.Field("Speed", new System.Windows.Controls.TextBox());
+                    var named = (System.Windows.Controls.TextBox)field.Children[1];
+                    if (System.Windows.Automation.AutomationProperties.GetName(named) != "Speed") throw new Exception("a labelled box has no name");
+                }
+                finally
+                {
+                    c.Settings.MacroEditor = editorWas;
+                    c.MarkDirty(SaveParts.Settings);
+                    c.Macros.Remove(m);
+                    main.Macros.ReloadList();
+                }
             });
             Check("Windows' own shortcuts are listed", () =>
                 KeybindReaders.Windows().Keybinds.Any(k => k.Keys == "Win+V") && KeybindReaders.Windows().Keybinds.All(k => !k.Combo.IsEmpty));
@@ -722,6 +1241,9 @@ namespace MacroKit.App
                 main.Macros.TileEditor.SelectTile(2);
                 main.Macros.TileEditor.MoveSelected(-1);
                 if (main.Macros.PlainText != "ctrl+c\r\nalt+tab\r\nwait 50ms" || c.Macros[2].Script != "{{CTRL}{C}}{{ALT}{TAB}}{{PAUSE:50}}") throw new Exception("move gave " + c.Macros[2].Script);
+                main.Macros.TileEditor.MoveSelected(-1);
+                if (main.Macros.PlainText != "alt+tab\r\nctrl+c\r\nwait 50ms") throw new Exception("second move gave " + main.Macros.PlainText);
+                main.Macros.TileEditor.MoveSelected(1);
                 main.Macros.Insert("{{ENTER}}");
                 if (main.Macros.PlainText != "ctrl+c\r\nalt+tab\r\nEnter\r\nwait 50ms") throw new Exception("insert gave " + main.Macros.PlainText);
                 c.Settings.MacroEditor = EditorKinds.Text;
@@ -926,6 +1448,11 @@ namespace MacroKit.App
             {
                 shell.Pill.Flash("Can't start", "“Broken example” has an error. Line 1: Unknown command “FOO”.", "Bad");
                 RenderFloating(shell.Pill, Path.Combine(folder, "7-pill-notice-" + suffix + ".png"));
+            });
+            Step("render pill done (" + suffix + ")", () =>
+            {
+                shell.Pill.Render(new ActivityInfo(), "“Copy, switch, paste, next row” finished (25 passes).", false);
+                RenderFloating(shell.Pill, Path.Combine(folder, "7-pill-done-" + suffix + ".png"));
             });
             Step("render pill error (" + suffix + ")", () =>
             {

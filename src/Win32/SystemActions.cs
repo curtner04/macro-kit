@@ -54,7 +54,7 @@ namespace MacroKit.Win32
             string name = (processName ?? "").Trim();
             if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 4);
             if (name.Length == 0) return "Say which program to close.";
-            int own = Process.GetCurrentProcess().Id;
+            int own = (int)Native.GetCurrentProcessId();
             var ids = new HashSet<uint>();
             try
             {

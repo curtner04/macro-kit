@@ -405,6 +405,165 @@ namespace MacroKit.Tests
             Assert.Equal(20, rec.DurationMs);
         }
 
+        [Test]
+        public static void RecorderKeepsTheLastLetterWhenAButtonStopped()
+        {
+            // "Chris" typed, then Stop clicked: no hotkey stopped it, so the final S is the person's own.
+            var s = new Session();
+            ushort[] word = { VkC, 0x48, VkR, 0x49, VkS };
+            for (int i = 0; i < word.Length; i++) s.K(10 + i * 20, word[i], true).K(20 + i * 20, word[i], false);
+            Assert.Equal(10, s.Recorder.Stop(null).Events.Count);
+            s.Recorder.Start(true);
+            for (int i = 0; i < word.Length; i++) s.K(10 + i * 20, word[i], true).K(20 + i * 20, word[i], false);
+            Assert.Equal(10, s.Recorder.Stop(new Hotkey[0]).Events.Count);
+        }
+
+        [Test]
+        public static void RecorderStripsOnlyTheLastPressOfTheStopHotkey()
+        {
+            // Ctrl+S saved the document, then Ctrl+Shift+Alt+S stopped: the save stays.
+            var s = new Session();
+            s.K(10, LControl, true).K(11, VkS, true).K(12, VkS, false).K(13, LControl, false);
+            s.K(100, LControl, true).K(101, LShift, true).K(102, LMenu, true).K(103, VkS, true);
+            s.K(110, VkS, false).K(111, LMenu, false).K(112, LShift, false).K(113, LControl, false);
+            Hotkey hk;
+            Assert.True(Hotkey.TryParse("Ctrl+Shift+Alt+S", out hk));
+            Rec rec = s.Recorder.Stop(new[] { hk });
+            Assert.SequenceEqual(new[] { "10 KeyDown 162,0", "11 KeyDown 83,0", "12 KeyUp 83,0", "13 KeyUp 162,0" }, Show(rec));
+        }
+
+        [Test]
+        public static void RecorderStripsAHotkeyWhoseModifierWasReleasedFirst()
+        {
+            var s = new Session();
+            s.K(10, VkA, true).K(20, VkA, false);
+            s.K(50, LControl, true).K(51, VkS, true).K(60, LControl, false).K(61, VkS, false);
+            Rec rec = s.Recorder.Stop(new[] { new Hotkey(HotkeyModifiers.Ctrl, VkS) });
+            Assert.SequenceEqual(new[] { "10 KeyDown 65,0", "20 KeyUp 65,0" }, Show(rec));
+        }
+
+        [Test]
+        public static void RecorderStripsTheStopHotkeysAutoRepeats()
+        {
+            var s = new Session();
+            s.K(10, VkA, true).K(20, VkA, false);
+            s.K(50, LControl, true).K(90, LControl, true).K(100, VkS, true).K(140, VkS, true).K(180, VkS, true);
+            s.K(200, VkS, false).K(201, LControl, false);
+            Rec rec = s.Recorder.Stop(new[] { new Hotkey(HotkeyModifiers.Ctrl, VkS) });
+            Assert.SequenceEqual(new[] { "10 KeyDown 65,0", "20 KeyUp 65,0" }, Show(rec));
+        }
+
+        [Test]
+        public static void RecorderKeepsTheHotkeysLetterTypedJustBefore()
+        {
+            // An S of the person's own, then Ctrl+S to stop: only the Ctrl+S goes.
+            var s = new Session();
+            s.K(10, VkS, true).K(20, VkS, false);
+            s.K(50, LControl, true).K(51, VkS, true).K(60, VkS, false).K(61, LControl, false);
+            Rec rec = s.Recorder.Stop(new[] { new Hotkey(HotkeyModifiers.Ctrl, VkS) });
+            Assert.SequenceEqual(new[] { "10 KeyDown 83,0", "20 KeyUp 83,0" }, Show(rec));
+        }
+
+        // ---------- Recorder: keys held when it started ----------
+
+        [Test]
+        public static void RecorderIgnoresTheRepeatsAndReleaseOfKeysHeldAtStart()
+        {
+            // Ctrl+Shift+Alt+R held a little long: its repeats and releases are not part of the take.
+            var s = new Session();
+            s.Recorder.Start(true, new[] { LControl, LShift, LMenu, VkR });
+            s.K(10, LControl, true).K(40, VkR, true).K(80, VkR, true).K(90, VkR, false);
+            s.K(91, LMenu, false).K(92, LShift, false).K(93, LControl, false);
+            Assert.Equal(0, s.Recorder.Stop(null).Events.Count);
+        }
+
+        [Test]
+        public static void RecorderRecordsAHeldKeyPressedAgainAfterItsRelease()
+        {
+            var s = new Session();
+            s.Recorder.Start(true, new[] { VkR });
+            s.K(10, VkR, true).K(20, VkR, false);
+            s.K(100, VkR, true).K(110, VkR, false);
+            Assert.SequenceEqual(new[] { "100 KeyDown 82,0", "110 KeyUp 82,0" }, Show(s.Recorder.Stop(null)));
+        }
+
+        [Test]
+        public static void RecorderRecordsOtherKeysWhileAKeyFromTheStartIsHeld()
+        {
+            var s = new Session();
+            s.Recorder.Start(true, new[] { VkR });
+            s.K(10, VkR, true).K(30, VkB, true).K(40, VkB, false).K(50, VkR, true).K(60, VkR, false);
+            Assert.SequenceEqual(new[] { "30 KeyDown 66,0", "40 KeyUp 66,0" }, Show(s.Recorder.Stop(null)));
+        }
+
+        [Test]
+        public static void RecorderCountsInjectedPressesItIgnored()
+        {
+            var s = new Session();
+            s.Recorder.OnKey(Key(VkA, true, injected: true));
+            s.Recorder.OnKey(Key(VkA, false, injected: true));
+            s.Recorder.OnMouse(Move(1, 1, injected: true));
+            s.Recorder.OnMouse(Button(true, 1, 1, injected: true));
+            s.Recorder.OnMouse(Button(false, 1, 1, injected: true));
+            s.Recorder.OnMouse(new MouseEvent { Kind = MouseEventKind.Wheel, Delta = 120, Injected = true });
+            Assert.Equal(3, s.Recorder.InjectedIgnored, "a key press, a click and a wheel turn; not moves or releases");
+            Assert.Equal(0, s.Recorder.Stop(null).Events.Count);
+            s.Recorder.OnKey(Key(VkA, true, injected: true));
+            Assert.Equal(3, s.Recorder.InjectedIgnored, "nothing is counted while not recording");
+            s.Recorder.Start(true);
+            Assert.Equal(0, s.Recorder.InjectedIgnored, "Start resets the count");
+        }
+
+        // ---------- Recorder: taking back tray clicks ----------
+
+        [Test]
+        public static void RecorderDropTrailingClickRemovesTheClickAndItsMoves()
+        {
+            var s = new Session();
+            s.K(10, VkA, true).K(20, VkA, false);
+            s.M(30, Move(5, 5)).M(40, Button(true, 900, 900, MouseButton.Right)).M(50, Button(false, 900, 900, MouseButton.Right)).M(60, Move(880, 880));
+            Assert.True(s.Recorder.DropTrailingClick(MouseButton.Right));
+            s.M(100, Button(true, 900, 900)).M(110, Button(false, 900, 900));
+            Rec rec = s.Recorder.Stop(null);
+            Assert.SequenceEqual(new[] { "10 KeyDown 65,0", "20 KeyUp 65,0", "100 Move 900,900", "100 ButtonDown 0,0", "110 ButtonUp 0,0" }, Show(rec),
+                "the next click moves to its own position again");
+        }
+
+        [Test]
+        public static void RecorderDropTrailingClickIgnoresTheReleaseStillToCome()
+        {
+            var s = new Session();
+            s.K(10, VkA, true).K(20, VkA, false);
+            s.M(40, Button(true, 900, 900, MouseButton.Right));
+            Assert.True(s.Recorder.DropTrailingClick(MouseButton.Right));
+            s.M(50, Button(false, 900, 900, MouseButton.Right));
+            Assert.SequenceEqual(new[] { "10 KeyDown 65,0", "20 KeyUp 65,0" }, Show(s.Recorder.Stop(null)));
+        }
+
+        [Test]
+        public static void RecorderDropTrailingClickTakesBackADoubleClick()
+        {
+            var s = new Session();
+            s.K(10, VkA, true).K(20, VkA, false);
+            s.M(40, Button(true, 900, 900)).M(50, Button(false, 900, 900)).M(60, Button(true, 900, 900)).M(70, Button(false, 900, 900));
+            Assert.True(s.Recorder.DropTrailingClick(MouseButton.Left));
+            Assert.True(s.Recorder.DropTrailingClick(MouseButton.Left));
+            Assert.False(s.Recorder.DropTrailingClick(MouseButton.Left), "the key press before it stays");
+            Assert.Equal(2, s.Recorder.Stop(null).Events.Count);
+        }
+
+        [Test]
+        public static void RecorderDropTrailingClickLeavesEverythingWhenSomethingElseCameAfter()
+        {
+            var s = new Session();
+            s.M(40, Button(true, 900, 900, MouseButton.Right)).M(50, Button(false, 900, 900, MouseButton.Right));
+            s.K(60, VkA, true);
+            Assert.False(s.Recorder.DropTrailingClick(MouseButton.Right));
+            Assert.False(s.Recorder.DropTrailingClick(MouseButton.Left), "a different button");
+            Assert.Equal(4, s.Recorder.Stop(null).Events.Count);
+            Assert.False(s.Recorder.DropTrailingClick(MouseButton.Right), "not recording");
+        }
+
         // ---------- Recorder: mouse ----------
 
         [Test]
@@ -1258,6 +1417,73 @@ namespace MacroKit.Tests
             Rec rec = MakeRec(Ev(0, RecKind.ButtonDown, (int)MouseButton.Right), Ev(10, RecKind.ButtonDown, (int)MouseButton.Right));
             run.Play(rec, Settings());
             Assert.Equal(1, run.Sink.Log.Count(l => l == "button Right up"));
+        }
+        [Test]
+        public static void PlayerSendsKeysWithTheirRecordedScanCode()
+        {
+            // Numpad Enter (extended), numpad Home with Num Lock off (not extended), a key with no scan, AltGr's extra Ctrl.
+            var run = new PlayRun();
+            Rec rec = MakeRec(
+                Ev(0, RecKind.KeyDown, 0x0D, 0x1001C), Ev(1, RecKind.KeyUp, 0x0D, 0x1001C),
+                Ev(2, RecKind.KeyDown, 0x24, 0x47), Ev(3, RecKind.KeyUp, 0x24, 0x47),
+                Ev(4, RecKind.KeyDown, VkA, 0), Ev(5, RecKind.KeyUp, VkA, 0),
+                Ev(6, RecKind.KeyDown, LControl, 0x21D), Ev(7, RecKind.KeyUp, LControl, 0x21D));
+            RunResult result = run.Play(rec, Settings());
+            Assert.True(result.Completed);
+            string enter = FakeInputSink.Name(0x0D), home = FakeInputSink.Name(0x24);
+            Assert.SequenceEqual(new[] { "down " + enter + " 1C ext", "up " + enter + " 1C ext", "down " + home + " 47", "up " + home + " 47", "down LCONTROL 1D", "up LCONTROL 1D" }, run.Sink.RawKeys);
+            Assert.Equal(1, run.Sink.Log.Count(l => l == "down " + FakeInputSink.Name(VkA)), "a key without a scan code is sent by its virtual key");
+        }
+
+        [Test]
+        public static void PlayerLetsGoOfHeldKeysWithTheScanTheyWerePressedWith()
+        {
+            // No ups: the pass end and a cancel both release the keys, and each up must match its down, not the layout's main key.
+            string enter = FakeInputSink.Name(0x0D), home = FakeInputSink.Name(0x24);
+            var run = new PlayRun();
+            RunResult done = run.Play(MakeRec(Ev(0, RecKind.KeyDown, 0x0D, 0x1001C), Ev(1, RecKind.KeyDown, 0x24, 0x47)), Settings());
+            Assert.True(done.Completed);
+            Assert.SequenceEqual(new[] { "down " + enter + " 1C ext", "down " + home + " 47", "up " + home + " 47", "up " + enter + " 1C ext" }, run.Sink.RawKeys);
+
+            var cut = new PlayRun();
+            var cts = new CancellationTokenSource();
+            cut.Clock.At(50, cts.Cancel);
+            RunResult cancelled = cut.Play(MakeRec(Ev(0, RecKind.KeyDown, 0x0D, 0x1001C), Ev(1, RecKind.KeyDown, 0x24, 0x47), Ev(100, RecKind.KeyUp, 0x24, 0x47)), Settings(), cts.Token);
+            Assert.True(cancelled.Cancelled);
+            Assert.SequenceEqual(new[] { "down " + enter + " 1C ext", "down " + home + " 47", "up " + home + " 47", "up " + enter + " 1C ext" }, cut.Sink.RawKeys);
+            Assert.Equal(0, cut.Sink.HeldKeys.Count);
+        }
+
+        [Test]
+        public static void PlayerSaysWhichKeyItCouldNotRelease()
+        {
+            var run = new PlayRun();
+            run.Sink.FailWhen = line => line == "up LCONTROL";
+            Rec rec = MakeRec(Ev(0, RecKind.KeyDown, LControl), Ev(10, RecKind.KeyDown, VkC), Ev(20, RecKind.KeyUp, VkC));
+            RunResult result = run.Play(rec, Settings());
+            Assert.True(result.Completed);
+            Assert.Equal("Playback finished, but " + KeyNames.Display(LControl) + " may still be held down; press and release it.", result.Error);
+        }
+
+        [Test]
+        public static void PlayerAddsTheStuckKeysToAnError()
+        {
+            var run = new PlayRun();
+            run.Sink.FailWhen = line => line == "up LCONTROL" || line == "button Right up" || line == "down " + FakeInputSink.Name(VkC);
+            Rec rec = MakeRec(Ev(0, RecKind.KeyDown, LControl), Ev(5, RecKind.ButtonDown, (int)MouseButton.Right), Ev(10, RecKind.KeyDown, VkC));
+            RunResult result = run.Play(rec, Settings());
+            Assert.False(result.Completed);
+            Assert.True(result.Error.StartsWith("Playback stopped: "), result.Error);
+            Assert.True(result.Error.EndsWith(" The right mouse button and " + KeyNames.Display(LControl) + " may still be held down; press and release them."), result.Error);
+        }
+
+        [Test]
+        public static void PlayerSaysNothingExtraWhenEverythingWasReleased()
+        {
+            var run = new PlayRun();
+            RunResult result = run.Play(MakeRec(Ev(0, RecKind.KeyDown, LControl)), Settings());
+            Assert.True(result.Completed);
+            Assert.Null(result.Error);
         }
     }
 }

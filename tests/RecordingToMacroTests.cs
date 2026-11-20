@@ -85,5 +85,98 @@ namespace MacroKit.Tests
             Assert.Equal("", RecordingToMacro.Script(new List<RecEvent>()));
             Assert.Equal("Recording (from recording)", RecordingToMacro.Convert(new Rec { Name = " " }).Name);
         }
+
+        // ---- Sweep A1: more of the conversion ----
+
+        static string Script(params RecEvent[] events)
+        {
+            string script = RecordingToMacro.Script(events);
+            ParseResult r = MacroParser.Parse(script, false);
+            Assert.True(r.Ok, script + " -> " + string.Join("; ", r.Errors.Select(e => e.Message)));
+            return script;
+        }
+
+        static RecEvent Down(int t, MouseButton b) { return E(t, RecKind.ButtonDown, (int)b); }
+        static RecEvent Up(int t, MouseButton b) { return E(t, RecKind.ButtonUp, (int)b); }
+
+        [Test]
+        public static void ADragIsDownMoveUp()
+        {
+            string s = Script(E(0, RecKind.Move, 10, 10), Down(0, MouseButton.Left), E(100, RecKind.Move, 200, 150), Up(200, MouseButton.Left));
+            Assert.Equal("{{MOUSEXY:10,10}}\n{{MLEFTDOWN}}\n{{PAUSE:200}}\n{{MOUSEXY:200,150}}\n{{MLEFTUP}}", s);
+        }
+
+        [Test]
+        public static void ClicksCloseTogetherAreADoubleClickAndSlowOnesAreTwo()
+        {
+            string fast = Script(E(0, RecKind.Move, 5, 5), Down(0, MouseButton.Left), Up(30, MouseButton.Left), Down(200, MouseButton.Left), Up(230, MouseButton.Left));
+            Assert.Equal("{{MOUSEXY:5,5}}\n{{MLEFTDBLCLICK}}", fast);
+            string slow = Script(E(0, RecKind.Move, 5, 5), Down(0, MouseButton.Left), Up(30, MouseButton.Left), Down(1500, MouseButton.Left), Up(1530, MouseButton.Left));
+            Assert.Equal("{{MOUSEXY:5,5}}\n{{LBUTTON}}\n{{PAUSE:1500}}\n{{LBUTTON}}", slow);
+        }
+
+        [Test]
+        public static void SpeedTwoHalvesThePauses()
+        {
+            var events = new[] { E(0, RecKind.Move, 5, 5), Down(0, MouseButton.Left), Up(10, MouseButton.Left), Down(2000, MouseButton.Right), Up(2010, MouseButton.Right) };
+            Assert.Contains(RecordingToMacro.Script(events, 1), "{{PAUSE:2000}}");
+            Assert.Contains(RecordingToMacro.Script(events, 2), "{{PAUSE:1000}}");
+        }
+
+        [Test]
+        public static void HeldCtrlOverThreeKeysAndAnOrphanKeyUp()
+        {
+            string s = Script(E(0, RecKind.KeyUp, 'Z'), E(10, RecKind.KeyDown, 0xA2), E(20, RecKind.KeyDown, 'A'), E(30, RecKind.KeyDown, 'C'), E(40, RecKind.KeyDown, 'V'), E(50, RecKind.KeyUp, 0xA2));
+            Assert.Equal("{{CTRL}{A}}\n{{CTRL}{C}}\n{{CTRL}{V}}", s);
+        }
+
+        [Test]
+        public static void ModifiersHeldDuringClicksAndScrollsAreKept()
+        {
+            string click = Script(E(0, RecKind.Move, 50, 60), E(5, RecKind.KeyDown, 0xA2), Down(20, MouseButton.Left), Up(40, MouseButton.Left), E(60, RecKind.KeyUp, 0xA2));
+            Assert.Equal("{{MOUSEXY:50,60}}\n{{KEYDOWN:CTRL}}\n{{LBUTTON}}\n{{KEYUP:CTRL}}", click);
+            string wheel = Script(E(0, RecKind.KeyDown, 0xA0), E(10, RecKind.Wheel, 120), E(20, RecKind.KeyUp, 0xA0));
+            Assert.Equal("{{KEYDOWN:SHIFT}}\n{{MSCROLLUP}}\n{{KEYUP:SHIFT}}", wheel);
+            string still = Script(E(0, RecKind.KeyDown, 0xA2), E(10, RecKind.Wheel, -120));
+            Assert.Equal("{{KEYDOWN:CTRL}}\n{{MSCROLLDOWN}}\n{{KEYUP:CTRL}}", still, "a modifier still held at the end is let go");
+            string keyThenClick = Script(E(0, RecKind.KeyDown, 0xA2), Down(10, MouseButton.Left), Up(20, MouseButton.Left), E(30, RecKind.KeyDown, 'C'), E(40, RecKind.KeyUp, 'C'), E(50, RecKind.KeyUp, 0xA2));
+            Assert.Equal("{{KEYDOWN:CTRL}}\n{{LBUTTON}}\n{{KEYUP:CTRL}}\n{{CTRL}{C}}", keyThenClick);
+        }
+
+        [Test]
+        public static void ModifierLetGoBeforeTheButtonStaysHeldThroughTheClick()
+        {
+            string drag = Script(E(0, RecKind.KeyDown, 0xA2), E(5, RecKind.Move, 100, 100), Down(10, MouseButton.Left), E(20, RecKind.Move, 200, 200), E(30, RecKind.KeyUp, 0xA2), Up(40, MouseButton.Left));
+            Assert.True(drag.IndexOf("{{KEYDOWN:CTRL}}", StringComparison.Ordinal) < drag.IndexOf("{{MLEFTDOWN}}", StringComparison.Ordinal), drag);
+            Assert.True(drag.IndexOf("{{KEYUP:CTRL}}", StringComparison.Ordinal) > drag.IndexOf("{{MLEFTUP}}", StringComparison.Ordinal), drag);
+            string click = Script(E(0, RecKind.KeyDown, 0xA2), E(5, RecKind.Move, 100, 100), Down(10, MouseButton.Left), E(30, RecKind.KeyUp, 0xA2), Up(40, MouseButton.Left));
+            Assert.Equal("{{MOUSEXY:100,100}}\n{{KEYDOWN:CTRL}}\n{{LBUTTON}}\n{{KEYUP:CTRL}}", click);
+        }
+
+        [Test]
+        public static void ModifierPressedAgainDuringADragStaysHeld()
+        {
+            string s = Script(E(0, RecKind.Move, 0, 0), E(5, RecKind.KeyDown, 0x5B), Down(10, MouseButton.Left), E(20, RecKind.Move, 100, 100),
+                E(30, RecKind.KeyUp, 0x5B), E(40, RecKind.KeyDown, 0x5B), Up(50, MouseButton.Left), E(60, RecKind.KeyUp, 0x5B));
+            Assert.False(s.Contains("{{WIN}}"), s);
+            int up = s.IndexOf("{{KEYUP:WIN}}", StringComparison.Ordinal);
+            Assert.True(up > s.IndexOf("{{MLEFTUP}}", StringComparison.Ordinal), s);
+            Assert.Equal(-1, s.IndexOf("{{KEYUP:WIN}}", up + 1, StringComparison.Ordinal), s);
+        }
+
+        [Test]
+        public static void BackAndForwardButtonsAreKept()
+        {
+            string s = Script(E(0, RecKind.Move, 5, 5), Down(0, MouseButton.X1), Up(10, MouseButton.X1), Down(500, MouseButton.X2), Up(510, MouseButton.X2));
+            Assert.Contains(s, "{{XBUTTON1}}");
+            Assert.Contains(s, "{{XBUTTON2}}");
+        }
+
+        [Test]
+        public static void AGapLongerThanAnHourIsSeveralPauses()
+        {
+            string s = Script(E(0, RecKind.KeyDown, 0x0D), E(9000000, RecKind.KeyDown, 0x0D));
+            Assert.Equal("{{ENTER}}\n{{PAUSE:3600000}}\n{{PAUSE:3600000}}\n{{PAUSE:1800000}}\n{{ENTER}}", s);
+        }
     }
 }

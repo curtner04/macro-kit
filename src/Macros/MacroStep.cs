@@ -119,7 +119,7 @@ namespace MacroKit.Macros
                 case StepKind.SaveMousePos: return "Remember the mouse position";
                 case StepKind.LoadMousePos: return "Move mouse back to the remembered position";
                 case StepKind.SetVar: return "Set $" + Var + " to “" + Shorten(Value) + "”";
-                case StepKind.OutputVar: return "Type the value of $" + Var;
+                case StepKind.OutputVar: return BuiltInCharacter(Var) != null ? "Type “" + BuiltInCharacter(Var) + "”" : "Type the value of $" + Var;
                 case StepKind.UnsetVar: return "Forget $" + Var;
                 case StepKind.UnsetAllVars: return "Forget all variables";
                 case StepKind.SetClipboard: return "Copy “" + Shorten(Value) + "” to the clipboard";
@@ -202,6 +202,20 @@ namespace MacroKit.Macros
             text = (text ?? "").Replace("\r", "").Replace("\n", "↵").Replace("\t", "→");
             return text.Length <= 40 ? text : text.Substring(0, 40) + "…";
         }
+
+        // The character a built-in variable like $SMLCB types, or null for any other variable.
+        static string BuiltInCharacter(string name)
+        {
+            switch ((name ?? "").ToUpperInvariant())
+            {
+                case "SMLCB": return "{";
+                case "SMRCB": return "}";
+                case "SMDOLLAR": return "$";
+                case "SMCOLON": return ":";
+                case "SMSPACE": return " ";
+                default: return null;
+            }
+        }
     }
 
     public sealed class ParseError
@@ -222,7 +236,7 @@ namespace MacroKit.Macros
 
         /// <summary>
         /// Rough time one pass takes: every wait plus the key delay after each step that sends input.
-        /// Steps whose numbers come from variables count only their key delay. A {{LOOP:n}} multiplies what it holds
+        /// Typed text counts one key delay per character. Steps whose numbers come from variables count only their key delay. A {{LOOP:n}} multiplies what it holds
         /// (a $variable count counts once); both branches of an {{IF}} count.
         /// </summary>
         public long EstimatedMs(MacroDef m)
@@ -247,6 +261,9 @@ namespace MacroKit.Macros
                 }
                 else if (step.Kind == StepKind.Pause) total += step.Ms;
                 else if (step.Kind == StepKind.KeyRepeat) total += (long)(step.Count - 1) * (step.Ms > 0 ? step.Ms : keyDelay) + keyDelay;
+                // Typed text waits one key delay per character; pasted text waits for the paste to settle.
+                else if (step.Kind == StepKind.Text && !step.IsDynamic)
+                    total += m != null && m.PasteText && step.Text.Length >= 4 ? Math.Max(250, keyDelay) + keyDelay : (long)Math.Max(1, step.Text.Length) * keyDelay;
                 else if (step.SendsInput) total += keyDelay;
             }
             while (totals.Count > 0) total += totals.Pop();

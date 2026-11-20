@@ -10,6 +10,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using MacroKit.Core;
 using MacroKit.Win32;
+using Rec = MacroKit.Core.Recording;
 
 namespace MacroKit.App
 {
@@ -121,9 +122,19 @@ namespace MacroKit.App
                 tick.Stop();
                 if (c.LastOutcomeIsError && c.LastOutcome.Length > 0)
                 {
-                    Render(new ActivityInfo(), c.LastOutcome, true);
+                    // The run often went on in another program, so the reason it stopped stays up long enough to be seen.
+                    Render(new ActivityInfo(), c.LastOutcome, true, c.LastOutcomeHeading);
                     Reveal();
-                    hideTimer.Interval = TimeSpan.FromSeconds(8);
+                    hideTimer.Interval = TimeSpan.FromSeconds(30);
+                    hideTimer.Start();
+                }
+                else if (c.LastOutcome.Length > 0 && !moving)
+                {
+                    // A short confirmation that it finished: the main window comes back behind the window in front (or not at all),
+                    // so the status line alone is easy to miss.
+                    Render(new ActivityInfo(), c.LastOutcome, false, c.LastOutcomeHeading);
+                    Reveal();
+                    hideTimer.Interval = TimeSpan.FromSeconds(3);
                     hideTimer.Start();
                 }
                 else if (moving) RenderMoving();
@@ -200,19 +211,21 @@ namespace MacroKit.App
         }
 
         /// <summary>
-        /// Shows a short message for about five seconds when nothing is running (a hotkey or a Deck button that could not start
-        /// anything, a phrase that could not be inserted). While something runs the pill already shows that, so this does nothing.
+        /// Shows a short message for about five seconds (or <paramref name="seconds"/>) when nothing is running (a hotkey or a Deck
+        /// button that could not start anything, a phrase that could not be inserted). While something runs the pill already shows
+        /// that, so this does nothing and returns false.
         /// </summary>
-        public void Flash(string heading, string message, string dotKey)
+        public bool Flash(string heading, string message, string dotKey, int seconds = 5)
         {
-            if (c.Activity.Kind != ActivityKind.None) return;
+            if (c.Activity.Kind != ActivityKind.None) return false;
             hideTimer.Stop();
             moving = false;
             anchored = false;
             Render(new ActivityInfo(), message, dotKey == "Bad", heading, dotKey);
             Reveal();
-            hideTimer.Interval = TimeSpan.FromSeconds(5);
+            hideTimer.Interval = TimeSpan.FromSeconds(seconds);
             hideTimer.Start();
+            return true;
         }
 
         /// <summary>Redraws the text and buttons for the current activity (called as progress arrives).</summary>
@@ -303,7 +316,8 @@ namespace MacroKit.App
         public void Render(ActivityInfo a, string outcome, bool outcomeIsError, string heading = null, string dotKey = null)
         {
             buttons.Children.Clear();
-            string stopKeys = c.Settings.StopHotkey;
+            // A Stop hotkey that could not be set up (another program has it) is not offered: pressing it would do nothing.
+            string stopKeys = c.HotkeyFailed("Stop") ? "" : c.Settings.StopHotkey ?? "";
             bool warn = !string.IsNullOrEmpty(a.Warning) && string.IsNullOrEmpty(outcome);
             warning.Text = warn ? a.Warning : "";
             warning.Visibility = warn ? Visibility.Visible : Visibility.Collapsed;
@@ -326,7 +340,7 @@ namespace MacroKit.App
                 case ActivityKind.Recording:
                     Ui.Ref(dot, Shape.FillProperty, "Rec");
                     title.Text = "Recording…  " + Clock((DateTime.Now - a.Started).TotalSeconds);
-                    detail.Text = "Press " + stopKeys + " or Stop to finish";
+                    detail.Text = stopKeys.Length > 0 ? "Press " + stopKeys + " or Stop to finish" : "Press Stop to finish";
                     buttons.Children.Add(StopButton(stopKeys));
                     break;
                 case ActivityKind.Playing:
@@ -366,8 +380,8 @@ namespace MacroKit.App
             var content = new StackPanel { Orientation = Orientation.Horizontal };
             content.Children.Add(icon);
             content.Children.Add(label);
-            content.Children.Add(hint);
-            var b = NoFocus(Ui.Button(content, () => c.Stop(), "Danger", "Stop (" + keys + ")"));
+            if (keys.Length > 0) content.Children.Add(hint);
+            var b = NoFocus(Ui.Button(content, () => c.Stop(), "Danger", keys.Length > 0 ? "Stop (" + keys + ")" : "Stop"));
             b.Padding = new Thickness(12, 6, 12, 6);
             return b;
         }
@@ -403,6 +417,10 @@ namespace MacroKit.App
         readonly TextBlock warning = Ui.Text("", "Warn", false, 11, true);
         readonly Button stop, restart, discard;
         readonly DispatcherTimer tick;
+        // A longer take is not thrown away by one click: the first click on Discard asks "Sure?" for a few seconds.
+        readonly DispatcherTimer discardTimer;
+        bool discardArmed;
+        const int DiscardAsksAfterSeconds = 10;
         ActivityInfo shown;
         bool dragging;
 
@@ -422,8 +440,11 @@ namespace MacroKit.App
             status.ToolTip = "Recording. Drag the bar to move it.";
 
             stop = Tool(Ui.Shape("stop", 15, "Bad"), "Stop", () => c.StopRecording());
-            restart = Tool(Ui.Glyph("", 16, "Text"), "Restart", () => c.RestartRecording());
-            discard = Tool(Ui.Glyph("", 15, "Muted"), "Discard", () => c.DiscardRecording());
+            restart = Tool(Ui.Glyph("", 16, "Text"), "Restart", () => { DisarmDiscard(); c.RestartRecording(); });
+            discard = Tool(Ui.Glyph("", 15, "Muted"), "Discard", ClickDiscard);
+            restart.Margin = new Thickness(10, 0, 0, 0);   // Stop is kept apart from the two buttons that throw the take away
+            discardTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(3) };
+            discardTimer.Tick += (s, e) => DisarmDiscard();
             restart.ToolTip = "Throw this take away and start recording again.";
             discard.ToolTip = "Stop and throw this take away.";
 
@@ -467,11 +488,34 @@ namespace MacroKit.App
             return b;
         }
 
+        /// <summary>The Discard button: a take longer than a few seconds needs a second click within three seconds.</summary>
+        void ClickDiscard()
+        {
+            bool longTake = c.Activity.Kind == ActivityKind.Recording && (DateTime.Now - c.Activity.Started).TotalSeconds > DiscardAsksAfterSeconds;
+            if (longTake && !discardArmed)
+            {
+                discardArmed = true;
+                ((TextBlock)((StackPanel)discard.Content).Children[1]).Text = "Sure?";
+                discardTimer.Start();
+                return;
+            }
+            DisarmDiscard();
+            c.DiscardRecording();
+        }
+
+        void DisarmDiscard()
+        {
+            discardTimer.Stop();
+            discardArmed = false;
+            ((TextBlock)((StackPanel)discard.Content).Children[1]).Text = "Discard";
+        }
+
         /// <summary>Shows the bar while a recording runs and hides it otherwise.</summary>
         public void Present(Rect mainPixels)
         {
             if (c.Activity.Kind != ActivityKind.Recording)
             {
+                DisarmDiscard();
                 tick.Stop();
                 shown = null;
                 Hide();
@@ -496,7 +540,7 @@ namespace MacroKit.App
             time.Text = (seconds / 60) + ":" + (seconds % 60).ToString("00");
             // The dot blinks once a second, like a camera's.
             dot.Opacity = (DateTime.Now.Millisecond < 500 || seconds == 0) ? 1 : 0.25;
-            string keys = c.Settings.StopHotkey;
+            string keys = c.HotkeyFailed("Stop") ? "" : c.Settings.StopHotkey;
             stop.ToolTip = string.IsNullOrEmpty(keys) ? "Stop and keep this recording." : "Stop and keep this recording (" + keys + ").";
             bool warn = !string.IsNullOrEmpty(a.Warning);
             warning.Text = warn ? a.Warning : "";
@@ -540,7 +584,7 @@ namespace MacroKit.App
             if (!NativeUi.TryGetRect(this, out after) || (Math.Abs(after.X - before.X) < 3 && Math.Abs(after.Y - before.Y) < 3)) return;
             c.Settings.RecorderBarLeft = after.Left;
             c.Settings.RecorderBarTop = after.Top;
-            c.MarkDirty(SaveParts.Settings);
+            c.MarkPlacementDirty();
         }
 
         /// <summary>Button labels, left to right (self test).</summary>
@@ -582,7 +626,7 @@ namespace MacroKit.App
 
         string Signature()
         {
-            return string.Join("|", c.Macros.Where(m => m.ShowOnDeck).Select(m => m.Id + ":" + m.Name + ":" + m.DeckColor + ":" + m.DeckIcon + ":" + m.Hotkey + ":" + Broken(m)))
+            return string.Join("|", c.Macros.Where(m => m.ShowOnDeck).Select(m => m.Id + ":" + m.Name + ":" + m.DeckColor + ":" + m.DeckIcon + ":" + m.Hotkey + ":" + m.Enabled + ":" + Broken(m)))
                 + "#" + string.Join("|", c.DeckRecordings().Select(o => o.Id + ":" + c.RecordingName(o.Id) + ":" + o.Hotkey))
                 + "#" + c.Settings.DeckColumns + "#" + c.Settings.DeckCompact + "#" + c.SelectedRecordingName()
                 + "#" + (int)c.Activity.Kind + c.Activity.MacroId + c.Activity.RecordingId;
@@ -610,7 +654,7 @@ namespace MacroKit.App
             try
             {
                 MacroKit.Macros.ParseResult parsed = MacroKit.Macros.MacroParser.Parse(m.Script ?? "", m.NewLineIsEnter);
-                if (!parsed.Ok) return "Line " + parsed.Errors[0].Line + ": " + parsed.Errors[0].Message;
+                if (!parsed.Ok) return MacroKit.Macros.PlainMacro.FirstProblem(m) ?? "Line " + parsed.Errors[0].Line + ": " + parsed.Errors[0].Message;
                 return parsed.Steps.Count == 0 ? "It has no steps yet." : null;
             }
             catch (Exception) { return "It can't be read."; }
@@ -619,6 +663,10 @@ namespace MacroKit.App
         /// <summary>Self-test: the Deck buttons' labels in order, and which of them show the warning style.</summary>
         public List<string> ButtonLabels { get; private set; }
         public List<string> WarnedButtons { get; private set; }
+        /// <summary>Self-test: the Deck buttons that show a hotkey under their name.</summary>
+        public List<string> HintedButtons { get; private set; }
+        /// <summary>Self-test: each Deck button's tooltip by its label.</summary>
+        public Dictionary<string, string> ButtonTips { get; private set; }
 
         void Rebuild()
         {
@@ -650,6 +698,8 @@ namespace MacroKit.App
             var grid = new UniformGrid { Columns = small ? shown.Count + recordings.Count + 2 : Math.Max(1, Math.Min(8, c.Settings.DeckColumns)), Margin = new Thickness(8, 2, 8, 8) };
             ButtonLabels = new List<string>();
             WarnedButtons = new List<string>();
+            HintedButtons = new List<string>();
+            ButtonTips = new Dictionary<string, string>();
             foreach (MacroDef m in shown)
             {
                 MacroDef macro = m;
@@ -658,24 +708,28 @@ namespace MacroKit.App
                 string icon = (macro.DeckIcon ?? "").Trim();
                 string problem = running ? null : Broken(macro);
                 string label = icon.Length > 0 ? icon + "  " + name : name;
+                string hint = small || !macro.Enabled ? null : HotkeyHint(macro.Hotkey);   // a switched-off macro's hotkey does nothing
                 var b = DeckButton(label, running, () =>
                 {
                     if (running) c.Stop(); else c.StartMacro(macro, RunOrigin.Deck);
-                }, small ? null : HotkeyHint(macro.Hotkey), ColorFor(macro.DeckColor), problem != null);
+                }, hint, ColorFor(macro.DeckColor), problem != null);
                 string tip = running ? "Click to stop “" + macro.Name + "”." : "Run “" + macro.Name + "” in the window that has focus.";
-                if (!string.IsNullOrEmpty(macro.Hotkey)) tip += " Hotkey: " + HotkeyHint(macro.Hotkey) + ".";
+                if (!macro.Enabled) tip += " Switched off: its hotkey and schedule are paused.";
+                else if (!string.IsNullOrEmpty(macro.Hotkey)) tip += " Hotkey: " + HotkeyHint(macro.Hotkey) + ".";
                 if (problem != null) tip = "“" + macro.Name + "” needs fixing before it can run. " + problem;
                 b.ToolTip = tip;
                 grid.Children.Add(b);
                 ButtonLabels.Add(label);
                 if (problem != null) WarnedButtons.Add(label);
+                if (!string.IsNullOrEmpty(hint)) HintedButtons.Add(label);
+                ButtonTips[label] = tip;
             }
             foreach (RecordingOptions o in recordings)
             {
                 string id = o.Id;
                 string name = c.RecordingName(id);
                 bool playingThis = c.Activity.Kind == ActivityKind.Playing && c.Activity.RecordingId == id;
-                string label = "▶  " + name;
+                string label = "▶  " + Rec.DeckName(name);
                 var b = DeckButton(label, playingThis, () => { if (playingThis) c.Stop(); else c.StartPlayback(RunOrigin.Deck, id); }, small ? null : HotkeyHint(o.Hotkey), null, false);
                 b.ToolTip = playingThis ? "Click to stop “" + name + "”." : "Play the recording “" + name + "”." + (string.IsNullOrEmpty(o.Hotkey) ? "" : " Hotkey: " + HotkeyHint(o.Hotkey) + ".");
                 grid.Children.Add(b);
@@ -683,7 +737,7 @@ namespace MacroKit.App
             }
             string recording = c.SelectedRecordingName();
             bool playing = c.Activity.Kind == ActivityKind.Playing;
-            var play = DeckButton("▶  " + (recording.Length == 0 ? "No recording" : recording), playing, () => { if (playing) c.Stop(); else c.StartPlayback(RunOrigin.Deck); }, null, null, false);
+            var play = DeckButton("▶  " + (recording.Length == 0 ? "No recording" : Rec.DeckName(recording)), playing, () => { if (playing) c.Stop(); else c.StartPlayback(RunOrigin.Deck); }, null, null, false);
             play.ToolTip = "Play the recording selected on the Recorder tab.";
             grid.Children.Add(play);
             var stop = DeckButton("■  Stop", false, () => c.Stop(), null, null, false);
@@ -768,7 +822,7 @@ namespace MacroKit.App
             if (Math.Abs(pixels.X - c.Settings.DeckLeft) < 1 && Math.Abs(pixels.Y - c.Settings.DeckTop) < 1) return;
             c.Settings.DeckLeft = pixels.X;
             c.Settings.DeckTop = pixels.Y;
-            c.MarkDirty(SaveParts.Settings);
+            c.MarkPlacementDirty();   // every step of a drag: no Edited, so the Deck is not rebuilt meanwhile
         }
     }
 }

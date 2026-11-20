@@ -125,6 +125,52 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void KeyWithItsOwnExtendedFlag()
+        {
+            // A recording's numpad Enter: VK Return, scan 1C, extended, which Key(vk, down, scan) alone would send as the main Enter.
+            Native.INPUT down = InputPackets.Key(0x0D, true, 0x1C, true);
+            Assert.Equal((ushort)0x0D, down.ki.wVk);
+            Assert.Equal((ushort)0x1C, down.ki.wScan);
+            Assert.Equal(Native.KEYEVENTF_EXTENDEDKEY, down.ki.dwFlags);
+            Assert.Equal(Native.KEYEVENTF_KEYUP | Native.KEYEVENTF_EXTENDEDKEY, InputPackets.Key(0x0D, false, 0x1C, true).ki.dwFlags);
+            // Numpad Home with Num Lock off: the Home VK, not extended.
+            Assert.Equal(0u, InputPackets.Key(0x24, true, 0x47, false).ki.dwFlags);
+            Assert.Equal(Native.ExtraInfo, down.ki.dwExtraInfo, "marked as Macro Kit's own");
+        }
+
+        [Test]
+        public static void LatenessOfAHookEvent()
+        {
+            Assert.Equal(300u, HookDecoding.Lateness(10300, 10000));
+            Assert.Equal(0u, HookDecoding.Lateness(10000, 10000));
+            Assert.Equal(0x20u, HookDecoding.Lateness(0x10, 0xFFFFFFF0), "the tick count wrapped around");
+            Assert.Equal(0u, HookDecoding.Lateness(10000, 10005), "a stamp slightly ahead is not late");
+        }
+
+        [Test]
+        public static void AFailedHookReinstallKeepsTheOldHook()
+        {
+            var calls = new List<string>();
+            IntPtr hook = new IntPtr(7);
+            bool ok = HookDecoding.ReplaceHook(ref hook, () => { calls.Add("install"); return IntPtr.Zero; }, h => { calls.Add("unhook " + h); return true; });
+            Assert.False(ok);
+            Assert.Equal(new IntPtr(7), hook, "the working hook stays");
+            Assert.SequenceEqual(new[] { "install" }, calls);
+
+            calls.Clear();
+            ok = HookDecoding.ReplaceHook(ref hook, () => { calls.Add("install"); return new IntPtr(9); }, h => { calls.Add("unhook " + h); return true; });
+            Assert.True(ok);
+            Assert.Equal(new IntPtr(9), hook);
+            Assert.SequenceEqual(new[] { "install", "unhook 7" }, calls, "the new hook goes in before the old one comes out");
+
+            IntPtr none = IntPtr.Zero;
+            calls.Clear();
+            Assert.True(HookDecoding.ReplaceHook(ref none, () => new IntPtr(3), h => { calls.Add("unhook " + h); return true; }));
+            Assert.Equal(new IntPtr(3), none);
+            Assert.Equal(0, calls.Count, "nothing to unhook on the first install");
+        }
+
+        [Test]
         public static void ComboPressesInOrderAndReleasesInReverse()
         {
             var keys = new List<ushort> { 0xA2, 0xA0, 0x1B };   // Ctrl+Shift+Esc
@@ -703,6 +749,17 @@ namespace MacroKit.Tests
             Assert.True(StartupEntry.IsDisabledByUser(new byte[] { 0x03, 0, 0, 0 }), "03 = turned off");
             Assert.True(StartupEntry.IsDisabledByUser(new byte[] { 0x07, 0, 0, 0 }), "07 = turned off");
             Assert.Equal("Macro Kit", StartupEntry.ValueName);
+        }
+
+        [Test]
+        public static void PasswordCheckOnlyTrustsTheStyleBitOnEditBoxes()
+        {
+            Assert.Equal(-16, Native.GWL_STYLE);
+            Assert.Equal(0x20L, Native.ES_PASSWORD);
+            foreach (string name in new[] { "Edit", "EDIT", "RichEdit20W", "RICHEDIT50W", "WindowsForms10.EDIT.app.0.141b42a_r6_ad1" })
+                Assert.True(WindowSystem.IsEditClass(name), name);
+            foreach (string name in new[] { null, "", "Button", "Chrome_RenderWidgetHostHWND", "Scintilla", "EditBox", "ComboBox" })
+                Assert.False(WindowSystem.IsEditClass(name), name ?? "null");
         }
     }
 }

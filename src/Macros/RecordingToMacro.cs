@@ -18,6 +18,7 @@ namespace MacroKit.Macros
         /// <summary>Gaps shorter than this between typed characters are left out, so typed words stay together.</summary>
         public const int TypingGapMs = 400;
         const int DoubleClickMs = 500;
+        const int MaxPauseMs = 3600000;
 
         /// <summary>The macro for a recording. <paramref name="speed"/> is its playback speed: at 2× the pauses are half as long.</summary>
         public static MacroDef Convert(Core.Recording recording, double speed = 1)
@@ -45,12 +46,30 @@ namespace MacroKit.Macros
             ushort loneModifier = 0;            // a modifier pressed with nothing after it yet
             bool caps = false;
             int wheel = 0, hwheel = 0, wheelT = 0;
+            var opened = new List<ushort>();    // modifiers written as {{KEYDOWN}} because the mouse was used while they were held
+            var releaseAfterButton = new List<ushort>();   // opened modifiers let go while a button was down; the click or drag is written when it comes up
+
+            // A click or scroll with Ctrl, Shift, Alt or Win held needs that key held in the macro too (Ctrl+click, Ctrl+wheel).
+            Action<int> openHeld = t =>
+            {
+                foreach (ushort mod in new ushort[] { 0x11, 0x10, 0x12, 0x5B })
+                {
+                    if (!held.Contains(mod) || opened.Contains(mod)) continue;
+                    w.Step(t, MacroScript.KeyDown(mod), false);
+                    opened.Add(mod);
+                }
+            };
+            Action<int> closeOpened = t =>
+            {
+                foreach (ushort mod in opened.ToArray()) w.Step(t, MacroScript.KeyUp(mod), false);
+                opened.Clear();
+            };
 
             for (int i = 0; i < events.Count; i++)
             {
                 RecEvent e = events[i];
-                if (e.Kind != RecKind.Wheel && wheel != 0) { w.Scroll(wheelT, wheel, false); wheel = 0; }
-                if (e.Kind != RecKind.HWheel && hwheel != 0) { w.Scroll(wheelT, hwheel, true); hwheel = 0; }
+                if (e.Kind != RecKind.Wheel && wheel != 0) { openHeld(wheelT); w.Scroll(wheelT, wheel, false); wheel = 0; }
+                if (e.Kind != RecKind.HWheel && hwheel != 0) { openHeld(wheelT); w.Scroll(wheelT, hwheel, true); hwheel = 0; }
                 switch (e.Kind)
                 {
                     case RecKind.Move:
@@ -59,9 +78,11 @@ namespace MacroKit.Macros
                     case RecKind.ButtonDown:
                     {
                         var button = (MouseButton)e.A;
-                        if (button > MouseButton.Middle) break;
                         loneModifier = 0;
                         if (havePos) w.MoveTo(e.T, x, y);
+                        openHeld(e.T);
+                        // The back and forward buttons only click: there is no hold form for them.
+                        if (button > MouseButton.Middle) break;
                         buttonDown = true;
                         downButton = button;
                         downX = x; downY = y; downT = e.T;
@@ -70,7 +91,7 @@ namespace MacroKit.Macros
                     case RecKind.ButtonUp:
                     {
                         var button = (MouseButton)e.A;
-                        if (button > MouseButton.Middle) break;
+                        if (button > MouseButton.Middle) { w.Step(e.T, MacroScript.Click(button), false); break; }
                         if (!buttonDown || button != downButton)
                         {
                             w.Step(e.T, "{{M" + ButtonWord(button) + "UP}}", false);
@@ -86,6 +107,11 @@ namespace MacroKit.Macros
                             w.Step(e.T, "{{M" + ButtonWord(button) + "UP}}", false);
                         }
                         else w.Click(downT, button, x, y);
+                        foreach (ushort mod in releaseAfterButton)
+                        {
+                            if (opened.Remove(mod)) w.Step(e.T, MacroScript.KeyUp(mod), false);
+                        }
+                        releaseAfterButton.Clear();
                         break;
                     }
                     case RecKind.Wheel:
@@ -102,10 +128,13 @@ namespace MacroKit.Macros
                         ushort mod = ModifierBase(vk);
                         if (mod != 0)
                         {
+                            // Let go and pressed again during a drag: it is still held, so it is not let go after the drop.
+                            if (releaseAfterButton.Remove(mod)) { held.Add(mod); loneModifier = 0; break; }
                             if (held.Add(mod)) loneModifier = held.Count == 1 ? mod : (ushort)0;
                             break;
                         }
                         loneModifier = 0;
+                        closeOpened(e.T);   // a key pressed now is written with its own modifiers, which would let go of the held ones
                         if (vk == 0x14) { caps = !caps; break; }   // Caps Lock changes the letters that follow
                         bool shift = held.Contains(0x10);
                         bool command = held.Contains(0x11) || held.Contains(0x12) || held.Contains(0x5B);
@@ -120,6 +149,13 @@ namespace MacroKit.Macros
                         ushort mod = ModifierBase(vk);
                         if (mod == 0) break;
                         held.Remove(mod);
+                        if (buttonDown && opened.Contains(mod))
+                        {
+                            if (!releaseAfterButton.Contains(mod)) releaseAfterButton.Add(mod);
+                            loneModifier = 0;
+                            break;
+                        }
+                        if (opened.Remove(mod)) { w.Step(e.T, MacroScript.KeyUp(mod), false); loneModifier = 0; break; }
                         // Win or Alt pressed and let go on its own (opens Start, or the menu bar).
                         if (loneModifier == mod) w.Step(e.T, "{{" + KeyNames.MacroToken(mod) + "}}", false);
                         loneModifier = 0;
@@ -127,8 +163,9 @@ namespace MacroKit.Macros
                     }
                 }
             }
-            if (wheel != 0) w.Scroll(wheelT, wheel, false);
-            if (hwheel != 0) w.Scroll(wheelT, hwheel, true);
+            if (wheel != 0) { openHeld(wheelT); w.Scroll(wheelT, wheel, false); }
+            if (hwheel != 0) { openHeld(wheelT); w.Scroll(wheelT, hwheel, true); }
+            if (opened.Count > 0 && events.Count > 0) closeOpened(events[events.Count - 1].T);
             return w.Finish();
         }
 
@@ -208,7 +245,13 @@ namespace MacroKit.Macros
                     {
                         FlushText();
                         int ms = (int)Math.Round(gap / 10.0) * 10;
-                        lines.Add("{{PAUSE:" + ms.ToString(CultureInfo.InvariantCulture) + "}}");
+                        // One pause is at most an hour; a longer gap is written as several.
+                        while (ms > MaxPauseMs)
+                        {
+                            lines.Add("{{PAUSE:" + MaxPauseMs.ToString(CultureInfo.InvariantCulture) + "}}");
+                            ms -= MaxPauseMs;
+                        }
+                        if (ms > 0) lines.Add("{{PAUSE:" + ms.ToString(CultureInfo.InvariantCulture) + "}}");
                     }
                 }
                 lastT = t;

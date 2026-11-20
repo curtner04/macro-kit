@@ -193,7 +193,7 @@ namespace MacroKit.App
             if ((mods & ModifierKeys.Alt) != 0) modifiers |= HotkeyModifiers.Alt;
             if ((mods & ModifierKeys.Windows) != 0) modifiers |= HotkeyModifiers.Win;
             var candidate = new Hotkey(modifiers, (ushort)vk);
-            if (RequireGlobal && !candidate.IsValidGlobal) { Show(candidate + " needs Ctrl, Alt or Win"); return; }
+            if (RequireGlobal && !candidate.IsValidGlobal) { Show("Add Ctrl, Alt or Win"); return; }
             value = candidate;
             hasValue = true;
             Show(null);
@@ -315,7 +315,18 @@ namespace MacroKit.App
 
             Root = Ui.Stack(0, chosenCard, top, hint, detailToggle, detail);
             FillWindows();
+            // "Open now" is a snapshot: look again when the tab is shown and when you come back from starting the program.
+            Root.IsVisibleChanged += (s, e) => { if (Root.IsVisible) UpdateSummary(); };
+            Root.Loaded += (s, e) =>
+            {
+                Window host = Window.GetWindow(Root);
+                if (host == null || activatedHooked) return;
+                activatedHooked = true;
+                host.Activated += (s2, e2) => { if (Root.IsVisible) UpdateSummary(); };
+            };
         }
+
+        bool activatedHooked;
 
         public void Bind(WindowMatch match, Action onChanged)
         {

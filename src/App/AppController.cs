@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows.Threading;
 using MacroKit.Core;
+using MacroKit.Keybinds;
 using MacroKit.Macros;
 using MacroKit.Phrases;
 using MacroKit.Recording;
@@ -63,6 +64,8 @@ namespace MacroKit.App
         readonly Dictionary<int, string> recordingByHotkeyId = new Dictionary<int, string>();
         readonly List<int> registeredHotkeys = new List<int>();
         readonly Dictionary<string, string> hotkeyErrors = new Dictionary<string, string>();
+        // Keys in hotkeyErrors whose hotkey did not get set up (the rest are warnings about a hotkey that works).
+        readonly HashSet<string> hotkeyFailures = new HashSet<string>();
 
         SaveParts dirty = SaveParts.None;
         bool unsaved;
@@ -77,12 +80,13 @@ namespace MacroKit.App
         bool mainWasMinimized;
         int hotkeySuspensions;
         bool disposed;
-        static bool? selfElevated;
+        bool quitting;
         DateTime pickStarted;
         IntPtr pickBaseline;
         IntPtr pickSeen;
         int pickStable;
         Action<WindowInfo> pickDone;
+        int storageWarningsShown;   // how many of Storage.Warnings the person has been shown
 
         public readonly Storage Storage;
         public readonly bool InputEnabled;
@@ -100,6 +104,8 @@ namespace MacroKit.App
         /// <summary>How the last activity ended (shown in the run pill for a few seconds); empty when it ended quietly.</summary>
         public string LastOutcome { get; private set; }
         public bool LastOutcomeIsError { get; private set; }
+        /// <summary>The run pill's title for <see cref="LastOutcome"/> ("Recorded", "Stopped"); null for the default ("Done").</summary>
+        public string LastOutcomeHeading { get; private set; }
         public bool IsUnsaved { get { return unsaved; } }
         public IWindowSystem Windows { get { return windows; } }
         public IInputSink Input { get { return input; } }
@@ -164,6 +170,8 @@ namespace MacroKit.App
             engine = new ExpansionEngine(input, clipboard, clock);
             engine.ExpansionFailed += message => Post(() => { SetStatus(message, true); Flash("Phrase not inserted", message, true); });
             engine.AskForFields = AskPhraseFields;
+            engine.InPasswordField = windows.FocusIsPasswordEdit;
+            engine.Foreground = () => windows.Foreground;
             recorder = new Recorder(clock);
             ApplyEngineSettings();
             engine.SetPhrases(Phrases);
@@ -176,13 +184,24 @@ namespace MacroKit.App
             scheduleTimer.Tick += (s, e) => ScheduleTick();
 
             // Once per data folder: the example phrases and macros a new install starts with, added to an older setup too.
-            if (!Settings.ExamplesAdded)
+            // While phrases.json or macros.json is in use, nothing is added or marked: the next clean start adds them.
+            IList<string> readOnlyFiles = storage.ReadOnlyFiles;
+            bool examplesBlocked = Examples.TargetsBlocked(readOnlyFiles);
+            if (Examples.ShouldAddMissing(Settings, storage.SettingsFromFile, readOnlyFiles))
             {
                 Examples.AddMissing(Phrases, Macros);
                 Settings.ExamplesAdded = true;
                 engine.SetPhrases(Phrases);
                 MarkDirty(SaveParts.Settings | SaveParts.Phrases | SaveParts.Macros);
             }
+            else if (!Settings.ExamplesAdded && !(storage.SettingsFromFile && examplesBlocked))
+            {
+                // settings.json was missing, set aside or locked: only the flag is set (and saved when the file can be),
+                // so examples the person deleted do not come back.
+                Settings.ExamplesAdded = true;
+                if (!readOnlyFiles.Contains("settings.json")) MarkDirty(SaveParts.Settings);
+            }
+            storageWarningsShown = storage.Warnings.Count;   // the shell shows these at startup
         }
 
         // ------------------------------------------------------------------ start and stop
@@ -196,7 +215,17 @@ namespace MacroKit.App
                 hook.KeyHandler = OnHookKey;
                 hook.MouseHandler = OnHookMouse;
                 hook.ForegroundChanged += hwnd => engine.Reset();
-                hook.HotkeyPressed += id => Post(() => OnHotkey(id));
+                hook.HotkeyPressed += id =>
+                {
+                    // The Stop hotkey cancels a playback or macro right here on the hook thread, like Esc, so the run stops before
+                    // the person's held Ctrl/Shift/Alt can turn its next keys and clicks into shortcuts. OnHotkey then finds it stopping.
+                    if (id == HotkeyStop)
+                    {
+                        int kind = activityKind;
+                        if (kind == (int)ActivityKind.Playing || kind == (int)ActivityKind.Macro) CancelWork();
+                    }
+                    Post(() => OnHotkey(id));
+                };
                 hook.Start();
             }
             catch (Exception ex)
@@ -206,12 +235,17 @@ namespace MacroKit.App
                 return;
             }
             ApplyHotkeys();
+            // The pill and the recorder bar would say "Press <hotkey>" for a key that does nothing, so say it once here too.
+            if (new[] { "Record", "Play", "Stop", "Deck" }.Any(HotkeyFailed))
+                SetStatus("Some hotkeys could not be set up (another program may use them). See Settings.", true);
             scheduleTimer.Start();
         }
 
         public void Dispose()
         {
             if (disposed) return;
+            // Edits from the last half second (signing out, a Shutdown from elsewhere) are written before anything stops.
+            if (dirty != SaveParts.None) { try { Flush(); } catch (Exception) { } }
             disposed = true;
             saveTimer.Stop();
             pickTimer.Stop();
@@ -232,9 +266,19 @@ namespace MacroKit.App
             if (hook != null) hook.SetOwnWindows(hwnds);
         }
 
+        /// <summary>
+        /// Macro Kit is leaving: whatever runs is cancelled, and when it ends nothing is shown or brought back, because the windows
+        /// are being closed (a window shown or flashed after that would throw or flicker).
+        /// </summary>
+        public void BeginQuit()
+        {
+            quitting = true;
+            CancelWork();
+        }
+
         void Post(Action action)
         {
-            if (disposed) return;
+            if (disposed || quitting) return;
             try { dispatcher.BeginInvoke(action); }
             catch (Exception) { /* the dispatcher is shutting down */ }
         }
@@ -271,6 +315,23 @@ namespace MacroKit.App
             saveTimer.Stop();
             saveTimer.Start();
             Edited(parts);
+        }
+
+        /// <summary>
+        /// A window was moved or resized: saves Settings with the same delay, but skips the engine, hotkey and Edited work, which
+        /// would otherwise run (and rebuild the Deck) for every pixel of a drag.
+        /// </summary>
+        public void MarkPlacementDirty()
+        {
+            MarkQuietlyDirty(SaveParts.Settings);
+        }
+
+        // Saved with the usual delay, but nothing is redone and nobody is told: for values no screen shows while they change.
+        void MarkQuietlyDirty(SaveParts parts)
+        {
+            dirty |= parts;
+            saveTimer.Stop();
+            saveTimer.Start();
         }
 
         /// <summary>Writes pending changes now. Returns false (and shows "Unsaved") when a file could not be written.</summary>
@@ -313,7 +374,7 @@ namespace MacroKit.App
         string HotkeySignature()
         {
             return string.Join("|", new[] { Settings.RecordHotkey, Settings.PlayHotkey, Settings.StopHotkey, Settings.DeckHotkey }
-                .Concat(Macros.Select(m => m.Id + "=" + m.Hotkey))
+                .Concat(Macros.Select(m => m.Id + "=" + (m.Enabled ? m.Hotkey : "")))
                 .Concat(Settings.RecordingSettings.Where(o => RecordingExists(o.Id)).Select(o => "rec:" + o.Id + "=" + o.Hotkey)));
         }
 
@@ -328,6 +389,7 @@ namespace MacroKit.App
             macroByHotkeyId.Clear();
             recordingByHotkeyId.Clear();
             hotkeyErrors.Clear();
+            hotkeyFailures.Clear();
             var used = new Dictionary<string, string>();
             Register("Record", HotkeyRecord, Settings.RecordHotkey, "Record", used);
             Register("Play", HotkeyPlay, Settings.PlayHotkey, "Play", used);
@@ -335,7 +397,7 @@ namespace MacroKit.App
             Register("Deck", HotkeyDeck, Settings.DeckHotkey, "Deck", used);
             for (int i = 0; i < Macros.Count; i++)
             {
-                if (string.IsNullOrWhiteSpace(Macros[i].Hotkey)) continue;
+                if (!Macros[i].Enabled || string.IsNullOrWhiteSpace(Macros[i].Hotkey)) continue;
                 int id = HotkeyMacroBase + i;
                 if (Register(Macros[i].Id, id, Macros[i].Hotkey, "“" + Macros[i].Name + "”", used)) macroByHotkeyId[id] = Macros[i].Id;
             }
@@ -354,17 +416,42 @@ namespace MacroKit.App
         {
             if (string.IsNullOrWhiteSpace(text)) return false;
             Hotkey hk;
-            if (!Hotkey.TryParse(text, out hk)) { hotkeyErrors[key] = "“" + text + "” is not a hotkey Macro Kit understands."; return false; }
-            if (!hk.IsValidGlobal) { hotkeyErrors[key] = hk + " needs Ctrl, Alt or Win (or be an F13–F24 key)."; return false; }
-            string own;
-            if (used.TryGetValue(hk.ToString(), out own)) { hotkeyErrors[key] = "Macro Kit already uses " + hk + " for " + own + "."; return false; }
+            string problem = Hotkey.Problem(text, used, out hk);
+            if (problem != null) return Failed(key, problem);
+            // An everyday shortcut (Ctrl+C) still works as a hotkey, so a saved setup keeps working, but it is pointed out.
+            string warning = Hotkey.EverydayWarning(hk) ?? WindowsShortcutWarning(hk);
+            if (warning != null) hotkeyErrors[key] = warning;
             if (hotkeySuspensions > 0) { used[hk.ToString()] = name; return true; }
             string error;
-            if (!hook.RegisterHotkey(id, hk, out error)) { hotkeyErrors[key] = error; return false; }
+            if (!hook.RegisterHotkey(id, hk, out error))
+            {
+                // Another program has it: the Global Keybinds tab may know which one (only for the programs it can read).
+                if (error != null && error.IndexOf("already uses", StringComparison.Ordinal) >= 0) error += " Global Keybinds may show which program has it.";
+                return Failed(key, error);
+            }
             used[hk.ToString()] = name;
             registeredHotkeys.Add(id);
             return true;
         }
+
+        bool Failed(string key, string message)
+        {
+            hotkeyErrors[key] = message;
+            hotkeyFailures.Add(key);
+            return false;
+        }
+
+        static List<Keybind> windowsShortcuts;
+
+        static string WindowsShortcutWarning(Hotkey hk)
+        {
+            if (windowsShortcuts == null) windowsShortcuts = KeybindReaders.Windows().Keybinds;
+            Keybind own = windowsShortcuts.FirstOrDefault(k => k.Matches(hk));
+            return own == null ? null : "Windows uses " + hk + " (" + own.Action + "); while Macro Kit holds it, that won't work.";
+        }
+
+        /// <summary>True when the hotkey kept under <paramref name="key"/> in <see cref="HotkeyErrors"/> is not set up (not just a warning).</summary>
+        public bool HotkeyFailed(string key) { return hotkeyFailures.Contains(key); }
 
         /// <summary>
         /// A hotkey box starts capturing: every global hotkey is released, so pressing a combination that is already assigned reaches
@@ -392,12 +479,14 @@ namespace MacroKit.App
             switch (id)
             {
                 case HotkeyRecord:
-                    if (Activity.Kind == ActivityKind.Recording) StopRecording(); else StartRecording(RunOrigin.Hotkey);
+                    if (Activity.Kind == ActivityKind.Recording) StopRecording(ParsedHotkey(Settings.RecordHotkey)); else StartRecording(RunOrigin.Hotkey);
                     break;
                 case HotkeyPlay:
                     if (Activity.Kind == ActivityKind.Playing) Stop(); else StartPlayback(RunOrigin.Hotkey);
                     break;
-                case HotkeyStop: Stop(); break;
+                case HotkeyStop:
+                    if (Activity.Kind == ActivityKind.Recording) StopRecording(ParsedHotkey(Settings.StopHotkey)); else Stop();
+                    break;
                 case HotkeyDeck: ToggleDeck(); break;
                 default:
                     string recordingId;
@@ -434,7 +523,7 @@ namespace MacroKit.App
                 if (running == (int)ActivityKind.Playing || running == (int)ActivityKind.Macro) return false;
                 return engine.OnKey(e, typed, windows.ForegroundProcessName);
             }
-            catch (Exception) { return false; }
+            catch (Exception ex) { NoteHookFault(ex); return false; }
         }
 
         void OnHookMouse(MouseEvent e)
@@ -443,6 +532,29 @@ namespace MacroKit.App
             {
                 if (e.Kind == MouseEventKind.Down) engine.Reset();
                 recorder.OnMouse(e);
+            }
+            catch (Exception ex) { NoteHookFault(ex); }
+        }
+
+        readonly object hookFaultGate = new object();
+        readonly Dictionary<string, DateTime> hookFaultLogged = new Dictionary<string, DateTime>();
+
+        // Hook thread. A failure here must never reach Windows (it would drop the hook), but it must reach the log, or phrases and
+        // recording stop working with nothing to go on. Only the kind and message are written (never typed text): each distinct one
+        // the first time, then at most once a minute.
+        void NoteHookFault(Exception ex)
+        {
+            try
+            {
+                string key = ex.GetType().Name + ": " + ex.Message;
+                DateTime now = DateTime.UtcNow, last;
+                lock (hookFaultGate)
+                {
+                    if (hookFaultLogged.TryGetValue(key, out last) && now - last < TimeSpan.FromMinutes(1)) return;
+                    if (hookFaultLogged.Count > 50) hookFaultLogged.Clear();
+                    hookFaultLogged[key] = now;
+                }
+                Log.Error("Handling a key or mouse event failed (" + key + ")");
             }
             catch (Exception) { }
         }
@@ -493,6 +605,7 @@ namespace MacroKit.App
             activityKind = (int)kind;
             LastOutcome = "";
             LastOutcomeIsError = false;
+            LastOutcomeHeading = null;
             if (kind == ActivityKind.Macro || kind == ActivityKind.Playing) engine.Reset();   // phrases ignore the keyboard while it runs
             return Activity;
         }
@@ -504,7 +617,7 @@ namespace MacroKit.App
             if (old != null) old.Dispose();
         }
 
-        void End(string outcome, bool outcomeIsError)
+        void End(string outcome, bool outcomeIsError, string heading = null)
         {
             RunOrigin origin = Activity.Origin;
             Activity = new ActivityInfo();
@@ -512,8 +625,12 @@ namespace MacroKit.App
             DisposeCancellation();
             LastOutcome = outcome ?? "";
             LastOutcomeIsError = outcomeIsError;
+            LastOutcomeHeading = heading;
+            if (quitting) return;   // the windows are closing
             if (!string.IsNullOrEmpty(outcome)) SetStatus(outcome, outcomeIsError);
-            RestoreMain(origin);
+            // If bringing the window back fails, the pill and the Deck must still hear that the activity ended.
+            try { RestoreMain(origin); }
+            catch (Exception ex) { Log.Error("Bringing Macro Kit back after a run failed", ex); }
             ActivityChanged();
         }
 
@@ -521,18 +638,11 @@ namespace MacroKit.App
 
         public const string ElevationMessage = "This window runs as administrator, so Windows blocks Macro Kit's input there. Run Macro Kit as administrator to use it with that window.";
 
+        // The same token check that tells whether the target window is elevated, so the two can never disagree.
         static bool IsSelfElevated()
         {
-            if (selfElevated.HasValue) return selfElevated.Value;
-            bool elevated = false;
-            try
-            {
-                using (System.Security.Principal.WindowsIdentity identity = System.Security.Principal.WindowsIdentity.GetCurrent())
-                    elevated = new System.Security.Principal.WindowsPrincipal(identity).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-            }
-            catch (Exception) { }
-            selfElevated = elevated;
-            return elevated;
+            try { return Elevation.IsCurrentProcessElevated; }
+            catch (Exception) { return false; }
         }
 
         /// <summary>The warning to show when the window input is aimed at runs as administrator and Macro Kit does not; otherwise null.</summary>
@@ -658,7 +768,7 @@ namespace MacroKit.App
         /// <summary>When the macro next runs by itself, or null.</summary>
         public DateTime? NextScheduledRun(MacroDef macro)
         {
-            if (macro == null || macro.Schedule == null || macro.Schedule.Kind == ScheduleKind.Off || !Edition.IsPro) return null;
+            if (macro == null || !macro.Enabled || macro.Schedule == null || macro.Schedule.Kind == ScheduleKind.Off || !Edition.IsPro) return null;
             DateTime due;
             string seen;
             bool current = scheduleSeen.TryGetValue(macro.Id, out seen) && seen == Signature(macro.Schedule);
@@ -679,7 +789,7 @@ namespace MacroKit.App
             foreach (MacroDef macro in Macros.ToArray())
             {
                 MacroSchedule schedule = macro.Schedule;
-                if (!Edition.IsPro || schedule == null || schedule.Kind == ScheduleKind.Off) continue;
+                if (!Edition.IsPro || !macro.Enabled || schedule == null || schedule.Kind == ScheduleKind.Off) continue;
                 live.Add(macro.Id);
                 string signature = Signature(schedule);
                 string seen;
@@ -693,16 +803,19 @@ namespace MacroKit.App
                 }
                 DateTime due;
                 if (!scheduleDue.TryGetValue(macro.Id, out due) || now < due) continue;
-                if (IsBusy)
+                ScheduleAction action = MacroSchedule.Decide(now, due, IsBusy, ScheduleGrace);
+                if (action == ScheduleAction.Wait) continue;   // busy: try again on the next tick
+                if (action == ScheduleAction.Skip)
                 {
-                    if (now - due < ScheduleGrace) continue;   // try again on the next tick
-                    SetStatus("Skipped the scheduled run of \u201C" + macro.Name + "\u201D because Macro Kit was busy for 5 minutes.", true);
-                    Log.Info("Skipped the scheduled run of a macro: busy past the grace time.");
+                    // Late after sleep, a stalled timer or a long busy spell: running now could type into whatever window is in front.
+                    SetStatus("Skipped the scheduled run of \u201C" + macro.Name + "\u201D because it was more than 5 minutes late (Macro Kit was busy, or the PC was asleep).", true);
+                    Log.Info("Skipped the scheduled run of a macro: more than the grace time late.");
+                    NoteScheduledRun(macro, due, "skipped, it was more than 5 minutes late");
                 }
                 else
                 {
                     Log.Info("Starting a scheduled macro (" + schedule.Describe() + ").");
-                    StartMacro(macro, RunOrigin.Schedule);
+                    if (!StartMacro(macro, RunOrigin.Schedule)) NoteScheduledRun(macro, now, "could not start");
                 }
                 DateTime? next = schedule.NextRun(due);
                 if (next.HasValue && next.Value <= now) next = schedule.NextRun(now);
@@ -714,6 +827,14 @@ namespace MacroKit.App
                 scheduleSeen.Remove(id);
                 scheduleDue.Remove(id);
             }
+        }
+
+        // What the schedule card shows as "Last run": saved with the macro, without redrawing anything while the person edits.
+        void NoteScheduledRun(MacroDef macro, DateTime when, string result)
+        {
+            if (macro == null || macro.Schedule == null) return;
+            macro.Schedule.NoteRun(when, result);
+            MarkQuietlyDirty(SaveParts.Macros);
         }
 
         // ---- the input check (Settings): real keys into Macro Kit's own window, and one temporary phrase
@@ -783,7 +904,9 @@ namespace MacroKit.App
             if (!parsed.Ok)
             {
                 ParseError first = parsed.Errors[0];
-                return Refuse("“" + macro.Name + "” has an error. Line " + first.Line + ": " + first.Message, origin);
+                // The line as the Macros tab shows it; the parser counts lines of the stored script.
+                string problem = PlainMacro.FirstProblem(macro) ?? "Line " + first.Line + ": " + first.Message;
+                return Refuse("“" + macro.Name + "” has an error. " + problem, origin);
             }
             if (parsed.Steps.Count == 0) return Refuse("“" + macro.Name + "” has nothing to run yet.", origin);
 
@@ -796,6 +919,7 @@ namespace MacroKit.App
             var runner = new MacroRunner(input, windows, clock, clipboard);
             runner.Actions = systemActions;
             runner.Turns = switchTurns;
+            runner.ElevationProbe = IsSelfElevated;
             // {{MACRO:name}} looks among copies taken now, so edits made while the run goes on can't change it halfway.
             List<MacroDef> others = Macros.Select(m => Json.Deserialize<MacroDef>(Json.Serialize(m))).ToList();
             runner.FindMacro = wanted => others.FirstOrDefault(m => string.Equals((m.Name ?? "").Trim(), wanted, StringComparison.OrdinalIgnoreCase));
@@ -876,6 +1000,8 @@ namespace MacroKit.App
         public bool StartRecording(RunOrigin origin)
         {
             if (!CanBegin(origin)) return false;
+            // Without the watcher a take would end with "Nothing was recorded." and no hint why.
+            if (!HookRunning) return Refuse("Macro Kit's keyboard and mouse watcher did not start, so it can't record. Restart Macro Kit.", origin);
             if (Pending != null)
             {
                 // An earlier recording that is still unsaved is never replaced without the person knowing.
@@ -897,28 +1023,52 @@ namespace MacroKit.App
             ActivityInfo activity = Begin(ActivityKind.Recording, "Recording", origin);
             WarnIfTargetIsElevated(activity);
             GetOutOfTheWay(true);
-            recorder.Start(Settings.RecordMouseMoves);
+            recorder.Start(Settings.RecordMouseMoves, KeysHeldNow());
             ActivityChanged();
             return true;
         }
 
-        public void StopRecording()
+        // The keys held down right now (the record hotkey, usually), as the hook reports them: left/right modifier forms included.
+        // Nothing is being sent at this moment, so GetAsyncKeyState is the physical keyboard. 0x01-0x06 are mouse buttons.
+        List<ushort> KeysHeldNow()
+        {
+            var held = new List<ushort>();
+            try
+            {
+                for (ushort vk = 0x08; vk <= 0xFE; vk++) if (input.IsPhysicallyDown(vk)) held.Add(vk);
+            }
+            catch (Exception ex) { Log.Warn("Could not read which keys are held: " + ex.Message); }
+            return held;
+        }
+
+        static Hotkey? ParsedHotkey(string text)
+        {
+            Hotkey hk;
+            return Hotkey.TryParse(text, out hk) && !hk.IsEmpty ? hk : (Hotkey?)null;
+        }
+
+        /// <summary>
+        /// Ends the recording. <paramref name="stoppedBy"/> is the hotkey that stopped it, whose press at the end is then removed;
+        /// leave it out for the Stop buttons (recorder bar, Deck, pill, tray), so the person's own last keys are all kept.
+        /// </summary>
+        public void StopRecording(Hotkey? stoppedBy = null)
         {
             if (Activity.Kind != ActivityKind.Recording) return;
-            var strip = new List<Hotkey>();
-            foreach (string text in new[] { Settings.RecordHotkey, Settings.StopHotkey })
+            Rec recording = recorder.Stop(stoppedBy.HasValue ? new[] { stoppedBy.Value } : new Hotkey[0]);
+            if (recording.Events.Count == 0)
             {
-                Hotkey hk;
-                if (Hotkey.TryParse(text, out hk)) strip.Add(hk);
+                End(recorder.InjectedIgnored > 0
+                    ? "Nothing was recorded. Macro Kit records only your own keyboard and mouse, not input from remote-control tools, the on-screen keyboard or key remappers."
+                    : "Nothing was recorded.", false, "Stopped");
+                return;
             }
-            Rec recording = recorder.Stop(strip);
-            if (recording.Events.Count == 0) { End("Nothing was recorded.", false); return; }
             Pending = recording;
             Settings.SelectedRecordingId = recording.Id;
             MarkDirty(SaveParts.Settings);
-            string note = recording.Events.Count + " events, " + FormatDuration(recording.DurationMs) + ".";
-            if (Settings.AutoSaveRecordings && SavePending()) End("Recording saved as “" + recording.Name + "” (" + note + ")", false);
-            else End("Recorded " + note + " Save it to keep it.", false);
+            int eventCount = recording.Events.Count;
+            string note = eventCount + (eventCount == 1 ? " event, " : " events, ") + FormatDuration(recording.DurationMs);
+            if (Settings.AutoSaveRecordings && SavePending()) End("Recording saved as “" + recording.Name + "” (" + note + ").", false, "Recorded");
+            else End("Recorded " + note + ". Press Save to keep it. Recording again from this window asks before replacing it; a hotkey or the Deck saves it first.", false, "Recorded");
             RecordingsChanged();
         }
 
@@ -928,9 +1078,19 @@ namespace MacroKit.App
             if (Activity.Kind != ActivityKind.Recording) return;
             recorder.Stop(new Hotkey[0]);
             Activity.Started = DateTime.Now;
-            recorder.Start(Settings.RecordMouseMoves);
+            recorder.Start(Settings.RecordMouseMoves, KeysHeldNow());
             SetStatus("Recording started again.", false);
             ActivityChanged();
+        }
+
+        /// <summary>
+        /// Clicks on Macro Kit's tray icon while recording (the right-click that opened its menu, the double-click that opens the
+        /// window) are Macro Kit's, not part of the task: takes the last <paramref name="clicks"/> of them back out of the take.
+        /// </summary>
+        public void ForgetTrayClicks(Core.MouseButton button, int clicks)
+        {
+            if (Activity.Kind != ActivityKind.Recording) return;
+            for (int i = 0; i < clicks; i++) if (!recorder.DropTrailingClick(button)) break;
         }
 
         /// <summary>The recorder bar's Discard: stops and throws the take away, keeping any earlier unsaved recording.</summary>
@@ -938,7 +1098,7 @@ namespace MacroKit.App
         {
             if (Activity.Kind != ActivityKind.Recording) return;
             recorder.Stop(new Hotkey[0]);
-            End("Recording discarded.", false);
+            End("Recording discarded.", false, "Stopped");
         }
 
         /// <summary>True while the main window is hidden because something is running (it comes back when that ends).</summary>
@@ -976,7 +1136,9 @@ namespace MacroKit.App
             };
             // A hotkey that started this may still be held down; the player waits for its modifiers to be released.
             bool fromHotkey = origin == RunOrigin.Hotkey;
-            StartWorker("playback", () => player.Play(recording, settings, token, fromHotkey), result => FinishRun(result, "“" + recording.Name + "”", "finished playing"));
+            // 1 ms timer ticks while it plays, so mouse paths and quick clicks keep their recorded timing (the default tick is 15.6 ms).
+            StartWorker("playback", () => { using (TimerResolution.Raise()) return player.Play(recording, settings, token, fromHotkey); },
+                result => FinishRun(result, "“" + recording.Name + "”", "finished playing"));
             ActivityChanged();
             return true;
         }
@@ -999,8 +1161,12 @@ namespace MacroKit.App
 
         void FinishRun(RunResult result, string what, string finishedWord)
         {
+            ActivityInfo ran = Activity;
+            if (ran.Kind == ActivityKind.Macro && ran.Origin == RunOrigin.Schedule)
+                NoteScheduledRun(Macros.FirstOrDefault(m => m.Id == ran.MacroId), ran.Started,
+                    !string.IsNullOrEmpty(result.Error) ? "stopped by a problem" : result.Cancelled ? "stopped" : "finished");
             if (!string.IsNullOrEmpty(result.Error)) End(result.Error, true);
-            else if (result.Cancelled) End("Stopped " + what + ".", false);
+            else if (result.Cancelled) End("Stopped " + what + ".", false, "Stopped");
             else End(Capitalize(what) + " " + finishedWord + (result.PassesDone > 1 ? " (" + result.PassesDone + " passes)." : "."), false);
         }
 
@@ -1090,10 +1256,14 @@ namespace MacroKit.App
             Activity = new ActivityInfo();
             activityKind = 0;
             DisposeCancellation();
+            if (quitting) return;
             bool wasHidden = mainHiddenByActivity;
             mainHiddenByActivity = false;
-            if (wasHidden) ShowMainWindow(true);   // the person is working in Macro Kit, so it comes back in front (an explicit open)
-            ActivityChanged();
+            // Whatever goes wrong while the window comes back and the windows update, the person's pick is still handed on.
+            try { if (wasHidden) ShowMainWindow(true); }   // the person is working in Macro Kit, so it comes back in front (an explicit open)
+            catch (Exception ex) { Log.Error("Bringing Macro Kit back after picking a window failed", ex); }
+            try { ActivityChanged(); }
+            catch (Exception ex) { Log.Error("Updating the windows after picking a window failed", ex); }
             if (picked != null && done != null) done(picked);
             else SetStatus(cancelled ? "Picking cancelled." : "", false);
         }
@@ -1102,9 +1272,11 @@ namespace MacroKit.App
 
         public void RefreshRecordings()
         {
+            lastLoaded = null;   // saved, renamed, deleted or imported: read it from disk again next time
             Recordings = Storage.LoadRecordingIndex();
             if (InputEnabled && hook.IsRunning && HotkeySignature() != hotkeySignature) ApplyHotkeys();
             RecordingsChanged();
+            ShowNewStorageWarnings();
         }
 
         /// <summary>A saved recording, or the unsaved one; null when it is gone.</summary>
@@ -1112,7 +1284,32 @@ namespace MacroKit.App
         {
             if (string.IsNullOrEmpty(id)) return null;
             if (Pending != null && Pending.Id == id) return Pending;
-            return Storage.LoadRecording(id);
+            return LoadSaved(id);
+        }
+
+        // A recording found damaged (set aside, or put back from an earlier saved copy) or in use after startup is reported too. Posted, so it
+        // comes after whatever the current action says ("That recording is gone", for example) instead of being replaced by it.
+        void ShowNewStorageWarnings()
+        {
+            IList<string> all = Storage.Warnings;
+            if (all.Count <= storageWarningsShown) return;
+            string text = string.Join(" ", all.Skip(storageWarningsShown));
+            storageWarningsShown = all.Count;
+            Post(() => SetStatus(text, true));
+        }
+
+        Rec lastLoaded;
+
+        // The last saved recording read from disk is kept (one only), so playing it again, by hotkey too, skips reading and parsing
+        // the file, which takes a moment for a long recording. RefreshRecordings forgets it whenever a recording file changes.
+        Rec LoadSaved(string id)
+        {
+            Rec cached = lastLoaded;
+            if (cached != null && cached.Id == id) return cached;
+            Rec saved = Storage.LoadRecording(id);
+            ShowNewStorageWarnings();
+            lastLoaded = saved;
+            return saved;
         }
 
         bool RecordingExists(string id)
@@ -1203,7 +1400,7 @@ namespace MacroKit.App
         {
             string id = Settings.SelectedRecordingId;
             if (Pending != null && (id == Pending.Id || string.IsNullOrEmpty(id))) return Pending;
-            if (!string.IsNullOrEmpty(id)) { Rec saved = Storage.LoadRecording(id); if (saved != null) return saved; }
+            if (!string.IsNullOrEmpty(id)) { Rec saved = LoadSaved(id); if (saved != null) return saved; }
             return Pending;
         }
 

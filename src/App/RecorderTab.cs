@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using MacroKit.Core;
 using Rec = MacroKit.Core.Recording;
 
@@ -18,7 +19,9 @@ namespace MacroKit.App
         readonly Window owner;
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
-        readonly Button recordButton, playButton, stopButton, saveButton, renameButton, deleteButton, exportButton;
+        readonly Button recordButton, playButton, stopButton, saveButton, renameButton, duplicateButton, deleteButton, exportButton;
+        readonly TextBox listSearch = new TextBox();
+        FrameworkElement recordIcon, playIcon;
         readonly TextBlock recordHint = Ui.Text("", "Muted", false, 11), playHint = Ui.Text("", "Muted", false, 11), stopHint = Ui.Text("", "Muted", false, 11);
         readonly Slider speed = new Slider { Minimum = -1, Maximum = 2, SmallChange = 0.01, LargeChange = 0.1, IsMoveToPointEnabled = true };
         readonly TextBlock speedValue = Ui.Text("", null, true);
@@ -31,6 +34,8 @@ namespace MacroKit.App
         readonly Button convertButton;
         readonly TextBlock playbackFor = Ui.Text("", "Muted", false, 12);
         bool loading;
+        string primaryNow = "";
+        const string EmptyText = "No recordings yet. Press Record, do something, then press Stop. While it records, Macro Kit shrinks to a small bar with Stop, Restart and Discard.";
 
         public RecorderTab(AppController controller, Window owner)
         {
@@ -38,8 +43,10 @@ namespace MacroKit.App
             this.owner = owner;
 
             // ---- recordings list
-            listEmpty = Ui.Para("No recordings yet. Press Record, do something, then press Stop. While it records, Macro Kit shrinks to a small bar with Stop, Restart and Discard.");
+            listEmpty = Ui.Para(EmptyText);
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
+            listSearch.ToolTip = "Show only the recordings whose name holds these words.";
+            listSearch.TextChanged += (s, e) => { FilterList(); KeepSelectionShown(); };
             list.SelectionChanged += (s, e) =>
             {
                 if (loading) return;
@@ -49,28 +56,45 @@ namespace MacroKit.App
                 LoadPlayback();
                 LoadOptions();
             };
+            // Standard list shortcuts: double-click or F2 renames, Delete asks to delete.
+            list.MouseDoubleClick += (s, e) =>
+            {
+                var source = e.OriginalSource as DependencyObject;
+                if (source != null && ItemsControl.ContainerFromElement(list, source) is ListBoxItem) { e.Handled = true; Rename(); }
+            };
+            list.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.F2) { e.Handled = true; Rename(); }
+                else if (e.Key == Key.Delete) { e.Handled = true; Delete(); }
+            };
             saveButton = Ui.Button("Save", () => c.SavePending(), "Small", "Keep the new recording.");
             renameButton = Ui.Button("Rename…", Rename, "Small", "Give the selected recording a new name.");
+            duplicateButton = Ui.Button("Duplicate", Duplicate, "Small", "Make a copy of the selected recording to change without losing the original. The copy has no hotkey.");
             deleteButton = Ui.Button("Delete", Delete, "Small", "Delete the selected recording.");
             exportButton = Ui.Button("Export file…", Export, "Small", "Save the selected recording as a file you can share.");
             var importButton = Ui.Button("Import file…", Import, "Small", "Add a recording from a file.");
-            var listButtons = Ui.Wrap(saveButton, renameButton, deleteButton, exportButton, importButton);
+            var listButtons = Ui.Wrap(saveButton, renameButton, duplicateButton, deleteButton, exportButton, importButton);
             foreach (UIElement b in listButtons.Children) ((FrameworkElement)b).Margin = new Thickness(0, 0, 6, 6);
 
             var listGrid = new Grid();
+            listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             listGrid.RowDefinitions.Add(new RowDefinition());
             listGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var listTitle = Ui.Heading("Recordings");
             listTitle.Margin = new Thickness(0, 0, 0, 8);
             listGrid.Children.Add(listTitle);
+            var searchBox = Ui.Hinted(listSearch, "Search recordings");
+            searchBox.Margin = new Thickness(0, 0, 0, 8);
+            Grid.SetRow(searchBox, 1);
+            listGrid.Children.Add(searchBox);
             var listHost = new Grid();
             listHost.Children.Add(list);
             listHost.Children.Add(listEmpty);
-            Grid.SetRow(listHost, 1);
+            Grid.SetRow(listHost, 2);
             listGrid.Children.Add(listHost);
             listButtons.Margin = new Thickness(0, 8, 0, -6);
-            Grid.SetRow(listButtons, 2);
+            Grid.SetRow(listButtons, 3);
             listGrid.Children.Add(listButtons);
             Border listCard = Ui.Card(listGrid);
             listCard.Margin = new Thickness(0, 0, 10, 0);
@@ -79,7 +103,7 @@ namespace MacroKit.App
             recordButton = Transport("record", "Record", recordHint, () => c.StartRecording(RunOrigin.MainWindow), "Start recording mouse and keyboard. Macro Kit shrinks to a small recorder bar until you stop.");
             playButton = Transport("play", "Play", playHint, () => c.StartPlayback(RunOrigin.MainWindow), "Play the selected recording.");
             stopButton = Transport("stop", "Stop", stopHint, () => c.Stop(), "Stop recording or playback.");
-            playButton.Style = (Style)Application.Current.FindResource("Primary");
+            foreach (Button b in new[] { playButton, stopButton }) ToolTipService.SetShowOnDisabled(b, true);
             var transport = new UniformGrid { Columns = 3 };
             foreach (Button b in new[] { recordButton, playButton, stopButton }) { b.Margin = new Thickness(0, 0, 8, 0); transport.Children.Add(b); }
             ((FrameworkElement)transport.Children[2]).Margin = new Thickness(0);
@@ -115,6 +139,7 @@ namespace MacroKit.App
             repeatTimes.Margin = new Thickness(2, 0, 7, 0);
             var repeatRow = Ui.Row(18, once, timesRow, continuous);
             var delayRow = Ui.Row(7, Ui.Text("Wait", "Muted", false, 12), repeatDelay, Ui.Text("ms between repeats", "Muted", false, 12));
+            delayRow.ToolTip = "1000 ms = 1 second.";
 
             // ---- the selected recording's own hotkey, Deck button and macro
             hotkey.Changed += () =>
@@ -184,7 +209,9 @@ namespace MacroKit.App
         Button Transport(string icon, string label, TextBlock hint, Action click, string tip)
         {
             var content = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-            var top = Ui.Row(8, Ui.Shape(icon, 12, icon == "record" ? "Rec" : icon == "stop" ? "Text" : "AccentFg"), new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+            FrameworkElement shape = Ui.Shape(icon, 12, icon == "record" ? "Rec" : "Text");
+            if (icon == "record") recordIcon = shape; else if (icon == "play") playIcon = shape;
+            var top = Ui.Row(8, shape, new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
             top.HorizontalAlignment = HorizontalAlignment.Center;
             content.Children.Add(top);
             hint.HorizontalAlignment = HorizontalAlignment.Center;
@@ -212,10 +239,45 @@ namespace MacroKit.App
                 c.MarkDirty(SaveParts.Settings);
             }
             list.SelectedItem = match;
-            listEmpty.Visibility = list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            // A search that hides the selected take (a new one, an import) is cleared so the selection stays put.
+            if (match != null && listSearch.Text.Length > 0 && !Ui.Matches(listSearch.Text, c.RecordingName((string)match.Tag))) listSearch.Text = "";
             loading = false;
+            FilterList();
+            KeepSelectionShown();
             UpdateButtons();
         }
+
+        /// <summary>Hides the recordings that don't match the search box, and says so when none are left.</summary>
+        void FilterList()
+        {
+            int shown = 0;
+            foreach (ListBoxItem item in list.Items)
+            {
+                bool match = Ui.Matches(listSearch.Text, c.RecordingName((string)item.Tag));
+                item.Visibility = match ? Visibility.Visible : Visibility.Collapsed;
+                if (match) shown++;
+            }
+            listEmpty.Text = list.Items.Count == 0 ? EmptyText : "No recordings match “" + listSearch.Text.Trim() + "”.";
+            listEmpty.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // A selection the search hides would leave the right side open on a row nobody can see.
+        void KeepSelectionShown()
+        {
+            var selected = list.SelectedItem as ListBoxItem;
+            if (selected == null || selected.Visibility == Visibility.Visible) return;
+            ListBoxItem first = list.Items.Cast<ListBoxItem>().FirstOrDefault(i => i.Visibility == Visibility.Visible);
+            if (first != null) list.SelectedItem = first;
+        }
+
+        /// <summary>Self-test: the recordings the list shows, by name.</summary>
+        public List<string> ShownRecordings
+        {
+            get { return list.Items.Cast<ListBoxItem>().Where(i => i.Visibility == Visibility.Visible).Select(i => c.RecordingName((string)i.Tag)).ToList(); }
+        }
+
+        /// <summary>Self-test: the list's search box.</summary>
+        public string ListSearch { get { return listSearch.Text; } set { listSearch.Text = value; } }
 
         static ListBoxItem MakeItem(string id, string name, int durationMs, int events, string created, bool unsaved)
         {
@@ -223,7 +285,8 @@ namespace MacroKit.App
             var head = new DockPanel();
             if (unsaved)
             {
-                var badge = Ui.Pill("Not saved", "Warn", "WarnBg", 10.5);
+                var badge = Ui.Pill("New", "Warn", "WarnBg", 10.5);
+                badge.ToolTip = "Not saved yet. Save keeps it, and so do Exit, Restart and recording again by hotkey or Deck. Recording again from this window asks before replacing it.";
                 badge.Margin = new Thickness(8, 0, 0, 0);
                 DockPanel.SetDock(badge, Dock.Right);
                 head.Children.Add(badge);
@@ -254,6 +317,18 @@ namespace MacroKit.App
             stopButton.IsEnabled = !idle;
             saveButton.IsEnabled = pendingSelected;
             renameButton.IsEnabled = has;
+            duplicateButton.IsEnabled = has;
+            // The blue button is the next thing to do: Save for a new take, otherwise Record, or Play once there is something to play.
+            primaryNow = (has ? "Play" : "Record") + (pendingSelected ? "+Save" : "");
+            Ui.Style(saveButton, pendingSelected ? "SmallPrimary" : "Small");
+            Ui.Style(recordButton, has ? "Transport" : "Primary");
+            Ui.Style(playButton, has ? "Primary" : "Transport");
+            Ui.Ref(recordIcon, System.Windows.Shapes.Shape.FillProperty, has ? "Rec" : "AccentFg");
+            Ui.Ref(playIcon, System.Windows.Shapes.Shape.FillProperty, has ? "AccentFg" : "Text");
+            Ui.Ref(recordHint, TextBlock.ForegroundProperty, has ? "Muted" : "AccentFg");
+            Ui.Ref(playHint, TextBlock.ForegroundProperty, has ? "AccentFg" : "Muted");
+            playButton.ToolTip = playButton.IsEnabled ? "Play the selected recording." : idle ? "Pick a recording first." : "Wait until the current recording or playback ends.";
+            stopButton.ToolTip = stopButton.IsEnabled ? "Stop recording or playback." : "Nothing is recording or playing.";
             deleteButton.IsEnabled = has;
             exportButton.IsEnabled = has;
             hotkey.IsEnabled = has;
@@ -267,8 +342,8 @@ namespace MacroKit.App
             RecordingOptions own = c.OptionsFor(SelectedId);
             playHint.Text = own != null && !string.IsNullOrEmpty(own.Hotkey) ? own.Hotkey : c.Settings.PlayHotkey;
             stopHint.Text = c.Settings.StopHotkey;
-            Ui.Ref(playHint, TextBlock.ForegroundProperty, "AccentFg");
             playHint.Opacity = 0.8;
+            recordHint.Opacity = 0.8;
         }
 
         void Rename()
@@ -279,6 +354,35 @@ namespace MacroKit.App
             string current = c.Pending != null && c.Pending.Id == id ? c.Pending.Name : c.Recordings.Where(r => r.Id == id).Select(r => r.Name).FirstOrDefault();
             string name = Dialogs.Prompt(owner, "Rename recording", "Choose a name you will recognize later.", current, "Rename");
             if (name != null) c.RenameRecording(id, name);
+        }
+
+        void Duplicate()
+        {
+            string id = SelectedId;
+            Rec source = id == null ? null : c.LoadRecording(id);
+            if (source == null) return;
+            // A copy of the steps and the speed and repeat settings: it has no hotkey or Deck button, which would clash with the original's.
+            var copy = new Rec { Name = source.Name + " copy", Created = Rec.NowIso(), DurationMs = source.DurationMs, Events = new List<RecEvent>(source.Events) };
+            try
+            {
+                c.Storage.SaveRecording(copy);
+                RecordingOptions own = c.OptionsFor(id);
+                if (own != null && own.Playback != null) c.EnsureOptions(copy.Id).Playback = own.Playback.Copy();
+                c.Settings.SelectedRecordingId = copy.Id;
+                c.MarkDirty(SaveParts.Settings);
+                c.RefreshRecordings();
+                c.SetStatus("Made “" + copy.Name + "”.", false);
+            }
+            catch (Exception ex) { c.SetStatus("Could not copy the recording: " + ex.Message, true); }
+        }
+
+        /// <summary>Self-test: presses Duplicate.</summary>
+        public void DuplicateSelected() { Duplicate(); }
+
+        /// <summary>Self-test: which buttons are the blue ones, for example Play+Save.</summary>
+        public string PrimaryButtons
+        {
+            get { return primaryNow; }
         }
 
         void Delete()

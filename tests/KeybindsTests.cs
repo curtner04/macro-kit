@@ -207,6 +207,14 @@ namespace MacroKit.Tests
             Keybind esc = app.Keybinds.First(k => k.Keys == "Esc");
             Assert.False(esc.Enabled);
             Assert.False(esc.Matches(Keys("Esc")));
+
+            // A switched-off macro's hotkey does nothing, so it is listed as off and takes no keys.
+            var macros = new List<MacroDef> { new MacroDef { Name = "Paused", Hotkey = "Ctrl+Alt+F9", Enabled = false }, new MacroDef { Name = "On", Hotkey = "Ctrl+Alt+F10" } };
+            app = KeybindReaders.MacroKit(new AppSettings(), macros);
+            Keybind paused = app.Keybinds.First(k => k.Action.Contains("Paused"));
+            Assert.False(paused.Enabled);
+            Assert.False(paused.Matches(Keys("Ctrl+Alt+F9")));
+            Assert.True(app.Keybinds.First(k => k.Action.Contains("“On”")).Enabled);
         }
 
         // ---------------------------------------------------------------- keys typed in by hand are stored as display text
@@ -390,6 +398,11 @@ namespace MacroKit.Tests
             Assert.Contains(problems[0], "Shortcut 2 has no keys");
             Assert.Contains(problems[1], "Shortcut 3");
             Assert.Equal(0, CustomKeybinds.Problems(new KeybindAppDef { Name = "Tool", Program = "tool.exe", Shortcuts = { new KeybindDef { Keys = "F9", Action = "Go" } } }, taken).Count);
+            // A chord gets its own explanation; the comma key itself is still a plain key.
+            var chord = CustomKeybinds.Problems(new KeybindAppDef { Name = "Editor", Shortcuts = { new KeybindDef { Keys = "Ctrl+K, Ctrl+C", Action = "Comment" } } }, taken);
+            Assert.Equal(1, chord.Count);
+            Assert.Contains(chord[0], "chords");
+            Assert.Equal(0, CustomKeybinds.Problems(new KeybindAppDef { Name = "Editor", Shortcuts = { new KeybindDef { Keys = "Ctrl+,", Action = "Settings" } } }, taken).Count);
             Assert.Equal("obs64", CustomKeybinds.ProgramName("\"C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe\""));
             Assert.Equal("", CustomKeybinds.ProgramName("  "));
         }

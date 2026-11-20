@@ -20,6 +20,8 @@ namespace MacroKit.App
         readonly RadioButton[] tabButtons = new RadioButton[5];
         readonly FrameworkElement[] pages = new FrameworkElement[5];
         readonly TextBlock status = Ui.Text("", "Muted", false, 12.5);
+        // Clears an ordinary status message after a while, so an old one is never read as news; errors stay until replaced.
+        readonly System.Windows.Threading.DispatcherTimer statusTimer;
         readonly TextBlock inputState = Ui.Text("", "Muted", false, 12);
         readonly Border unsavedBadge;
         readonly Border readOnlyBadge;
@@ -133,6 +135,8 @@ namespace MacroKit.App
             Grid.SetRow(statusBar, 4); root.Children.Add(statusBar);
             Content = root;
 
+            statusTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            statusTimer.Tick += (s, e) => { statusTimer.Stop(); ShowStatus("", false); };
             c.StatusChanged += ShowStatus;
             c.SaveStateChanged += () => unsavedBadge.Visibility = c.IsUnsaved ? Visibility.Visible : Visibility.Collapsed;
             c.RecordingsChanged += UpdateReadOnlyBadge;
@@ -148,6 +152,7 @@ namespace MacroKit.App
             UpdateReadOnlyBadge();
             SizeChanged += (s, e) => RememberPlacement();
             LocationChanged += (s, e) => RememberPlacement();
+            StateChanged += (s, e) => RememberMaximized();
             Closing += OnClosing;
         }
 
@@ -185,6 +190,17 @@ namespace MacroKit.App
                 Top = s.WindowTop;
             }
             else WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            // The bounds above are the normal ones, so the window still restores to them after it is un-maximized.
+            if (s.WindowMaximized) WindowState = WindowState.Maximized;
+        }
+
+        void RememberMaximized()
+        {
+            if (!IsLoaded || WindowState == WindowState.Minimized) return;
+            bool maximized = WindowState == WindowState.Maximized;
+            if (c.Settings.WindowMaximized == maximized) return;
+            c.Settings.WindowMaximized = maximized;
+            c.MarkPlacementDirty();
         }
 
         void RememberPlacement()
@@ -194,7 +210,7 @@ namespace MacroKit.App
             c.Settings.WindowTop = Top;
             c.Settings.WindowWidth = Width;
             c.Settings.WindowHeight = Height;
-            c.MarkDirty(SaveParts.Settings);
+            c.MarkPlacementDirty();   // every step of a drag or resize: only saved, nothing else is redone
         }
 
         void ShowPage(int index)
@@ -212,9 +228,20 @@ namespace MacroKit.App
 
         void ShowStatus(string text, bool error)
         {
+            statusTimer.Stop();
             status.Text = text;
-            status.ToolTip = text;
+            status.ToolTip = string.IsNullOrEmpty(text) ? null : text;
             Ui.Ref(status, TextBlock.ForegroundProperty, error ? "Bad" : "Muted");
+            if (!error && !string.IsNullOrEmpty(text)) statusTimer.Start();
+        }
+
+        /// <summary>The text the status line shows right now (self test).</summary>
+        public string StatusText { get { return status.Text; } }
+
+        /// <summary>Self test: what the status line does when its time is up.</summary>
+        public void ExpireStatusForTest()
+        {
+            if (statusTimer.IsEnabled) { statusTimer.Stop(); ShowStatus("", false); }
         }
 
         /// <summary>Shown while a data file could not be read: Macro Kit runs on defaults for it and never saves over the real file.</summary>
@@ -227,7 +254,18 @@ namespace MacroKit.App
 
         void UpdateDeckButton()
         {
-            Ui.Style(deckButton, c.Settings.DeckVisible ? "Primary" : "Ghost");
+            // An open Deck is marked quietly (selected fill, accent edge); a Primary button would be the loudest thing on every tab.
+            Ui.Style(deckButton, "Ghost");
+            if (c.Settings.DeckVisible)
+            {
+                Ui.Ref(deckButton, Control.BackgroundProperty, "Selected");
+                Ui.Ref(deckButton, Control.BorderBrushProperty, "Accent");
+            }
+            else
+            {
+                deckButton.ClearValue(Control.BackgroundProperty);
+                deckButton.ClearValue(Control.BorderBrushProperty);
+            }
         }
 
         void UpdateInputState()
@@ -289,11 +327,23 @@ namespace MacroKit.App
             ShowActivated = true;
         }
 
+        public const string TrayCloseNotice = "Macro Kit is in the notification area by the clock (it may be under the ^ arrow). Phrases and hotkeys keep working. Right-click it and choose Exit Macro Kit to quit.";
+
         void OnClosing(object sender, CancelEventArgs e)
         {
             if (shell.Exiting) return;
             e.Cancel = true;
-            if (c.Settings.CloseToTray && shell.TrayAvailable) { Hide(); return; }
+            if (c.Settings.CloseToTray && shell.TrayAvailable)
+            {
+                Hide();
+                // The first time, say where it went: new tray icons often sit in the hidden part of the notification area.
+                if (!c.Settings.TrayCloseNoticeShown && shell.Pill.Flash("Still running", TrayCloseNotice, "Warn", 15))
+                {
+                    c.Settings.TrayCloseNoticeShown = true;
+                    c.MarkDirty(SaveParts.Settings);
+                }
+                return;
+            }
             // Leaving for real happens after this event has finished: closing a window from inside its own Closing event throws.
             Dispatcher.BeginInvoke(new Action(shell.Exit));
         }

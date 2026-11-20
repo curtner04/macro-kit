@@ -22,7 +22,7 @@ namespace MacroKit.App
 
         static readonly Dictionary<string, string> Dark = new Dictionary<string, string>
         {
-            { "Bg", "#111318" }, { "Card", "#1A1D24" }, { "Card2", "#22262F" }, { "Input", "#15181E" }, { "Border", "#2E333D" },
+            { "Bg", "#111318" }, { "Card", "#1A1D24" }, { "Card2", "#22262F" }, { "Input", "#15181E" }, { "Border", "#2E333D" }, { "InputBorder", "#4A5160" },
             { "Text", "#E8EAED" }, { "Muted", "#A0A7B4" }, { "Accent", "#4CA8FF" }, { "AccentFg", "#0B1220" }, { "AccentText", "#6CB8FF" },
             { "BtnBg", "#2A2F3A" }, { "Good", "#6CCB8A" }, { "GoodBg", "#1B3326" }, { "Warn", "#F0B44C" }, { "WarnBg", "#3A2E14" },
             { "Bad", "#FF8A80" }, { "BadBg", "#45201E" }, { "Info", "#7FB7FF" }, { "InfoBg", "#1B2A40" }, { "Selected", "#243246" },
@@ -35,7 +35,7 @@ namespace MacroKit.App
 
         static readonly Dictionary<string, string> Light = new Dictionary<string, string>
         {
-            { "Bg", "#F3F5F8" }, { "Card", "#FFFFFF" }, { "Card2", "#F6F8FB" }, { "Input", "#FFFFFF" }, { "Border", "#D9DEE6" },
+            { "Bg", "#F3F5F8" }, { "Card", "#FFFFFF" }, { "Card2", "#F6F8FB" }, { "Input", "#FFFFFF" }, { "Border", "#D9DEE6" }, { "InputBorder", "#A9B2C0" },
             { "Text", "#1B1F27" }, { "Muted", "#5B6575" }, { "Accent", "#0A64C8" }, { "AccentFg", "#FFFFFF" }, { "AccentText", "#0A5BB5" },
             { "BtnBg", "#E8ECF2" }, { "Good", "#1E7D3C" }, { "GoodBg", "#E2F3E7" }, { "Warn", "#8A5A00" }, { "WarnBg", "#FFF2D6" },
             { "Bad", "#B3261E" }, { "BadBg", "#FBE4E1" }, { "Info", "#0A5BB5" }, { "InfoBg", "#E4EEFB" }, { "Selected", "#E3ECF8" },

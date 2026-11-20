@@ -42,7 +42,10 @@ namespace MacroKit.Keybinds
                 try
                 {
                     if (Directory.Exists(Path.Combine(local, name)) || Directory.Exists(Path.Combine(roaming, name))) return true;
-                    return System.Diagnostics.Process.GetProcessesByName(name).Length > 0;
+                    // Each Process holds a handle until it is disposed, and this runs every time the Keybinds tab refreshes.
+                    System.Diagnostics.Process[] found = System.Diagnostics.Process.GetProcessesByName(name);
+                    foreach (System.Diagnostics.Process p in found) p.Dispose();
+                    return found.Length > 0;
                 }
                 catch { return false; }
             };
@@ -166,16 +169,28 @@ namespace MacroKit.Keybinds
         /// <summary>A sentence about a shortcut's clash, or null when it has none.</summary>
         public string ClashNote(Keybind keybind)
         {
+            string note;
+            return ClashNotes().TryGetValue(keybind, out note) ? note : null;
+        }
+
+        /// <summary>The clash sentence of every shortcut that has one, found in a single pass (the first clash wins, as in ClashNote).</summary>
+        public Dictionary<Keybind, string> ClashNotes()
+        {
+            var notes = new Dictionary<Keybind, string>();
             foreach (KeybindClash clash in Clashes())
             {
-                if (clash.A != keybind && clash.B != keybind) continue;
-                Keybind other = clash.A == keybind ? clash.B : clash.A;
-                if (clash.BothGlobal) return "Also a global shortcut in " + other.App + ": only one of them can have it.";
-                return keybind.Scope == KeybindScope.Global
-                    ? "Also used inside " + other.App + "; while " + keybind.App + " runs, " + other.App + " may not get it."
-                    : other.App + " uses it everywhere, so it may never reach " + keybind.App + ".";
+                if (!notes.ContainsKey(clash.A)) notes[clash.A] = NoteFor(clash.A, clash.B, clash);
+                if (!notes.ContainsKey(clash.B)) notes[clash.B] = NoteFor(clash.B, clash.A, clash);
             }
-            return null;
+            return notes;
+        }
+
+        static string NoteFor(Keybind keybind, Keybind other, KeybindClash clash)
+        {
+            if (clash.BothGlobal) return "Also a global shortcut in " + other.App + ": only one of them can have it.";
+            return keybind.Scope == KeybindScope.Global
+                ? "Also used inside " + other.App + "; while " + keybind.App + " runs, " + other.App + " may not get it."
+                : other.App + " uses it everywhere, so it may never reach " + keybind.App + ".";
         }
     }
 

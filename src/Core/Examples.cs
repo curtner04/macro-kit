@@ -50,6 +50,32 @@ namespace MacroKit.Core
         }
 
         /// <summary>
+        /// True when the missing examples should be added now: once per data folder, and only when settings.json was really read.
+        /// Settings that were missing, set aside or locked start without ExamplesAdded, and adding then would bring back examples
+        /// the person deleted (a new install already starts with them as its first phrases and macros).
+        /// </summary>
+        public static bool ShouldAddMissing(AppSettings settings, bool settingsFromFile)
+        {
+            return settings != null && settingsFromFile && !settings.ExamplesAdded;
+        }
+
+        /// <summary>
+        /// The same, but false while phrases.json or macros.json could not be read (<paramref name="readOnlyFiles"/>): the examples
+        /// could not be saved into them, so they are added on a later start instead.
+        /// </summary>
+        public static bool ShouldAddMissing(AppSettings settings, bool settingsFromFile, ICollection<string> readOnlyFiles)
+        {
+            return ShouldAddMissing(settings, settingsFromFile) && !TargetsBlocked(readOnlyFiles);
+        }
+
+        /// <summary>True when phrases.json or macros.json is among <paramref name="readOnlyFiles"/>.</summary>
+        public static bool TargetsBlocked(ICollection<string> readOnlyFiles)
+        {
+            return readOnlyFiles != null && readOnlyFiles.Any(f =>
+                string.Equals(f, "phrases.json", StringComparison.OrdinalIgnoreCase) || string.Equals(f, "macros.json", StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
         /// Adds the examples that are not there yet: a phrase with the same trigger or a macro with the same name counts as there.
         /// Returns how many were added.
         /// </summary>
@@ -83,6 +109,25 @@ namespace MacroKit.Core
         {
             return macro != null && string.IsNullOrEmpty(macro.Hotkey) && Macros().Any(e => e.Name == macro.Name && e.Script == macro.Script
                 && e.Repeat == macro.Repeat && e.RepeatTimes == macro.RepeatTimes && e.RepeatDelayMs == macro.RepeatDelayMs && e.PasteText == macro.PasteText);
+        }
+
+        /// <summary>One plain sentence on what an example macro does and what to do first, or "" for a macro that is not an example.</summary>
+        public static string Describe(string name)
+        {
+            switch (name ?? "")
+            {
+                case "Copy, switch, paste, next row": return "Copies, switches to the other window, pastes and moves down a row, 5 times. Click the cell to copy from first.";
+                case "Type my email signature": return "Types a short signature into the window you used before. Change the text to yours first.";
+                case "Fill a contact form": return "Types a name, an email and a phone number, pressing Tab between them. Click the first box first.";
+                case "Auto-clicker (Esc stops)": return "Clicks wherever the mouse pointer is, 10 times a second, until you press Esc.";
+                case "Refresh every 30 seconds": return "Presses F5 in the window you used before, every 30 seconds, until you press Esc.";
+                case "Paste down 10 rows": return "Copies the cell you clicked and pastes it into the 10 rows below it. Click the cell to copy first. It replaces what is on the clipboard.";
+                case "Duplicate the line": return "Copies the line the cursor is on and pastes it on a new line below.";
+                case "Snip part of the screen": return "Opens the Windows snipping tool.";
+                case "Start a note in Notepad": return "Opens Notepad and types the start of a to-do list.";
+                case "Reopen the closed browser tab": return "Brings back the browser tab you closed last.";
+                default: return "";
+            }
         }
 
         static PhraseDef P(string trigger, string replacement, InsertMethod method = InsertMethod.Type, ExpandWhen when = ExpandWhen.Immediately)

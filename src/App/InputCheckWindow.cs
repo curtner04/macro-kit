@@ -25,6 +25,7 @@ namespace MacroKit.App
         readonly TextBlock phraseResult = Ui.Text("", "Muted", false, 12, true);
         readonly DispatcherTimer phraseTimer;
         readonly Button typeButton;
+        volatile bool closed;   // the check thread must not type once this window is gone
 
         public InputCheckWindow(Window owner, AppController controller)
         {
@@ -66,7 +67,8 @@ namespace MacroKit.App
                 Ui.Row(8, Ui.Button("Close", Close, null)));
             ((FrameworkElement)Content).Margin = new Thickness(24, 20, 24, 20);
             KeyDown += (s, e) => { if (e.Key == Key.Escape) Close(); };
-            Closed += (s, e) => StopPhraseCheck();
+            phraseBox.PreviewMouseDown += (s, e) => StartPhraseCheck();   // a click in an already-focused box starts a new try after a timeout
+            Closed += (s, e) => { closed = true; StopPhraseCheck(); };
         }
 
         void RunTypingCheck()
@@ -82,13 +84,21 @@ namespace MacroKit.App
                 try
                 {
                     Thread.Sleep(250);   // let the box take focus
-                    c.TypeForCheck(input =>
+                    // Real key presses go to whoever has the keyboard, so only type while this window's box has it.
+                    bool ready = !closed && (bool)Dispatcher.Invoke(new Func<bool>(() => IsActive && typingBox.IsKeyboardFocusWithin));
+                    if (!ready) error = "";
+                    else
                     {
-                        input.KeyCombo(new ushort[] { 0x10, 0x4D });     // Shift+M: a shortcut
-                        input.TypeText("acro Kit ✓ äö"); // Unicode text
-                        input.KeyCombo(new ushort[] { 0x08 });          // Backspace removes the ö
-                    });
-                    Thread.Sleep(400);
+                        c.TypeForCheck(input =>
+                        {
+                            input.KeyCombo(new ushort[] { 0x10, 0x4D });     // Shift+M: a shortcut
+                            if (closed) return;
+                            input.TypeText("acro Kit ✓ äö"); // Unicode text
+                            if (closed) return;
+                            input.KeyCombo(new ushort[] { 0x08 });          // Backspace removes the ö
+                        });
+                        Thread.Sleep(400);
+                    }
                 }
                 catch (Exception ex) { error = ex.Message; }
                 Dispatcher.BeginInvoke(new Action(() => FinishTypingCheck(error)));
@@ -98,7 +108,9 @@ namespace MacroKit.App
 
         void FinishTypingCheck(string error)
         {
+            if (closed) return;
             typeButton.IsEnabled = true;
+            if (error == "") { Show(typingResult, "Keep this window in front and press the button again.", false); return; }
             if (error != null) { Show(typingResult, "Fail: sending keys stopped with an error: " + error, false); return; }
             if (typingBox.Text == Expected)
             {
@@ -118,6 +130,7 @@ namespace MacroKit.App
                 Show(phraseResult, "Phrases are switched off. Turn on “Expand phrases as I type” on the Phrases tab, then try again.", false);
                 return;
             }
+            phraseBox.Text = "";   // a leftover expansion from an earlier try must not count as a pass
             c.BeginPhraseCheck(new PhraseDef { Trigger = Trigger, Replacement = Expansion });
             phraseTimer.Start();
             Show(phraseResult, "Waiting for you to type " + Trigger + " and a space…", false);

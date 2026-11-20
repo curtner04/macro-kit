@@ -1,5 +1,83 @@
 # Macro Kit changelog
 
+## 1.8.0 - 2026-11-19
+
+A large clean-up release: many small fixes and clearer wording on every tab, and more care that nothing you saved is lost.
+
+- **Switch a macro off**: every macro has an on/off switch (*Hotkey and schedule are on*). Off pauses its hotkey and its schedule without losing them. A switched-off macro shows a small *Off* label beside its name, its schedule card says it is paused, its hotkey is not shown on its Deck button, and Global Keybinds lists the hotkey as switched off and does not count it as taken. It still runs from its button, the Deck or another macro.
+- **Check what a phrase will type**: phrases with placeholders such as `{date}` show a *Preview* line under the replacement, and the Phrases tab has a **Try it** button and a line saying phrases expand in other programs, not inside Macro Kit.
+- **Recorder search and Duplicate**: the recordings list has a search box and a **Duplicate** button (the copy keeps the speed and repeat and has no hotkey). The Recorder also highlights the next thing to do: Save for a new take, Record when nothing is selected, Play once something is.
+- **Safer data files**: a damaged settings, phrases, macros or keybinds file is now replaced by an earlier saved copy when that copy is good, so you keep your work instead of getting the examples (your most recent change to it may be missing). The status line names the file and what happened to it.
+- **Dates and times in macros**: `$DATE` and `$TIME` type this PC's short date and time.
+- **Status popup and tray notice**: when a macro, playback or recording ends, the small popup now says so for a few seconds (*Done*, *Recorded* or *Stopped*), even while Macro Kit's window is hidden. The first time you close the window and Macro Kit keeps running in the notification area, the popup tells you where it went and how to quit.
+
+**Recorder**
+
+- Stopping a recording with the recorder bar, the Deck, the popup or the tray keeps your last keys. Only the hotkey press that stopped it is removed, and an earlier Ctrl+S stays. Holding the Record hotkey a moment too long no longer types its last key at the start.
+- Clicks on Macro Kit's tray icon and tray menu are no longer recorded, so a replay cannot open the menu or press Stop.
+- Numpad Enter, and numpad keys with Num Lock off, replay as the keys you pressed. If Windows would not let go of a key or mouse button after playback, Macro Kit says which one to press and release.
+- An empty recording explains that input from remote-control tools, the on-screen keyboard or key remappers is not recorded. If Macro Kit's keyboard and mouse watcher did not start, recording says so instead of ending with "Nothing was recorded."
+- Playback timing is steadier (mouse paths and quick clicks keep their recorded timing), and playing the same long recording again starts faster.
+- A new recording is labelled *New* (with a tooltip) instead of *Not saved*, and the message after recording explains Save. Play and Stop say why they are greyed out.
+- On the recorder bar, Restart and Discard sit apart from Stop, and Discard asks *Sure?* before throwing away a take longer than 10 seconds.
+- **Convert to macro** keeps Ctrl, Shift, Alt and Win held during clicks, drags and scrolls (Ctrl+click, Ctrl+wheel; a key let go before the mouse button stays held through the click), keeps the mouse Back and Forward buttons, and no longer makes a macro that fails to read when the recording has a gap longer than an hour.
+- Recordings: double-click or F2 renames, and Delete asks before deleting.
+
+**Phrases**
+
+- Phrases no longer expand while you type in a standard Windows password box, so a saved phrase cannot change a password. (Password boxes in browsers and some other programs cannot be told apart.)
+- A phrase with `{clipboard}` is no longer typed with an empty spot when another program is holding the clipboard: the trigger stays as you typed it and Macro Kit tells you why.
+- If another window comes to the front just as a phrase starts, Macro Kit leaves both windows alone instead of erasing text in the wrong one.
+- Phrases set to expand after a space or punctuation stay quiet inside joined words such as don't, e-mail, snake_case or name@site. An opening quote, a leading hyphen, an underscore or an @ that starts a word still lets a trigger expand (`'teh'`, `-teh`, `_teh_`).
+- `{cursor}` always puts the caret in the right place, and `{time:H}`, `{time:h}`, `{date:K}` and `{date:z}` now give the hour and the time zone offset instead of being left as typed.
+- A short trigger that expands right away and would stop a longer one from ever finishing now gets a warning.
+- New phrase clears the search so the new row is always visible. Delete removes the selected phrase, and Undo delete steps back one phrase at a time (up to 10). A switched-off phrase shows a small *Off* label instead of fading.
+
+**Macros**
+
+- Run names the line that needs fixing (for example *Line 3*), and so do runs from the Deck, a hotkey or a schedule. An error inside a macro started with `{{MACRO}}` says which macro it is in.
+- Example macros show a short sentence saying what they do and what to click first, until you change them.
+- New macro and Duplicate clear the list search and scroll to the new macro. Duplicate gives the copy a free name (*copy*, *copy 2*) with no hotkey and no schedule, and says so.
+- The *about X per pass, Y in all* line follows the repeat count, delays and key delay, and now counts the time spent typing text.
+- **Wait for window** after **Open** waits for the window that program opens, not one that was already open (a matching window that was open all along is still used after a short wait, at most about 5 seconds).
+- With *Paste text* on, a line break at the end of the text is pressed as Enter after the paste.
+- Smaller fixes: a note written as `{{// note}}` no longer hides the lines below it; "hold down shift" works in Lines; a waited-for window whose title ends in a time, like "Meeting 10:30", keeps its title; *Forget all variables* also forgets your own variables whose names start with SM (only the built-in characters and the saved mouse position are kept); a continuous macro that is only waiting for its condition no longer uses a whole CPU core; *Stop if another window takes focus* also works while a long text is being typed.
+- In Tiles, steps you add after an empty Repeat, Take turns or Pick at random block go inside it. Esc while changing a tile puts the step back as it was (Enter or Done keeps it), Alt+Left and Alt+Right move the selected tile, and the + menu (and the More… menu in Lines) works from the keyboard.
+- Clearer hints and controls: a variable name with a space or dash explains the allowed characters, the summary line warns when a step runs a macro that does not exist, Run and Stop say why they are greyed out, and the **Open now** pill refreshes when you return to Macro Kit. Done is the main button in Tiles, edit boxes have a clearer border in both themes, and text boxes have names for screen readers.
+- The schedule card shows when a scheduled macro last ran and how it went (for example *finished*, *stopped* or *skipped, it was more than 5 minutes late*). A scheduled run more than 5 minutes late (for example after the PC slept) is skipped instead of typing into whatever window is open.
+
+**Global Keybinds**
+
+- Is it free? always shows the checked keys in the list, and **Clear** removes that narrowing (a search you typed stays). Typing a lone F key such as `F9` in Search says whether it is free.
+- Add or edit app asks before discarding the shortcuts you typed when you press Esc, X or Cancel, and a chord such as Ctrl+K, Ctrl+C gets a clear message. The Add shortcut button follows the last shortcut.
+- The app you filter by is highlighted, and clicking it again shows all apps. The tab opens and refreshes faster with many shortcuts. The scope filter, the editor and the list now say *Any window* and *Only in the app*, and a switched-off shortcut is shown in grey text instead of fading the whole row, so its warnings stay readable.
+
+**Hotkeys and settings**
+
+- Setting a hotkey to an everyday shortcut such as Ctrl+C or Ctrl+V shows a warning that it will stop working in other programs while Macro Kit holds it, and suggests another combination. The hotkey still works.
+- Hotkey messages are plainer: they suggest a fix such as Ctrl+Alt+R or F13 on its own, and a clash with another program says Global Keybinds may show which one has it.
+- If another program has your Stop hotkey, the popup and recorder bar no longer tell you to press it, and the status line says some hotkeys could not be set up.
+- The Stop hotkey stops a playback or macro right away, before your held Ctrl, Shift or Alt can turn its keys into shortcuts.
+- Settings: Deck columns and Theme line up, Deck columns explains the Deck, and the macro editor choice is named **Lines** (it was *Type it*).
+
+**Deck and status popup**
+
+- Deck buttons for recordings with the default name read *Replay 11-12 09:30* instead of *Recording 2026-11-12 09:30*, so they are not mistaken for a recording in progress.
+- The Deck button in the header is marked quietly with an outline when the Deck is open. A problem that stops a run stays in the popup for 30 seconds instead of 8.
+- Opening Macro Kit (tray, double-click or starting it again) while a recording plays stops the playback first, so the rest cannot go into Macro Kit's own window. The tray menu's Exit is now **Exit Macro Kit**, and its Restart is greyed out while something runs.
+- The main window remembers being maximized. The status popup, recorder bar and Deck no longer open at a saved position that falls in the gap between two monitors, so they cannot open out of sight. Moving or resizing the window or the Deck is smoother. Ordinary status messages clear after about 10 seconds; errors stay until something replaces them.
+
+**Reliability and data safety**
+
+- If another program has your settings, phrases, macros or keybinds file open for a moment while Macro Kit starts, Macro Kit waits up to about a second and a half for it instead of falling back to defaults.
+- A file that stays in use is never saved over. If you change it anyway, **Exit and Restart now ask first**, because those changes cannot be saved.
+- A recording that another program has open no longer slows down the Recorder tab or drops out of the list. The warning names it, and renaming it is refused with a plain message until it can be read again.
+- An empty entry in a data file (left by a hand edit or a sync tool) no longer stops Macro Kit from starting. Example phrases and macros you deleted do not come back if settings.json is lost or set aside.
+- Settings, phrases, macros and keybinds also keep a `.session` copy of the file as it was before your first change in a session, so a bad edit can be undone from the data folder. Saving without changes no longer replaces the `.previous` copy, and exporting a recording or replacing a Pro key no longer leaves extra `.previous` files.
+- Macro Kit notices when Windows may have dropped its keyboard and mouse watchers after a stall and puts them back, so phrases, recording and Esc-to-stop keep working.
+- Signing out or shutting down Windows saves your latest edits and an unsaved recording. Exiting while a macro, playback or window pick is running no longer flashes windows or shows errors on the way out.
+- **Check input** (Settings, and **Try it** on Phrases) only types when its own window is in front with the box focused, and clears the phrase box on each try so it cannot show a false pass.
+
 ## 1.7.1 - 2026-11-19
 
 - Fixed: stopping a recording (or the end of a playback or macro) while the Macro Kit window was maximized showed "Cannot show Window when ShowActivated is false and WindowState is set to Maximized". The window now comes back maximized, behind the program you are working in, without taking the focus.

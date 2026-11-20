@@ -81,6 +81,39 @@ namespace MacroKit.Win32
 
         public IntPtr Foreground { get { return Native.GetForegroundWindow(); } }
 
+        /// <summary>
+        /// True when the keyboard focus is in a classic Windows password box (an Edit or RichEdit control with ES_PASSWORD).
+        /// Only reads window data, never sends a message, so it cannot hang the keyboard hook. Browsers and most modern apps
+        /// draw their own boxes and are not seen here. Never throws.
+        /// </summary>
+        public bool FocusIsPasswordEdit()
+        {
+            try
+            {
+                uint pid;
+                uint thread = Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out pid);
+                if (thread == 0) return false;
+                var info = new Native.GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(Native.GUITHREADINFO)) };
+                if (!Native.GetGUIThreadInfo(thread, ref info) || info.hwndFocus == IntPtr.Zero) return false;
+                if (!IsEditClass(ClassOf(info.hwndFocus))) return false;
+                return (Native.GetWindowLongPtr(info.hwndFocus, Native.GWL_STYLE).ToInt64() & Native.ES_PASSWORD) != 0;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Could not check the focused box for a password: " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>The classes where the ES_PASSWORD style bit means a password box ("Edit", "RichEdit20W", a WinForms text box).</summary>
+        internal static bool IsEditClass(string className)
+        {
+            if (string.IsNullOrEmpty(className)) return false;
+            return string.Equals(className, "Edit", StringComparison.OrdinalIgnoreCase)
+                || className.StartsWith("RichEdit", StringComparison.OrdinalIgnoreCase)
+                || className.StartsWith("WindowsForms10.EDIT.", StringComparison.OrdinalIgnoreCase);
+        }
+
         public IntPtr LastExternalForeground
         {
             get

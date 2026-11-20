@@ -1,7 +1,9 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Text.RegularExpressions;
 using AppShared;
 
 namespace MacroKit.App
@@ -45,20 +47,50 @@ namespace MacroKit.App
                     var bullet = Ui.Text("•", "Muted");
                     bullet.VerticalAlignment = VerticalAlignment.Top;
                     row.Children.Add(bullet);
-                    var t = Ui.Para(line.Substring(2), "Text");
+                    var t = Ui.Para("", "Text");
+                    AddInlines(t, line.Substring(2));
                     Grid.SetColumn(t, 1);
                     row.Children.Add(t);
                     stack.Children.Add(row);
                 }
                 else
                 {
-                    var p = Ui.Para(line, "Muted");
-                    p.Margin = new Thickness(0, 2, 0, 2);
+                    // A line that is only **bold** is a group title inside a version: normal text colour, with room above it.
+                    bool group = line.Length > 4 && line.StartsWith("**", StringComparison.Ordinal)
+                        && line.IndexOf("**", 2, StringComparison.Ordinal) == line.Length - 2;
+                    var p = Ui.Para("", group ? "Text" : "Muted");
+                    AddInlines(p, line);
+                    p.Margin = group ? new Thickness(0, 12, 0, 3) : new Thickness(0, 2, 0, 2);
+                    if (group) p.Tag = "Group";
                     stack.Children.Add(p);
                 }
             }
             Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) { e.Handled = true; Close(); } };
+        }
+
+        // **bold**, *italic* and `code` become real formatting; a marker with no closing partner stays literal text.
+        static readonly Regex Marks = new Regex(@"(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)");
+
+        static void AddInlines(TextBlock t, string text)
+        {
+            t.Text = "";
+            int at = 0;
+            foreach (Match m in Marks.Matches(text))
+            {
+                if (m.Index > at) t.Inlines.Add(new Run(text.Substring(at, m.Index - at)));
+                string v = m.Value;
+                if (v.StartsWith("**", StringComparison.Ordinal)) t.Inlines.Add(new Run(v.Substring(2, v.Length - 4)) { FontWeight = FontWeights.SemiBold });
+                else if (v[0] == '`')
+                {
+                    var code = new Run(v.Substring(1, v.Length - 2)) { FontFamily = Ui.MonoFont };
+                    code.SetResourceReference(TextElement.ForegroundProperty, "AccentText");
+                    t.Inlines.Add(code);
+                }
+                else t.Inlines.Add(new Run(v.Substring(1, v.Length - 2)) { FontStyle = FontStyles.Italic });
+                at = m.Index + m.Length;
+            }
+            if (at < text.Length) t.Inlines.Add(new Run(text.Substring(at)));
         }
     }
 }

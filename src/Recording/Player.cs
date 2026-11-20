@@ -150,6 +150,14 @@ namespace MacroKit.Recording
             {
                 held.ReleaseAll(input);
             }
+            // Windows refused to let go of a key or button (usually an administrator window came to the front), so it can stay
+            // held for the whole PC. Say which, even after a run that otherwise finished: the person has to press it once.
+            string stuck = held.StuckMessage();
+            if (stuck != null)
+            {
+                if (!string.IsNullOrEmpty(result.Error)) result.Error += " " + char.ToUpperInvariant(stuck[0]) + stuck.Substring(1);
+                else result.Error = (result.Cancelled ? "Playback stopped, but " : "Playback finished, but ") + stuck;
+            }
             return result;
         }
 
@@ -199,15 +207,31 @@ namespace MacroKit.Recording
                 case RecKind.KeyDown:
                     if (e.A <= 0 || e.A > 0xFFFF) return;
                     // A held key repeats in the recording; Windows does not auto-repeat injected keys, so every down is sent.
-                    held.Press((ushort)e.A);
-                    input.KeyDown((ushort)e.A);
+                    held.Press((ushort)e.A, e.B);
+                    SendKey(input, (ushort)e.A, e.B, true);
                     break;
                 case RecKind.KeyUp:
                     if (e.A <= 0 || e.A > 0xFFFF) return;
-                    input.KeyUp((ushort)e.A);
-                    held.Keys.Remove((ushort)e.A);
+                    SendKey(input, (ushort)e.A, e.B, false);
+                    held.Release((ushort)e.A);
                     break;
             }
+        }
+
+        // B holds the recorded scan code and extended flag (Recorder). Sent as recorded, numpad Enter stays numpad Enter and numpad
+        // Home with Num Lock off stays numpad Home; worked out from the VK on Macro Kit's layout, both would become the main keys.
+        // The scan is 8 bits: the hook reports AltGr's extra Ctrl as 0x21D. A held key is let go with the scan it was pressed with.
+        static void SendKey(IInputSink sink, ushort vk, int b, bool down)
+        {
+            var scan = (ushort)(b & 0xFF);
+            IRawKeySink raw = sink as IRawKeySink;
+            if (raw == null || scan == 0)
+            {
+                if (down) sink.KeyDown(vk); else sink.KeyUp(vk);
+                return;
+            }
+            bool extended = (b & 0x10000) != 0;
+            if (down) raw.KeyDown(vk, scan, extended); else raw.KeyUp(vk, scan, extended);
         }
 
         void Report(int pass, int totalPasses, int eventIndex, int eventCount, long elapsedMs, int durationMs)
@@ -241,23 +265,59 @@ namespace MacroKit.Recording
             public readonly List<ushort> Keys = new List<ushort>();
             public readonly List<MouseButton> Buttons = new List<MouseButton>();
 
-            public void Press(ushort key) { if (!Keys.Contains(key)) Keys.Add(key); }
+            /// <summary>The recorded scan code and extended flag (RecEvent.B) each held key's latest down was sent with.</summary>
+            readonly Dictionary<ushort, int> keyScans = new Dictionary<ushort, int>();
+
+            public void Press(ushort key, int b) { if (!Keys.Contains(key)) Keys.Add(key); keyScans[key] = b; }
+
+            public void Release(ushort key) { Keys.Remove(key); keyScans.Remove(key); }
 
             public void Press(MouseButton button) { if (!Buttons.Contains(button)) Buttons.Add(button); }
 
-            /// <summary>Releases everything, most recent first. A release that fails does not stop the others.</summary>
+            /// <summary>What could not be released (Windows blocked it), by name, in the order it failed.</summary>
+            public readonly List<string> NotReleased = new List<string>();
+
+            /// <summary>Releases everything, most recent first. A release that fails does not stop the others; it is noted in <see cref="NotReleased"/>.</summary>
             public void ReleaseAll(IInputSink sink)
             {
                 for (int i = Buttons.Count - 1; i >= 0; i--)
                 {
-                    try { sink.MouseButton(Buttons[i], false); } catch (Exception ex) { Log.Warn("Could not release a mouse button.", ex); }
+                    try { sink.MouseButton(Buttons[i], false); }
+                    catch (Exception ex) { Log.Warn("Could not release a mouse button.", ex); Note(ButtonName(Buttons[i])); }
                 }
                 Buttons.Clear();
                 for (int i = Keys.Count - 1; i >= 0; i--)
                 {
-                    try { sink.KeyUp(Keys[i]); } catch (Exception ex) { Log.Warn("Could not release a key.", ex); }
+                    int b;
+                    keyScans.TryGetValue(Keys[i], out b);
+                    try { SendKey(sink, Keys[i], b, false); }
+                    catch (Exception ex) { Log.Warn("Could not release a key.", ex); Note(KeyNames.Display(Keys[i])); }
                 }
                 Keys.Clear();
+                keyScans.Clear();
+            }
+
+            void Note(string name) { if (!NotReleased.Contains(name)) NotReleased.Add(name); }
+
+            static string ButtonName(MouseButton button)
+            {
+                switch (button)
+                {
+                    case MouseButton.Right: return "the right mouse button";
+                    case MouseButton.Middle: return "the middle mouse button";
+                    case MouseButton.X1: return "the back mouse button";
+                    case MouseButton.X2: return "the forward mouse button";
+                    default: return "the left mouse button";
+                }
+            }
+
+            /// <summary>Which keys may still be held and what to do (it can start with "the", lower case), or null when every release went through.</summary>
+            public string StuckMessage()
+            {
+                if (NotReleased.Count == 0) return null;
+                string names = NotReleased.Count == 1 ? NotReleased[0]
+                    : string.Join(", ", NotReleased.GetRange(0, NotReleased.Count - 1)) + " and " + NotReleased[NotReleased.Count - 1];
+                return names + (NotReleased.Count == 1 ? " may still be held down; press and release it." : " may still be held down; press and release them.");
             }
         }
     }

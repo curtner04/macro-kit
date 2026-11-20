@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using MouseButton = MacroKit.Core.MouseButton;
@@ -43,6 +44,11 @@ namespace MacroKit.App
         readonly FrameworkElement targetBlock, partnerBlock;
         readonly DispatcherTimer parseTimer;
         MacroDef current;
+        PlainResult lastPlain;          // the steps as last translated, so the summary line can follow the options without translating again
+        ParseResult summaryParse;       // the macro's script as last parsed for that line
+        readonly CheckBox enabled;
+        readonly TextBlock exampleNote = Ui.Text("", "Muted", false, 12, true);
+        const string RunTip = "Run this macro. Macro Kit steps aside and the macro runs in the window you chose below.";
         ScheduleEditor schedule;
         ParseResult parsed;
         bool loading;
@@ -134,6 +140,8 @@ namespace MacroKit.App
             headingRow.Children.Add(removeExamples);
             headingRow.Children.Add(Ui.Heading("Macros"));
             listGrid.Children.Add(headingRow);
+            AutomationProperties.SetName(listSearch, "Search macros");
+            AutomationProperties.SetName(list, "Macros");
             listSearch.ToolTip = "Show only the macros whose name, steps or hotkey hold these words.";
             listSearch.TextChanged += (s, e) => FilterList();
             var searchBox = Ui.Hinted(listSearch, "Search macros");
@@ -153,9 +161,12 @@ namespace MacroKit.App
 
             // ---- header: name, run, stop
             name = new TextBox { FontWeight = FontWeights.SemiBold, FontSize = 14, MinHeight = 32 };
+            AutomationProperties.SetName(name, "Macro name");
             name.TextChanged += (s, e) => Edit(m => m.Name = name.Text, true);
-            runButton = Ui.Button(Ui.Row(7, Ui.Shape("play", 11, "AccentFg"), new TextBlock { Text = "Run" }), () => { if (current != null) c.StartMacro(current, RunOrigin.MainWindow); }, "Primary", "Run this macro. Macro Kit steps aside and the macro runs in the window you chose below.");
+            runButton = Ui.Button(Ui.Row(7, Ui.Shape("play", 11, "AccentFg"), new TextBlock { Text = "Run" }), RunClicked, "Primary", RunTip);
             stopButton = Ui.Button(Ui.Row(7, Ui.Shape("stop", 11, "Text"), new TextBlock { Text = "Stop" }), () => c.Stop(), null, "Stop the running macro.");
+            ToolTipService.SetShowOnDisabled(runButton, true);
+            ToolTipService.SetShowOnDisabled(stopButton, true);
             deckSwitch = new CheckBox { Content = "Show code", IsChecked = c.Settings.ShowStreamDeckCode, VerticalAlignment = VerticalAlignment.Center,
                 ToolTip = "Show this macro as code (Super Macro text). Copy it into a Super Macro action on an Elgato Stream Deck, or edit it there." };
             Ui.Style(deckSwitch, "Switch");
@@ -206,7 +217,7 @@ namespace MacroKit.App
             // ---- the steps, in the editor the user chose
             editorHost.AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler((s, e) => codeTarget = false));
             viewLines = Ui.Button("Lines", () => ChooseEditor(EditorKinds.Text), "Chip", "Type the steps, one per line.");
-            viewTiles = Ui.Button("Tiles", () => ChooseEditor(EditorKinds.Tiles), "Chip", "The same steps as key tiles you can click, drag and add to.");
+            viewTiles = Ui.Button("Tiles", () => ChooseEditor(EditorKinds.Tiles), "Chip", "The same steps as key tiles you can click and add to. Use ◀ ▶ to move one.");
             viewLines.Margin = new Thickness(0, 0, 4, 0);
             allCommands = Ui.Button("", () => { c.Settings.ShowAllCommands = !c.Settings.ShowAllCommands; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }, "Link",
                 "Every command Macro Kit has, in groups, with boxes to fill in.");
@@ -250,16 +261,25 @@ namespace MacroKit.App
             newLines = new CheckBox { Content = "New lines in the script press Enter" };
             newLines.ToolTip = "On is how Super Macro behaves. Off ignores line breaks, so you can lay a long script out over several lines.";
             newLines.Click += (s, e) => { Edit(m => m.NewLineIsEnter = newLines.IsChecked == true, false); ShowSteps(); PlainFromCode(); };
+            AutomationProperties.SetName(times, "Repeat a number of times");
+            AutomationProperties.SetName(repeatTimes, "Number of times");
+            AutomationProperties.SetName(repeatDelay, "Milliseconds between repeats");
+            AutomationProperties.SetName(keyDelay, "Milliseconds after each key or click");
+            repeatTimes.ToolTip = "How many times the macro runs.";
+            repeatDelay.ToolTip = "A pause between one run and the next. 1000 ms = 1 second.";
+            keyDelay.ToolTip = "A short pause after every key or click. Raise it if a program misses keys.";
             repeatTimes.Margin = new Thickness(2, 0, 7, 0);
             var timesRow = Ui.Row(0, times, repeatTimes, Ui.Text("times", null));
             var repeatRow = Ui.Row(18, once, timesRow, continuous);
             var delays = Ui.Row(7, Ui.Text("Wait", "Muted", false, 12), repeatDelay, Ui.Text("ms between repeats", "Muted", false, 12),
                 Ui.Text("·", "Muted"), keyDelay, Ui.Text("ms after each key or click", "Muted", false, 12));
+            ((FrameworkElement)delays.Children[2]).ToolTip = "1000 ms = 1 second.";
+            ((FrameworkElement)delays.Children[5]).ToolTip = "1000 ms = 1 second.";
             ((FrameworkElement)delays.Children[3]).Margin = new Thickness(12, 0, 0, 0);
             ((FrameworkElement)delays.Children[4]).Margin = new Thickness(12, 0, 0, 0);
             pasteText = new CheckBox { Content = "Paste text instead of typing it (much faster)" };
             pasteText.ToolTip = "A whole block of text appears at once, through the clipboard, and your clipboard is put back afterwards. Short text (under 4 characters) is still typed. Turn it off for games, remote desktops or boxes that don't accept pasting.";
-            pasteText.Click += (s, e) => Edit(m => m.PasteText = pasteText.IsChecked == true, false);
+            pasteText.Click += (s, e) => { Edit(m => m.PasteText = pasteText.IsChecked == true, false); ShowSteps(); };
             var repeatCard = Ui.Card(Ui.Stack(8, Ui.Heading("Repeat and speed"), repeatRow, delays, pasteText));
             deckCard = Ui.Card(Ui.Stack(10, deckTitle,
                 Ui.Para("The same macro as Super Macro text. Paste it into a Super Macro action on your Stream Deck, or change it here and the steps above follow. Problems in the text are listed under it.", "Muted", 12),
@@ -292,6 +312,7 @@ namespace MacroKit.App
 
             // ---- hotkey and deck
             hotkey = new HotkeyBox(true, 190);
+            AutomationProperties.SetName(hotkey, "Macro hotkey");
             hotkey.Changed += () => Edit(m => m.Hotkey = hotkey.Value.IsEmpty ? "" : hotkey.Value.ToString(), true);
             if (!c.InputEnabled) hotkey.ToolTip = "Hotkeys are off in this session (input is turned off).";
             showOnDeck = new CheckBox { Content = "Show this macro as a button on the Deck" };
@@ -304,8 +325,12 @@ namespace MacroKit.App
             deckIcon.TextChanged += (s, e) => Edit(m => m.DeckIcon = deckIcon.Text.Trim(), false);
             deckLook = Ui.Row(10, Ui.Text("Colour", "Muted", false, 12), deckColor, Ui.Text("Icon", "Muted", false, 12), deckIcon);
             deckLook.Margin = new Thickness(26, 0, 0, 0);
+            enabled = new CheckBox { Content = "Hotkey and schedule are on",
+                ToolTip = "Turn this off to pause the hotkey and schedule without losing them. The macro still runs from its Run button, the Deck and other macros." };
+            enabled.Click += (s, e) => EnabledChanged(enabled.IsChecked == true);
             var launchCard = Ui.Card(Ui.Stack(8,
                 Ui.Heading("Start it with"),
+                enabled,
                 Ui.Row(10, Ui.Text("Hotkey", "Muted", false, 12), hotkey.WithClear()),
                 hotkeyError,
                 showOnDeck,
@@ -313,12 +338,14 @@ namespace MacroKit.App
             hotkeyError.TextWrapping = TextWrapping.Wrap;
 
             var editorStack = new StackPanel();
-            var headerCard = Ui.Card(header);
+            exampleNote.Margin = new Thickness(0, 8, 0, 0);
+            exampleNote.Visibility = Visibility.Collapsed;
+            var headerCard = Ui.Card(Ui.Stack(0, header, exampleNote));
             editorStack.Children.Add(headerCard);
             editorStack.Children.Add(scriptCard);
             editorStack.Children.Add(deckCard);
             // ---- options: one line saying how it runs; the cards open under it
-            optionsButton = Ui.Button("", () => { c.Settings.ShowMacroOptions = !c.Settings.ShowMacroOptions; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }, null,
+            optionsButton = Ui.Button("", FlipOptions, null,
                 "Repeat, which window it runs in, its hotkey and schedule.");
             optionsButton.MinWidth = 110;
             var optionsRow = new DockPanel();
@@ -326,7 +353,12 @@ namespace MacroKit.App
             optionsRow.Children.Add(optionsButton);
             var optionsLabel = Ui.Text("Options", "Text", true, 13);
             optionsLabel.Margin = new Thickness(0, 0, 12, 0);
-            optionsRow.Children.Add(Ui.Row(0, optionsLabel, optionsSummary));
+            var optionsInfo = Ui.Row(0, optionsLabel, optionsSummary);
+            optionsInfo.Background = System.Windows.Media.Brushes.Transparent;   // so a click anywhere on the line counts
+            optionsInfo.Cursor = Cursors.Hand;
+            optionsInfo.ToolTip = "Click to show or hide the options: repeat, which window, hotkey and schedule.";
+            optionsInfo.MouseLeftButtonUp += (s, e) => FlipOptions();
+            optionsRow.Children.Add(optionsInfo);
             var optionsCard = Ui.Card(optionsRow);
             editorStack.Children.Add(optionsCard);
             editorStack.Children.Add(repeatCard);
@@ -353,6 +385,34 @@ namespace MacroKit.App
             UseEditor(c.Settings.MacroEditor);
             ApplyLayout();
             Reload(null);
+        }
+
+        void FlipOptions()
+        {
+            c.Settings.ShowMacroOptions = !c.Settings.ShowMacroOptions;
+            c.MarkDirty(SaveParts.Settings);
+            ApplyLayout();
+        }
+
+        /// <summary>Run: a step that is not understood is named here, with its line, instead of the run failing on a cryptic script position.</summary>
+        void RunClicked()
+        {
+            if (current == null) return;
+            if (lastPlain != null && !lastPlain.Ok)
+            {
+                c.SetStatus("“" + current.Name + "” has a step to fix. " + FirstProblem(lastPlain), true);
+                return;
+            }
+            c.StartMacro(current, RunOrigin.MainWindow);
+        }
+
+        /// <summary>"Line 3: ..." (or the step in quotes in the tiles view) for the first step that is not understood.</summary>
+        string FirstProblem(PlainResult result)
+        {
+            PlainLine first = result.Lines.First(l => l.Error != null);
+            string source = first.Source.Length > 30 ? first.Source.Substring(0, 30) + "…" : first.Source;
+            string where = EditorKind == EditorKinds.Tiles ? "“" + source + "”" : "Line " + (first.Number + 1);
+            return where + ": " + first.Error;
         }
 
         static FrameworkElement Indent(FrameworkElement e) { e.Margin = new Thickness(26, e.Margin.Top, 0, e.Margin.Bottom); return e; }
@@ -399,6 +459,7 @@ namespace MacroKit.App
 
             // The search box, with its hint drawn behind the text.
             commandSearch.Width = 190;
+            AutomationProperties.SetName(commandSearch, "Search commands");
             commandSearch.ToolTip = "Type a word such as copy, loop, volume or window to find the command.";
             var searchHint = Ui.Text("Find a command", "Muted", false, 12);
             searchHint.IsHitTestVisible = false;
@@ -591,9 +652,9 @@ namespace MacroKit.App
             varValue.Width = 150;
             varValue.ToolTip = "The value. It can use other variables, such as $row.";
             var setRow = Ui.WrapRow(6, Ui.Text("Name", "Muted", false, 12), varName, Ui.Text("value", "Muted", false, 12), varValue,
-                ActionButton("Set", () => VarName() == null ? null : MacroScript.SetVar(VarName(), varValue.Text), "Remember this value under this name."),
-                ActionButton("Type it", () => VarName() == null ? null : MacroScript.OutputVar(VarName()), "Type the variable's value."),
-                ActionButton("From the clipboard", () => VarName() == null ? null : MacroScript.VarFromClipboard(VarName()), "Remember what is on the clipboard under this name."),
+                ActionButton("Set", () => VarToken(n => MacroScript.SetVar(n, varValue.Text)), "Remember this value under this name."),
+                ActionButton("Type it", () => VarToken(MacroScript.OutputVar), "Type the variable's value."),
+                ActionButton("From the clipboard", () => VarToken(MacroScript.VarFromClipboard), "Remember what is on the clipboard under this name."),
                 ActionButton("Value to the clipboard", () => MacroScript.SetClipboard(varValue.Text), "Put the value on the clipboard."));
             return setRow;
         }
@@ -765,6 +826,16 @@ namespace MacroKit.App
             return n.Length == 0 || n.Any(ch => !char.IsLetterOrDigit(ch) && ch != '_') ? null : n;
         }
 
+        /// <summary>The variable button's text, or null when the name box is empty; a name that cannot be used says why.</summary>
+        string VarToken(Func<string, string> make)
+        {
+            string n = VarName();
+            if (n != null) return make(n);
+            if (varName.Text.Trim().Length == 0) return null;
+            c.SetStatus("Variable names can use letters, digits and _ (for example row_1).", true);
+            return "";   // nothing to insert
+        }
+
         void Browse(TextBox box, string title, string filter)
         {
             var dialog = new Microsoft.Win32.OpenFileDialog { Title = title, Filter = filter, DereferenceLinks = false };
@@ -903,8 +974,7 @@ namespace MacroKit.App
             int number = 1, missing = 0;
             foreach (MacroStep step in parsed.Steps)
             {
-                if (step.Kind == StepKind.RunMacro && (step.Value ?? "").IndexOf('$') < 0
-                    && !c.Macros.Any(m => string.Equals((m.Name ?? "").Trim(), (step.Value ?? "").Trim(), StringComparison.OrdinalIgnoreCase)))
+                if (IsMissingMacro(step))
                 {
                     var row = Ui.Text("Step " + number.ToString(CultureInfo.InvariantCulture) + ":  " + step.Describe() + "  (you have no macro by this name)", "Bad", false, 12.5, true);
                     steps.Items.Add(new ListBoxItem { Content = row, Tag = step, Padding = new Thickness(8, 3, 8, 3) });
@@ -1023,6 +1093,7 @@ namespace MacroKit.App
             codeDirty = false;
             editor.Show(result);
             ShowPlainSummary(result);
+            UpdateExampleNote();
             parseTimer.Stop();
             parseTimer.Start();
         }
@@ -1034,27 +1105,57 @@ namespace MacroKit.App
             ShowPlain(PlainMacro.ToPlain(current.Script, current.NewLineIsEnter));
         }
 
+        /// <summary>True for a "run another macro" step that names a macro that does not exist (a name with a $variable can't be checked).</summary>
+        bool IsMissingMacro(MacroStep step)
+        {
+            return step.Kind == StepKind.RunMacro && (step.Value ?? "").IndexOf('$') < 0
+                && !c.Macros.Any(m => string.Equals((m.Name ?? "").Trim(), (step.Value ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>The steps were translated again: remember them and show the summary line.</summary>
         void ShowPlainSummary(PlainResult result)
         {
+            lastPlain = result;
+            summaryParse = null;
+            ShowSummary();
+        }
+
+        /// <summary>The line under the steps: how many, how long, what needs fixing. Uses the last translation, so it can follow the options cheaply.</summary>
+        void ShowSummary()
+        {
+            PlainResult result = lastPlain;
+            if (result == null) { plainSummary.Text = ""; return; }
             var problems = result.Lines.Where(l => l.Error != null).ToList();
             int count = result.Lines.Count(l => l.Kind != PlainKind.Empty && l.Kind != PlainKind.Note);
             if (problems.Count > 0)
             {
-                PlainLine first = problems[0];
-                string source = first.Source.Length > 30 ? first.Source.Substring(0, 30) + "…" : first.Source;
-                string where = EditorKind == EditorKinds.Tiles ? "“" + source + "”" : "Line " + (first.Number + 1);
-                plainSummary.Text = (problems.Count == 1 ? "1 step needs" : problems.Count + " steps need") + " fixing before the macro can run.  " + where + ": " + first.Error;
+                plainSummary.Text = (problems.Count == 1 ? "1 step needs" : problems.Count + " steps need") + " fixing before the macro can run.  " + FirstProblem(result);
                 Ui.Ref(plainSummary, TextBlock.ForegroundProperty, "Bad");
                 return;
             }
             Ui.Ref(plainSummary, TextBlock.ForegroundProperty, "Muted");
             if (count == 0 || current == null) { plainSummary.Text = ""; return; }
-            ParseResult p = MacroParser.Parse(current.Script, current.NewLineIsEnter);
-            long pass = p.EstimatedMs(current);
+            if (summaryParse == null) summaryParse = MacroParser.Parse(current.Script, current.NewLineIsEnter);
+            long pass = summaryParse.EstimatedMs(current);
             string text = (count == 1 ? "1 step" : count + " steps") + "  ·  about " + AppController.FormatDuration(pass) + " per pass";
             if (current.Repeat == RepeatMode.Times && current.RepeatTimes > 1)
                 text += ", about " + AppController.FormatDuration(pass * current.RepeatTimes + (long)current.RepeatDelayMs * (current.RepeatTimes - 1)) + " in all";
+            // Not an error that stops the run: the macro it names may be made later. But it is worth saying before Run does nothing.
+            List<string> missing = summaryParse.Steps.Where(IsMissingMacro).Select(x => (x.Value ?? "").Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (missing.Count > 0)
+            {
+                text += "  ·  " + (missing.Count == 1 ? "no macro called " : "no macros called ") + string.Join(", ", missing.Select(n => "“" + n + "”"));
+                Ui.Ref(plainSummary, TextBlock.ForegroundProperty, "Bad");
+            }
             plainSummary.Text = text;
+        }
+
+        /// <summary>For an example that is still as shipped: what it does and what to do first.</summary>
+        void UpdateExampleNote()
+        {
+            string note = current != null && Examples.IsUnchanged(current) ? Examples.Describe(current.Name) : "";
+            exampleNote.Text = note;
+            exampleNote.Visibility = note.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
 
         void UpdateOptionsSummary()
@@ -1074,6 +1175,7 @@ namespace MacroKit.App
             if (m.PasteText) parts.Add("pastes text");
             if (m.ShowOnDeck) parts.Add("on the Deck");
             if (m.Schedule != null && m.Schedule.Kind != ScheduleKind.Off) parts.Add("on a schedule");
+            if (!m.Enabled) parts.Add("hotkey and schedule are off");
             optionsSummary.Text = string.Join("  ·  ", parts);
         }
 
@@ -1105,6 +1207,8 @@ namespace MacroKit.App
             loading = false;
             FilterList();
             Bind(match == null ? null : (MacroDef)match.Tag);
+            // With many macros the list would otherwise sit at the top while the editor shows one that is out of sight.
+            if (match != null) list.ScrollIntoView(match);
         }
 
         /// <summary>Hides the macros that don't match the search box, and says so when none are left.</summary>
@@ -1134,7 +1238,19 @@ namespace MacroKit.App
         ListBoxItem MakeItem(MacroDef m)
         {
             var panel = new StackPanel();
-            panel.Children.Add(Ui.Text(m.Name.Length == 0 ? "(unnamed)" : m.Name, "Text", true));
+            var head = new DockPanel { LastChildFill = true };
+            if (!m.Enabled)
+            {
+                // A label, not fading, as for phrases: faded text was hard to read.
+                var off = Ui.Pill("Off", "Muted", "Card2", 10.5);
+                off.Tag = "Off";
+                off.Margin = new Thickness(8, 0, 0, 0);
+                off.ToolTip = "Switched off: its hotkey and schedule are paused.";
+                DockPanel.SetDock(off, Dock.Right);
+                head.Children.Add(off);
+            }
+            head.Children.Add(Ui.Text(m.Name.Length == 0 ? "(unnamed)" : m.Name, "Text", true));
+            panel.Children.Add(head);
             var sub = new List<string> { RepeatSummary(m) };
             if (!string.IsNullOrEmpty(m.Hotkey)) sub.Add(m.Hotkey);
             if (m.ShowOnDeck) sub.Add("Deck");
@@ -1192,6 +1308,7 @@ namespace MacroKit.App
                 altSpecific.IsChecked = !m.AltTabPartner.IsEmpty;
                 altWindows.IsChecked = m.AltTabPartner.IsEmpty;
                 hotkey.SetText(m.Hotkey);
+                enabled.IsChecked = m.Enabled;
                 showOnDeck.IsChecked = m.ShowOnDeck;
                 deckLook.IsEnabled = m.ShowOnDeck;
                 int colorIndex = Array.FindIndex(DeckWindow.Colors, x => string.Equals(x, m.DeckColor, StringComparison.OrdinalIgnoreCase));
@@ -1209,6 +1326,7 @@ namespace MacroKit.App
             }
             codeDirty = false;
             UpdateOptionsSummary();
+            UpdateExampleNote();
             loading = false;
             ShowSteps();
             ShowHotkeyError();
@@ -1229,6 +1347,14 @@ namespace MacroKit.App
             c.MarkDirty(SaveParts.Macros);
             if (refreshItem) RefreshItem(current);
             UpdateOptionsSummary();
+            ShowSummary();   // the time it takes follows repeat, delays and key delay
+            UpdateExampleNote();
+        }
+
+        void EnabledChanged(bool on)
+        {
+            Edit(m => m.Enabled = on, true);
+            if (schedule != null) schedule.Refresh();   // the schedule line says when it is paused
         }
 
         void TargetKindChanged(TargetKind kind)
@@ -1256,6 +1382,7 @@ namespace MacroKit.App
             var m = new MacroDef();
             c.Macros.Add(m);
             c.MarkDirty(SaveParts.Macros);
+            listSearch.Text = "";   // or a search hides the new macro
             Reload(m);
             name.Focus();
             name.SelectAll();
@@ -1267,11 +1394,25 @@ namespace MacroKit.App
             if (m == null) return;
             MacroDef copy = Json.Deserialize<MacroDef>(Json.Serialize(m));
             copy.Id = Guid.NewGuid().ToString("N");
-            copy.Name = m.Name + " copy";
+            copy.Name = CopyName(m.Name);
+            // A hotkey can belong to one macro only, and a copied schedule would run the work twice.
+            bool left = !string.IsNullOrEmpty(m.Hotkey) || (m.Schedule != null && m.Schedule.Kind != ScheduleKind.Off);
             copy.Hotkey = "";
+            copy.Schedule = new MacroSchedule();
             c.Macros.Insert(c.Macros.IndexOf(m) + 1, copy);
             c.MarkDirty(SaveParts.Macros);
+            listSearch.Text = "";
             Reload(copy);
+            c.SetStatus("Made “" + copy.Name + "”." + (left ? " Its hotkey and schedule are left off." : ""), false);
+        }
+
+        /// <summary>"Name copy", then "Name copy 2" and so on, so a macro that runs another by name never finds two with one name.</summary>
+        string CopyName(string name)
+        {
+            string wanted = name + " copy";
+            for (int n = 2; c.Macros.Any(x => string.Equals((x.Name ?? "").Trim(), wanted.Trim(), StringComparison.OrdinalIgnoreCase)); n++)
+                wanted = name + " copy " + n;
+            return wanted;
         }
 
         void Delete()
@@ -1284,6 +1425,7 @@ namespace MacroKit.App
             undoItems = new List<KeyValuePair<int, MacroDef>> { new KeyValuePair<int, MacroDef>(index, m) };
             undoButton.Content = "Undo delete";
             undoButton.Visibility = Visibility.Visible;
+            listSearch.Text = "";   // or a search hides the macro that comes next
             Reload(c.Macros.Count == 0 ? null : c.Macros[Math.Min(index, c.Macros.Count - 1)]);
             c.SetStatus("Deleted “" + m.Name + "”. Press Undo delete to put it back.", false);
         }
@@ -1312,6 +1454,7 @@ namespace MacroKit.App
             undoItems = items;
             undoButton.Content = "Undo remove";
             undoButton.Visibility = Visibility.Visible;
+            listSearch.Text = "";
             Reload(c.Macros.Count == 0 ? null : c.Macros[0]);
             c.SetStatus("Removed " + items.Count + " example macros. Press Undo remove to put them back.", false);
         }
@@ -1331,6 +1474,9 @@ namespace MacroKit.App
             runButton.IsEnabled = idle && current != null;
             bool running = c.Activity.Kind == ActivityKind.Macro;
             stopButton.IsEnabled = running;
+            // A greyed button says why.
+            runButton.ToolTip = runButton.IsEnabled ? RunTip : current == null ? "Pick or make a macro first." : "Wait until the current macro, recording or playback ends.";
+            stopButton.ToolTip = running ? "Stop the running macro." : "No macro is running.";
         }
 
         void ShowHotkeyError()
@@ -1369,6 +1515,20 @@ namespace MacroKit.App
         /// <summary>Self test: replaces the steps as if they were typed.</summary>
         public void SetPlain(string text) { editor.Text = text; PlainEdited(); }
         public string PlainSummaryText { get { return plainSummary.Text; } }
+        public string StepsSummaryText { get { return stepsSummary.Text; } }
+        public void ClickPasteText(bool on) { pasteText.IsChecked = on; pasteText.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); }
+        public string ExampleNoteText { get { return exampleNote.Visibility == Visibility.Visible ? exampleNote.Text : ""; } }
+        /// <summary>Self test: presses New macro, Duplicate and Run, and reads what they show.</summary>
+        public void PressNew() { NewMacro(); }
+        public void PressDuplicate() { Duplicate(); }
+        public void PressRun() { RunClicked(); }
+        public string SelectedName { get { return current == null ? null : current.Name; } }
+        public void PressEnabled(bool on) { enabled.IsChecked = on; EnabledChanged(on); }
+        /// <summary>Self-test: the line under the schedule.</summary>
+        public string ScheduleStatusText { get { return schedule.StatusLine; } }
+        public bool ShowsAsOff(MacroDef m) { var item = list.Items.Cast<ListBoxItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, m)); return item != null && ((DockPanel)((StackPanel)item.Content).Children[0]).Children.OfType<Border>().Any(b => "Off".Equals(b.Tag)); }
+        /// <summary>Self test: a click on the options line, which does what the Change options button does.</summary>
+        public void ClickOptionsLine() { FlipOptions(); }
         public string CurrentEditor { get { return EditorKind; } }
         public PlainTextEditor TextEditor { get { return textEditor; } }
         public KeyTileEditor TileEditor { get { return tileEditor; } }

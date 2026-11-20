@@ -38,8 +38,9 @@ namespace MacroKit.Core
     /// <summary>
     /// Reads and writes everything Macro Kit saves, as JSON files in one data folder. Thread-safe (one lock).
     /// Every write goes to a .tmp file first and is swapped in with File.Replace, keeping the old file as .previous.
-    /// A file that cannot be read is moved aside (name.unreadable-yyyyMMdd-HHmmss) and defaults are used; the move is reported
-    /// in <see cref="Warnings"/> so the UI can tell the user. User data is never silently overwritten.
+    /// A file that cannot be read is moved aside (name.unreadable-yyyyMMdd-HHmmss) and its .previous copy is restored, or defaults
+    /// are used when there is none; the move is reported in <see cref="Warnings"/> so the UI can tell the user. User data is never
+    /// silently overwritten.
     /// </summary>
     public sealed class Storage
     {
@@ -55,9 +56,15 @@ namespace MacroKit.Core
             root = dataRoot;
         }
 
-        const int ReadRetries = 3;
+        // A file another program has open for a moment (a sync tool, a virus scan) is tried again with a doubling wait:
+        // 50, 100, 200, 400 and 800 ms for settings, phrases, macros and keybinds, which are read once at startup;
+        // only the first two waits for recordings and the index, which are read often and in bulk.
+        const int ReadRetries = 5;
+        const int QuickReadRetries = 2;
         const int ReadRetryMs = 50;
         readonly HashSet<string> readOnly = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // paths that exist but could not be read
+        readonly HashSet<string> skippedWrites = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // changes to read-only paths that were not saved
+        readonly HashSet<string> sessionCopied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // files whose .session copy was made
 
         public string DataRoot { get { return root; } }
 
@@ -78,7 +85,7 @@ namespace MacroKit.Core
         /// <summary>
         /// The names of files that exist but could not be read this session (for example settings.json held open by another program).
         /// Defaults are used for them in memory and saving them is skipped, so the real file is never overwritten.
-        /// The shell should tell the user while this list is not empty.
+        /// The shell should tell the user while this list is not empty. Recordings are not listed: one is tried again each time it is used.
         /// </summary>
         public IList<string> ReadOnlyFiles
         {
@@ -87,12 +94,33 @@ namespace MacroKit.Core
                 lock (gate)
                 {
                     var names = new List<string>();
-                    foreach (string path in readOnly) names.Add(Path.GetFileName(path));
+                    foreach (string path in readOnly) if (!IsRecordingPath(path)) names.Add(Path.GetFileName(path));
                     names.Sort(StringComparer.OrdinalIgnoreCase);
                     return names;
                 }
             }
         }
+
+        /// <summary>
+        /// The names of read-only files (see <see cref="ReadOnlyFiles"/>) that a change made this session could not be saved to.
+        /// Startup's own writes (seeding the examples, the recordings index) do not count. Leaving should ask first while this is not empty.
+        /// </summary>
+        public IList<string> UnsavedBlockedFiles
+        {
+            get
+            {
+                lock (gate)
+                {
+                    var names = new List<string>();
+                    foreach (string path in skippedWrites) if (!IsRecordingPath(path)) names.Add(Path.GetFileName(path));
+                    names.Sort(StringComparer.OrdinalIgnoreCase);
+                    return names;
+                }
+            }
+        }
+
+        /// <summary>True when the last <see cref="LoadSettings"/> read settings.json (or an earlier saved copy) rather than starting from defaults.</summary>
+        public bool SettingsFromFile { get; private set; }
 
         // ---- settings, phrases, macros ------------------------------------------------------------
 
@@ -100,12 +128,13 @@ namespace MacroKit.Core
         {
             lock (gate)
             {
-                AppSettings settings = ReadFile<AppSettings>(SettingsFile);
+                AppSettings settings = ReadFile<AppSettings>(SettingsFile, true);
+                SettingsFromFile = settings != null;
                 bool fresh = settings == null && !IsBlocked(SettingsFile);   // only a file that is truly missing (or was set aside) gets defaults written
                 if (settings == null) settings = new AppSettings();
                 if (settings.Playback == null) settings.Playback = new PlaybackSettings();
                 if (settings.ExcludedPrograms == null) settings.ExcludedPrograms = new List<string>();
-                if (fresh) WriteGuarded(SettingsFile, Json.Serialize(settings));   // first start: the file is required for transfer
+                if (fresh) WriteGuarded(SettingsFile, Json.Serialize(settings), false);   // first start: the file is required for transfer
                 return settings;
             }
         }
@@ -120,11 +149,11 @@ namespace MacroKit.Core
         {
             lock (gate)
             {
-                PhrasesFile file = ReadFile<PhrasesFile>(PhrasesPath);
+                PhrasesFile file = ReadFile<PhrasesFile>(PhrasesPath, true);
                 if (file == null)
                 {
                     file = new PhrasesFile { Phrases = SeedPhrases() };
-                    WriteGuarded(PhrasesPath, Json.Serialize(file));
+                    WriteGuarded(PhrasesPath, Json.Serialize(file), false);
                 }
                 var ids = new HashSet<string>();
                 foreach (PhraseDef phrase in file.Phrases)
@@ -147,11 +176,11 @@ namespace MacroKit.Core
         {
             lock (gate)
             {
-                MacrosFile file = ReadFile<MacrosFile>(MacrosPath);
+                MacrosFile file = ReadFile<MacrosFile>(MacrosPath, true);
                 if (file == null)
                 {
                     file = new MacrosFile { Macros = SeedMacros() };
-                    WriteGuarded(MacrosPath, Json.Serialize(file));
+                    WriteGuarded(MacrosPath, Json.Serialize(file), false);
                 }
                 var ids = new HashSet<string>();
                 foreach (MacroDef macro in file.Macros)
@@ -181,7 +210,7 @@ namespace MacroKit.Core
         {
             lock (gate)
             {
-                KeybindAppsFile file = ReadFile<KeybindAppsFile>(KeybindAppsPath) ?? new KeybindAppsFile();
+                KeybindAppsFile file = ReadFile<KeybindAppsFile>(KeybindAppsPath, true) ?? new KeybindAppsFile();
                 if (file.Apps == null) file.Apps = new List<KeybindAppDef>();
                 var ids = new HashSet<string>();
                 file.Apps.RemoveAll(a => a == null);
@@ -247,6 +276,8 @@ namespace MacroKit.Core
             {
                 if (recording.Events == null) recording.Events = new List<RecEvent>();
                 if (!IsSafeId(recording.Id)) recording.Id = Guid.NewGuid().ToString("N");
+                // Not saved over while it is in use, and the index is left alone too, so the two never disagree.
+                if (IsBlocked(RecordingPath(recording.Id))) throw new IOException(RecordingInUse);
                 if (string.IsNullOrWhiteSpace(recording.Name)) recording.Name = Recording.DefaultName(DateTime.Now);
                 if (string.IsNullOrWhiteSpace(recording.Created)) recording.Created = Recording.NowIso();
                 if (recording.DurationMs <= 0 && recording.Events.Count > 0) recording.DurationMs = Math.Max(0, recording.Events[recording.Events.Count - 1].T);
@@ -279,6 +310,7 @@ namespace MacroKit.Core
             lock (gate)
             {
                 Recording recording = IsSafeId(id) ? ReadRecordingFile(id) : null;
+                if (recording == null && IsSafeId(id) && IsBlocked(RecordingPath(id))) throw new IOException(RecordingInUse);
                 if (recording == null) throw new FileNotFoundException("That recording is no longer saved.");
                 recording.Name = string.IsNullOrWhiteSpace(name) ? Recording.DefaultName(DateTime.Now) : name.Trim();
                 SaveRecording(recording);
@@ -292,7 +324,7 @@ namespace MacroKit.Core
             {
                 Recording recording = IsSafeId(id) ? ReadRecordingFile(id) : null;
                 if (recording == null) throw new FileNotFoundException("That recording is no longer saved.");
-                WriteAtomic(file, Json.Serialize(recording));
+                WriteAtomic(file, Json.Serialize(recording), false);   // no .previous beside a file the person shares
             }
         }
 
@@ -323,6 +355,27 @@ namespace MacroKit.Core
             return new RecordingInfo { Id = r.Id, Name = r.Name ?? "", Created = r.Created ?? "", DurationMs = r.DurationMs, EventCount = r.Events == null ? 0 : r.Events.Count };
         }
 
+        const string RecordingInUse = "That recording is in use by another program, so it can't be changed right now.";
+
+        bool IsRecordingPath(string path)
+        {
+            return string.Equals(Path.GetDirectoryName(path), RecordingsDir, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // A recording's name from the index (read directly, so a problem with the index is not reported twice), or its file name.
+        string RecordingLabel(string path)
+        {
+            string id = Path.GetFileNameWithoutExtension(path);
+            try
+            {
+                RecordingIndexFile file = File.Exists(IndexPath) ? Json.Deserialize<RecordingIndexFile>(File.ReadAllText(IndexPath, Utf8)) : null;
+                RecordingInfo info = file == null || file.Recordings == null ? null : file.Recordings.Find(i => i != null && i.Id == id);
+                if (info != null && !string.IsNullOrWhiteSpace(info.Name)) return info.Name;
+            }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is ArgumentException || e is FormatException || e is InvalidCastException) { }
+            return Path.GetFileName(path);
+        }
+
         Recording ReadRecordingFile(string id)
         {
             Recording recording = ReadFile<Recording>(RecordingPath(id));
@@ -349,15 +402,28 @@ namespace MacroKit.Core
             }
             var indexed = new HashSet<string>();
             foreach (RecordingInfo info in index) indexed.Add(info.Id ?? "");
-            if (indexed.SetEquals(onDisk) && indexed.Count == index.Count) return index;
-            return RebuildIndexLocked(onDisk);
+            // A recording that could not be opened this session neither forces a rebuild (which would read every recording
+            // again, under the lock, on every call) nor is dropped from an index that lists it.
+            var compareIndexed = new HashSet<string>(indexed);
+            compareIndexed.RemoveWhere(id => IsSafeId(id) && IsBlocked(RecordingPath(id)));
+            var compareOnDisk = new HashSet<string>(onDisk);
+            compareOnDisk.RemoveWhere(id => IsBlocked(RecordingPath(id)));
+            if (compareIndexed.SetEquals(compareOnDisk) && indexed.Count == index.Count) return index;
+            return RebuildIndexLocked(onDisk, index);
         }
 
-        List<RecordingInfo> RebuildIndexLocked(IEnumerable<string> ids)
+        List<RecordingInfo> RebuildIndexLocked(IEnumerable<string> ids, List<RecordingInfo> old)
         {
             var rebuilt = new List<RecordingInfo>();
             foreach (string id in ids)
             {
+                if (IsBlocked(RecordingPath(id)))
+                {
+                    // Not read again: keep what the index knew about it, if anything.
+                    RecordingInfo known = old.Find(i => i.Id == id);
+                    if (known != null) rebuilt.Add(known);
+                    continue;
+                }
                 Recording recording = ReadRecordingFile(id);   // an unreadable file is set aside by ReadFile
                 if (recording != null) rebuilt.Add(InfoOf(recording));
             }
@@ -374,7 +440,7 @@ namespace MacroKit.Core
 
         void SaveIndexLocked(List<RecordingInfo> index)
         {
-            WriteGuarded(IndexPath, Json.Serialize(new RecordingIndexFile { Recordings = index }));
+            WriteGuarded(IndexPath, Json.Serialize(new RecordingIndexFile { Recordings = index }), false);   // rebuilt from the recordings next time if skipped
         }
 
         // Recording ids are file names: only letters, digits and dashes (Guid "N" or "D" formats).
@@ -403,8 +469,11 @@ namespace MacroKit.Core
         {
             lock (gate)
             {
+                // No .previous: a replaced or removed key should not linger in the folder (or travel with an export).
+                // One left by an older version is removed too.
+                if (File.Exists(LicensePath + ".previous")) File.Delete(LicensePath + ".previous");
                 if (string.IsNullOrEmpty(key)) { if (File.Exists(LicensePath)) File.Delete(LicensePath); return; }
-                WriteAtomic(LicensePath, key.Trim() + "\n");
+                WriteAtomic(LicensePath, key.Trim() + "\n", false);
             }
         }
 
@@ -417,25 +486,55 @@ namespace MacroKit.Core
         }
 
         // Writes unless the file was found unreadable this session: overwriting a file that merely could not be read would destroy it.
-        void WriteGuarded(string path, string text)
+        // A skipped write that carries a change (not startup's own seeding) is remembered for UnsavedBlockedFiles.
+        void WriteGuarded(string path, string text, bool change = true)
         {
             if (IsBlocked(path))
             {
+                if (change) skippedWrites.Add(path);
                 Log.Warn("Not saving " + Path.GetFileName(path) + " because it could not be read this session.");
                 return;
+            }
+            if (KeepsSessionCopy(path))
+            {
+                // Saving the same text again would turn .previous into a copy of the current file, losing the version before.
+                if (SameAsSaved(path, text)) return;
+                if (sessionCopied.Add(path)) CopySessionStart(path);
             }
             WriteAtomic(path, text);
         }
 
+        // Settings, phrases, macros and keybinds also keep name.json.session: the file as it was when this session first changed
+        // it, so a bad edit can still be undone by hand after .previous has moved on.
+        bool KeepsSessionCopy(string path)
+        {
+            return path == SettingsFile || path == PhrasesPath || path == MacrosPath || path == KeybindAppsPath;
+        }
+
+        static bool SameAsSaved(string path, string text)
+        {
+            try { return File.Exists(path) && File.ReadAllText(path, Utf8) == text; }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { return false; }
+        }
+
+        static void CopySessionStart(string path)
+        {
+            try { if (File.Exists(path)) File.Copy(path, path + ".session", true); }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { Log.Warn("Could not keep the session copy of " + Path.GetFileName(path), e); }
+        }
+
         // Returns null when the file does not exist, could not be parsed (it is moved aside and a warning is recorded), or exists
         // but could not be opened (locked or access denied after a few tries: it is left alone, a warning is recorded and
-        // IsBlocked(path) is true from then on, so the caller must not seed or save over it).
-        T ReadFile<T>(string path) where T : class
+        // IsBlocked(path) is true from then on, so the caller must not seed or save over it; a recording only until it reads fine again).
+        // A file that could not be parsed is replaced by its .previous copy when that one reads fine.
+        // patient: wait longer for a lock to clear (the files read once at startup; see ReadRetries).
+        T ReadFile<T>(string path, bool patient = false) where T : class
         {
             if (!File.Exists(path)) return null;
             string text = null;
             Exception failure = null;
-            for (int attempt = 0; attempt <= ReadRetries; attempt++)
+            int retries = patient ? ReadRetries : QuickReadRetries;
+            for (int attempt = 0; attempt <= retries; attempt++)
             {
                 try
                 {
@@ -447,27 +546,57 @@ namespace MacroKit.Core
                 catch (DirectoryNotFoundException) { return null; }
                 catch (IOException e) { failure = e; }                  // locked by another program, for example
                 catch (UnauthorizedAccessException e) { failure = e; }
-                if (attempt < ReadRetries) Thread.Sleep(ReadRetryMs);
+                if (attempt < retries) Thread.Sleep(ReadRetryMs << attempt);
             }
             if (failure != null)
             {
                 Log.Warn("Could not read " + Path.GetFileName(path), failure);
                 if (readOnly.Add(path))
-                    warnings.Add(Path.GetFileName(path) + " is in use or can't be opened right now, so defaults are being used and this file won't be saved over. Close whatever is using it and restart Macro Kit.");
+                    warnings.Add(IsRecordingPath(path)
+                        ? "A recording (“" + RecordingLabel(path) + "”) is in use or can't be opened right now; try again in a moment."
+                        : Path.GetFileName(path) + " is in use or can't be opened right now, so defaults are being used and this file won't be saved over. Close whatever is using it and restart Macro Kit.");
                 return null;
             }
+            // A recording that reads fine again is safe to save again (the startup files stay blocked for the session).
+            if (IsRecordingPath(path)) readOnly.Remove(path);
             try
             {
                 return Json.Deserialize<T>(text);
             }
             catch (Exception e) when (e is ArgumentException || e is FormatException || e is InvalidCastException)
             {
-                MoveAside(path, e);
-                return null;
+                string aside = MoveAside(path, e);
+                if (aside == null) return null;
+                T restored = RestorePrevious<T>(path);
+                warnings.Add(Path.GetFileName(path) + (restored != null
+                    ? " could not be read and was set aside as " + Path.GetFileName(aside) + "; an earlier saved copy was put back, so your most recent change to it may be missing."
+                    : " could not be read, so it was set aside as " + Path.GetFileName(aside) + " and defaults are being used."));
+                return restored;
             }
         }
 
-        void MoveAside(string path, Exception cause)
+        // After a damaged file was set aside: an earlier saved copy (.previous, the version before the latest save) is put back in its place when it reads fine,
+        // so the person keeps their data instead of getting the defaults or the examples. Null when there is no usable copy.
+        T RestorePrevious<T>(string path) where T : class
+        {
+            string previous = path + ".previous";
+            if (!File.Exists(previous)) return null;
+            T restored;
+            try { restored = Json.Deserialize<T>(File.ReadAllText(previous, Utf8)); }
+            catch (Exception e) when (e is ArgumentException || e is FormatException || e is InvalidCastException || e is IOException || e is UnauthorizedAccessException)
+            {
+                Log.Warn("The earlier saved copy of " + Path.GetFileName(path) + " could not be read either", e);
+                return null;
+            }
+            try { File.Copy(previous, path, false); }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { Log.Warn("Could not put back the earlier saved copy of " + Path.GetFileName(path), e); }
+            Log.Info("Restored " + Path.GetFileName(path) + " from an earlier saved copy");
+            return restored;
+        }
+
+        // Returns the set-aside path, or null when the file could not be moved; it is then treated as read-only for the session,
+        // so it is never seeded, saved over or rotated.
+        string MoveAside(string path, Exception cause)
         {
             string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
             string target = path + ".unreadable-" + stamp;
@@ -475,29 +604,42 @@ namespace MacroKit.Core
             try
             {
                 File.Move(path, target);
-                warnings.Add(Path.GetFileName(path) + " could not be read, so it was set aside as " + Path.GetFileName(target) + " and defaults are being used.");
                 Log.Warn("Set aside unreadable file " + Path.GetFileName(path), cause);
+                return target;
             }
             catch (Exception e)
             {
+                readOnly.Add(path);
                 warnings.Add(Path.GetFileName(path) + " could not be read and could not be set aside. Defaults are being used for now.");
                 Log.Error("Could not set aside " + Path.GetFileName(path), e);
+                return null;
             }
         }
 
-        /// <summary>Writes text (UTF-8, no BOM) via a .tmp file; an existing file is replaced and kept as .previous.</summary>
-        internal static void WriteAtomic(string path, string text)
+        /// <summary>
+        /// Writes text (UTF-8, no BOM) via a .tmp file; an existing file is replaced and, with <paramref name="keepPrevious"/>, kept as .previous.
+        /// The .tmp file is removed when the write fails.
+        /// </summary>
+        internal static void WriteAtomic(string path, string text, bool keepPrevious = true)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             string temp = path + ".tmp";
-            using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+            try
             {
-                byte[] bytes = Utf8.GetBytes(text);
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush(true);
+                using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    byte[] bytes = Utf8.GetBytes(text);
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
+                if (File.Exists(path)) File.Replace(temp, path, keepPrevious ? path + ".previous" : null);
+                else File.Move(temp, path);
             }
-            if (File.Exists(path)) File.Replace(temp, path, path + ".previous");
-            else File.Move(temp, path);
+            catch
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception) { /* the next save overwrites it */ }
+                throw;
+            }
         }
     }
 }

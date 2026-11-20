@@ -391,5 +391,105 @@ namespace MacroKit.Tests
             Assert.Equal("{{RUN:https://example.com}}", MacroScript.Website("https://example.com"));
             Assert.Equal("{{RUN:http://intranet/page}}", MacroScript.Website("http://intranet/page"));
         }
+
+        // ---- Sweep A1 ----
+
+        [Test]
+        public static void WaitWindowAfterRunSkipsAWindowThatWasAlreadyOpen()
+        {
+            WithPro(false, () =>
+            {
+                var rig = new Rig();
+                // Notepad is already open (behind Excel); the run opens a second one a moment later.
+                rig.Actions.OnOpen = t => rig.Clock.After(800, () => { rig.Windows.AddWindow(7, "New - Notepad", "notepad.exe"); rig.Windows.SetForeground((IntPtr)7); });
+                Assert.Equal("x", rig.Run("{{RUN:notepad}}{{WAITWINDOW:Notepad}}x"));
+                Assert.Equal((IntPtr)7, rig.Windows.Foreground);
+                Assert.True(rig.Clock.NowMs >= 800, "waited for the new window, not the old one");
+            });
+        }
+
+        [Test]
+        public static void WaitWindowAfterRunAcceptsAnOldWindowThatComesForward()
+        {
+            WithPro(false, () =>
+            {
+                var rig = new Rig();
+                rig.Actions.OnOpen = t => rig.Clock.After(300, () => rig.Windows.SetForeground(rig.Notepad.Handle));
+                Assert.Equal("x", rig.Run("{{RUN:notepad}}{{WAITWINDOW:Notepad}}x"));
+                Assert.Equal(rig.Notepad.Handle, rig.Windows.Foreground);
+                Assert.True(rig.Clock.NowMs < 1500);
+            });
+        }
+
+        [Test]
+        public static void WaitWindowWithoutARunStillTakesAnyMatchingWindow()
+        {
+            WithPro(false, () =>
+            {
+                var rig = new Rig();
+                Assert.Equal("x", rig.Run("{{WAITWINDOW:Notepad}}x"));
+                Assert.Equal(rig.Notepad.Handle, rig.Windows.Foreground);
+                Assert.Equal(0L, rig.Clock.NowMs);
+            });
+        }
+
+        [Test]
+        public static void WaitWindowAfterRunAcceptsTheWindowInFrontAfterAShortWait()
+        {
+            WithPro(false, () =>
+            {
+                var rig = new Rig();
+                rig.Windows.SetForeground(rig.Notepad.Handle);   // the program reuses the window that is already in front
+                Assert.Equal("x", rig.Run("{{RUN:notepad}}{{WAITWINDOW:Notepad}}x"));
+                Assert.True(rig.Clock.NowMs >= 1500 && rig.Clock.NowMs < 5000, "now " + rig.Clock.NowMs);
+            });
+        }
+
+        [Test]
+        public static void WaitWindowAfterRunFallsBackToAnOldWindowBehind()
+        {
+            WithPro(false, () =>
+            {
+                var rig = new Rig();
+                rig.Actions.OnOpen = t => { };   // the program reuses Notepad's window, which stays behind Excel
+                Assert.Equal("x", rig.Run("{{RUN:notepad}}{{WAITWINDOW:Notepad}}x"));
+                Assert.Equal(rig.Notepad.Handle, rig.Windows.Foreground);
+                Assert.True(rig.Clock.NowMs >= 5000 && rig.Clock.NowMs < 10000, "now " + rig.Clock.NowMs);
+            });
+        }
+
+        [Test]
+        public static void WaitWindowAfterTwoRunsFindsTheFirstProgramsWindow()
+        {
+            WithPro(false, () =>
+            {
+                var rig = new Rig();
+                rig.Actions.OnOpen = t =>
+                {
+                    if (t == "notepad") rig.Windows.AddWindow(7, "New - Notepad", "notepad.exe");   // opens behind
+                    else if (t == "calc") { rig.Windows.AddWindow(8, "Calculator", "CalculatorApp.exe"); rig.Windows.SetForeground((IntPtr)8); }
+                };
+                Assert.Equal("x", rig.Run("{{RUN:notepad}}{{PAUSE:500}}{{RUN:calc}}{{WAITWINDOW:Notepad}}x"));
+                Assert.Equal((IntPtr)7, rig.Windows.Foreground);
+                Assert.True(rig.Clock.NowMs < 1500, "now " + rig.Clock.NowMs);
+            });
+        }
+
+        [Test]
+        public static void WaitWindowAfterALateSecondRunWaitsForItsWindow()
+        {
+            WithPro(false, () =>
+            {
+                var rig = new Rig();
+                // An old Notepad is open behind; the second run opens a new one a second later.
+                rig.Actions.OnOpen = t =>
+                {
+                    if (t == "notepad") rig.Clock.After(1000, () => { rig.Windows.AddWindow(7, "New - Notepad", "notepad.exe"); rig.Windows.SetForeground((IntPtr)7); });
+                };
+                Assert.Equal("x", rig.Run("{{RUN:chrome}}{{PAUSE:6000}}{{RUN:notepad}}{{WAITWINDOW:Notepad}}x"));
+                Assert.Equal((IntPtr)7, rig.Windows.Foreground);
+                Assert.True(rig.Clock.NowMs >= 7000, "now " + rig.Clock.NowMs);
+            });
+        }
     }
 }

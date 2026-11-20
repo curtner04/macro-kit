@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -311,6 +312,39 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void LateScheduledRunsAreSkipped()
+        {
+            var due = new DateTime(2026, 11, 17, 9, 0, 0);
+            TimeSpan grace = TimeSpan.FromMinutes(5);
+            Assert.Equal(ScheduleAction.Skip, MacroSchedule.Decide(new DateTime(2026, 11, 17, 17, 0, 0), due, false, grace), "woke from sleep hours later");
+            Assert.Equal(ScheduleAction.Wait, MacroSchedule.Decide(due.AddMinutes(2), due, true, grace), "busy, still in the grace time");
+            Assert.Equal(ScheduleAction.Skip, MacroSchedule.Decide(due.AddMinutes(6), due, true, grace), "busy past the grace time");
+            Assert.Equal(ScheduleAction.Run, MacroSchedule.Decide(due.AddSeconds(2), due, false, grace), "on time");
+            Assert.Equal(ScheduleAction.Run, MacroSchedule.Decide(due.AddMinutes(4), due, false, grace), "a little late");
+            Assert.Equal(ScheduleAction.Wait, MacroSchedule.Decide(due.AddSeconds(-1), due, false, grace), "not due yet");
+        }
+
+        [Test]
+        public static void ScheduleRemembersHowTheLastRunWent()
+        {
+            var schedule = new MacroSchedule { Kind = ScheduleKind.Daily, Time = "09:00" };
+            Assert.Equal("", schedule.DescribeLastRun(), "never ran");
+            schedule.NoteRun(new DateTime(2026, 11, 17, 9, 0, 30), "finished");
+            Assert.Equal("Last run Tue 17 Nov at 09:00: finished.", schedule.DescribeLastRun());
+            schedule.NoteRun(new DateTime(2026, 11, 18, 9, 0, 0), "skipped, it was more than 5 minutes late");
+            Assert.Equal("Last run Wed 18 Nov at 09:00: skipped, it was more than 5 minutes late.", schedule.DescribeLastRun());
+            // It travels with the macro (saved, exported, imported), and editing the schedule keeps it.
+            var macro = new MacroDef { Name = "Daily", Schedule = schedule };
+            MacroDef back = Json.Deserialize<MacroDef>(Json.Serialize(macro));
+            Assert.Equal("Last run Wed 18 Nov at 09:00: skipped, it was more than 5 minutes late.", back.Schedule.DescribeLastRun());
+            back.Schedule.Time = "10:00";
+            Assert.Contains(back.Schedule.DescribeLastRun(), "Wed 18 Nov");
+            // An old macros.json has none of this.
+            MacroDef old = Json.Deserialize<MacroDef>("{\"Name\":\"Old\",\"Schedule\":{\"Kind\":1,\"Time\":\"08:00\"}}");
+            Assert.Equal("", old.Schedule.DescribeLastRun());
+        }
+
+        [Test]
         public static void SchedulesDescribeThemselves()
         {
             Assert.Equal("Every day at 09:00", new MacroSchedule { Kind = ScheduleKind.Daily, Time = "9:00" }.Describe());
@@ -343,8 +377,14 @@ namespace MacroKit.Tests
                 Assert.Null(storage.LoadLicenseKey());
                 storage.SaveLicenseKey("MK1-ABC");
                 Assert.Equal("MK1-ABC", storage.LoadLicenseKey());
+                storage.SaveLicenseKey("MK1-DEF");
+                Assert.Equal("MK1-DEF", storage.LoadLicenseKey());
+                Assert.False(File.Exists(dir.File("license.key.previous")), "a replaced key does not linger");
+                File.WriteAllText(dir.File("license.key.previous"), "MK1-OLD\n");   // left by an older version
                 storage.SaveLicenseKey(null);
                 Assert.Null(storage.LoadLicenseKey());
+                Assert.False(File.Exists(dir.File("license.key")));
+                Assert.False(File.Exists(dir.File("license.key.previous")), "nor does a removed one");
             }
         }
 

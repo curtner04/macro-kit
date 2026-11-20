@@ -42,7 +42,16 @@ namespace MacroKit.Phrases
             public string Tail;   // the delimiter that ended the trigger, re-sent after the replacement (null for Immediately)
             public string Typed;      // the trigger exactly as typed (its case may differ from Entry.Trigger)
             public string Swallowed;  // the character(s) of the key-down that was swallowed to start the expansion
+            public IntPtr Window;     // the foreground window when the trigger was typed (zero without the Foreground hook)
         }
+
+        /// <summary>Thrown inside Fill when the clipboard could not be read for {clipboard}, so nothing is typed with it missing.</summary>
+        sealed class ClipboardBusyException : Exception
+        {
+            public ClipboardBusyException(Exception inner) : base("The clipboard could not be read.", inner) { }
+        }
+
+        const string ClipboardBusyMessage = "Couldn't expand that phrase because another app was using the clipboard. What you typed was left as it was.";
 
         enum KeyKind { Ignore, Modifier, Clear, Backspace, Text, Enter, Tab }
 
@@ -148,6 +157,18 @@ namespace MacroKit.Phrases
         /// </summary>
         public Func<PhraseDef, IList<string>, IDictionary<string, string>> AskForFields { get; set; }
 
+        /// <summary>
+        /// True when the keyboard focus is in a password box; a trigger typed there is left alone. Called on the hook thread,
+        /// only when a trigger was typed, so it must be quick and never wait on another program. Unset, nothing is a password box.
+        /// </summary>
+        public Func<bool> InPasswordField { get; set; }
+
+        /// <summary>
+        /// The window in front. Read when a trigger is typed and again just before it is erased: when another window came to the
+        /// front in between, nothing is erased or typed. Unset, the check is skipped.
+        /// </summary>
+        public Func<IntPtr> Foreground { get; set; }
+
         /// <summary>Test hook: runs at the start of every expansion, before any key or clipboard call (tests press a modifier here).</summary>
         internal Action BeforeExecute { get; set; }
 
@@ -230,7 +251,11 @@ namespace MacroKit.Phrases
                 {
                     swallow = HandleKey(e, typed, foregroundProcess, out job);
                 }
-                if (job != null) Dispatch(job);
+                if (job != null)
+                {
+                    job.Window = ForegroundNow();
+                    Dispatch(job);
+                }
                 return swallow;
             }
             catch (Exception ex)
@@ -329,6 +354,13 @@ namespace MacroKit.Phrases
                 return false;
             }
 
+            // Never touch a password as it is typed: expanding there would change it with nothing on screen to show why.
+            if (IsPasswordField())
+            {
+                length = 0;
+                return false;
+            }
+
             length = 0;
             expanding = true;
             swallowedUps.Add(vk);
@@ -409,6 +441,41 @@ namespace MacroKit.Phrases
             return char.IsWhiteSpace(c) || char.IsPunctuation(c) || char.IsSymbol(c);
         }
 
+        // Whether this character, just before an "AfterDelimiter" trigger, makes it the start of a word. Stricter than the key
+        // that ends a word: an apostrophe, hyphen, underscore or @ joins two words into one (don't, e-mail, snake_case, name@site).
+        // A dot still starts a word, so "done.brb" keeps expanding.
+        static bool CanPrecedeTrigger(char c)
+        {
+            if (char.IsLetterOrDigit(c)) return false;
+            switch (c)
+            {
+                case '\'':
+                case '\u2019':
+                case '-':
+                case '_':
+                case '@':
+                    return false;
+                default:
+                    return IsDelimiterChar(c);
+            }
+        }
+
+        bool IsPasswordField()
+        {
+            Func<bool> check = InPasswordField;
+            if (check == null) return false;
+            try { return check(); }
+            catch (Exception ex) { Log.Warn("Could not tell whether the focus is in a password box.", ex); return false; }
+        }
+
+        IntPtr ForegroundNow()
+        {
+            Func<IntPtr> read = Foreground;
+            if (read == null) return IntPtr.Zero;
+            try { return read(); }
+            catch (Exception ex) { Log.Warn("Could not read the window in front.", ex); return IntPtr.Zero; }
+        }
+
         bool IsExcluded(string process)
         {
             if (string.IsNullOrEmpty(process)) return false;
@@ -455,9 +522,20 @@ namespace MacroKit.Phrases
                 Entry entry = list[i];
                 if (!entry.AfterDelimiter || !EndsWith(entry, end)) continue;
                 int start = end - entry.Trigger.Length;
-                if (start == 0 || IsDelimiterChar(buffer[start - 1])) return entry;
+                if (StartsWord(start)) return entry;
             }
             return null;
+        }
+
+        // Runs under the lock. Whether buffer[start] starts a word. A joiner (', -, _, @) only joins when a letter or digit comes
+        // before it, so an opening quote, a leading hyphen or _emphasis_ still starts one ('teh', -teh, _teh_).
+        bool StartsWord(int start)
+        {
+            if (start == 0) return true;
+            char before = buffer[start - 1];
+            if (CanPrecedeTrigger(before)) return true;
+            if (char.IsLetterOrDigit(before) || !IsDelimiterChar(before)) return false;
+            return start == 1 || !char.IsLetterOrDigit(buffer[start - 2]);
         }
 
         bool EndsWith(Entry entry, int end)
@@ -508,15 +586,20 @@ namespace MacroKit.Phrases
         /// <summary>Test hook: the date and time {date} and {time} use.</summary>
         public Func<DateTime> Now = () => DateTime.Now;
 
-        // The replacement with {date}, {time} and {clipboard} filled. The clipboard is read only when the text asks for it,
-        // before a paste overwrites it; when it can't be read, {clipboard} is left empty.
-        string Fill(string replacement, IDictionary<string, string> fields)
+        // The replacement with its placeholders filled, and where {cursor} was (-1 for none). The clipboard is read only when the
+        // text asks for it, before a paste overwrites it. A clipboard with no text gives an empty {clipboard}; one that can't be
+        // read (another app holds it) throws ClipboardBusyException, so the phrase is not typed with a piece missing.
+        string Fill(string replacement, IDictionary<string, string> fields, out int cursorAt)
         {
             return Placeholders.Fill(replacement, Now(), () =>
             {
                 try { return clipboard.GetText(); }
-                catch (Exception ex) { Log.Warn("Could not read the clipboard for a phrase's {clipboard}.", ex); return ""; }
-            }, fields);
+                catch (Exception ex)
+                {
+                    Log.Warn("Could not read the clipboard for a phrase's {clipboard}.", ex);
+                    throw new ClipboardBusyException(ex);
+                }
+            }, fields, out cursorAt);
         }
 
         // The {fill:Name} answers: an empty set when the phrase has none, null when the user cancelled.
@@ -557,8 +640,17 @@ namespace MacroKit.Phrases
                     Reset();
                     return;   // cancelled: what was typed stays as it was
                 }
-                int leftPresses;
-                string text = Placeholders.SplitCursor(Fill(job.Entry.Replacement, fields), out leftPresses);
+                string text;
+                int cursorAt;
+                try { text = Fill(job.Entry.Replacement, fields, out cursorAt); }
+                catch (ClipboardBusyException)
+                {
+                    RetypeSwallowedKey(job);
+                    failure = ClipboardBusyMessage;
+                    Reset();
+                    return;   // nothing erased yet: the trigger stays as typed, and the finally block reports it
+                }
+                int leftPresses = Placeholders.LeftPresses(text, cursorAt);
                 object snapshot = null;
                 uint ourSequence = 0;
                 bool wroteClipboard = false;
@@ -568,7 +660,7 @@ namespace MacroKit.Phrases
                     if (!PrepareClipboard(text, out snapshot, out ourSequence))
                     {
                         RetypeSwallowedKey(job);
-                        failure = "Couldn't expand that phrase because another app was using the clipboard. What you typed was left as it was.";
+                        failure = ClipboardBusyMessage;
                         Reset();
                         return;   // the finally block below reports it
                     }
@@ -579,6 +671,14 @@ namespace MacroKit.Phrases
                 {
                     ReleaseHeldModifiers(paste ? HeldKeysToWaitForWhenPasting : HeldKeysToWaitFor);
                     sentAnything = true;
+                    // A notification or Alt+Tab while the fill-in prompt was open or a key was held: the Backspaces would go
+                    // to the wrong window. Leave both windows alone; the swallowed key is not typed either, for the same reason.
+                    if (job.Window != IntPtr.Zero && ForegroundNow() != job.Window)
+                    {
+                        failure = "Couldn't expand that phrase because another window came to the front.";
+                        Reset();
+                        return;   // the finally blocks put the clipboard back, report it and replay what was typed meanwhile
+                    }
                     for (int i = 0; i < job.Backspaces; i++)
                     {
                         input.KeyDown(VkBack);

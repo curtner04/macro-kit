@@ -124,6 +124,12 @@ namespace MacroKit.App
             var controller = new AppController(app.Dispatcher, new Storage(), !options.NoInput);
             Theme.Initialize(app, controller.Settings.Theme);
             var shell = new AppShell(controller, !options.NoInput);
+            // Signing out or shutting down ends the process without Exit: the last edits and an unsaved recording are saved here.
+            app.SessionEnding += (s, e) =>
+            {
+                try { controller.Stop(); shell.SaveForSessionEnd(); }
+                catch (Exception ex) { Log.Error("Saving at sign-out failed", ex); }
+            };
             controller.Start();
             app.Dispatcher.BeginInvoke(new Action(() =>
             {

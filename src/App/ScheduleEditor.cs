@@ -97,17 +97,24 @@ namespace MacroKit.App
             bool pro = Edition.IsPro;
             proNote.Visibility = pro ? Visibility.Collapsed : Visibility.Visible;
             editors.IsEnabled = pro && macro != null;
+            editors.Visibility = pro ? Visibility.Visible : Visibility.Collapsed;   // no dead controls under the Pro note
             ScheduleKind k = macro == null || macro.Schedule == null ? ScheduleKind.Off : macro.Schedule.Kind;
             dailyRow.Visibility = k == ScheduleKind.Daily ? Visibility.Visible : Visibility.Collapsed;
             everyRow.Visibility = k == ScheduleKind.Every ? Visibility.Visible : Visibility.Collapsed;
             onceRow.Visibility = k == ScheduleKind.Once ? Visibility.Visible : Visibility.Collapsed;
             status.Text = StatusText(pro, k);
+            string last = pro && macro != null && macro.Schedule != null && k != ScheduleKind.Off ? macro.Schedule.DescribeLastRun() : "";
+            if (last.Length > 0) status.Text += " " + last;
         }
+
+        /// <summary>Self-test: the line under the schedule.</summary>
+        public string StatusLine { get { return status.Text; } }
 
         string StatusText(bool pro, ScheduleKind k)
         {
             if (!pro || macro == null) return "";
             if (k == ScheduleKind.Off) return "This macro runs only when you start it.";
+            if (!macro.Enabled) return macro.Schedule.Describe() + ". Paused: this macro is switched off, so it does not run by itself.";
             DateTime? next = c.NextScheduledRun(macro);
             if (next == null)
             {

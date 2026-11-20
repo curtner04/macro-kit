@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -30,12 +31,16 @@ namespace MacroKit.Core
                     var info = new FileInfo(file);
                     if (info.Exists && info.Length > MaxBytes)
                     {
-                        string old = file + ".old";
-                        if (File.Exists(old)) File.Delete(old);
-                        File.Move(file, old);
+                        try
+                        {
+                            string old = file + ".old";
+                            if (File.Exists(old)) File.Delete(old);
+                            File.Move(file, old);
+                        }
+                        catch { /* rotate next time; the line is still written below */ }
                     }
                     var line = new StringBuilder();
-                    line.Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")).Append(' ').Append(level).Append(' ').Append(message);
+                    line.Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)).Append(' ').Append(level).Append(' ').Append(message);
                     if (ex != null) line.Append(" | ").Append(ex);
                     line.AppendLine();
                     File.AppendAllText(file, line.ToString(), new UTF8Encoding(false));

@@ -21,6 +21,10 @@ namespace MacroKit.Win32
         // LowLevelHooksTimeout defaults to 300 ms and Windows 10 caps it at 1000 ms. A callback anywhere near that risks removal,
         // so anything past this is treated as "the hook may be gone" and reinstalled.
         const double SlowCallbackMs = 200;
+        // An input event that reaches the callback this long after it happened means the hook thread was held up (a busy PC, a
+        // long garbage collection): the same risk of removal, even when the callback itself was quick.
+        const uint LateEventMs = 250;
+        const int ReinstallEveryMs = 5000;
         const int QueuedWorkTimeoutMs = 3000;
 
         readonly object gate = new object();
@@ -43,6 +47,7 @@ namespace MacroKit.Win32
         string startError;
         string className;
         IntPtr window, keyboardHook, mouseHook, foregroundHook;
+        long lastLateReinstallMs = -ReinstallEveryMs, lastLateLogMs = -60000;   // hook thread only
 
         public InputHook()
         {
@@ -74,9 +79,13 @@ namespace MacroKit.Win32
                 if (running) return;
                 startError = null;
                 var started = new ManualResetEvent(false);
-                thread = new Thread(() => Run(started)) { IsBackground = true, Name = "Macro Kit input hook" };
+                var ticket = new StartTicket();
+                // Highest, as is usual for a low-level hook thread: Windows drops the hooks of a thread that answers too slowly.
+                thread = new Thread(() => Run(started, ticket)) { IsBackground = true, Name = "Macro Kit input hook", Priority = ThreadPriority.Highest };
                 thread.Start();
-                if (!started.WaitOne(5000)) throw new InvalidOperationException("The input hook did not start in time.");
+                // When the thread gets there after all, it sees the start was given up and shuts down, so no hooks are left behind.
+                if (!started.WaitOne(5000) && ticket.Abandon()) throw new InvalidOperationException("The input hook did not start in time.");
+                started.WaitOne();
                 started.Close();
                 if (startError != null)
                 {
@@ -125,8 +134,17 @@ namespace MacroKit.Win32
 
         // ---------------- hook thread ----------------
 
-        void Run(ManualResetEvent started)
+        /// <summary>Settles the race between the hook thread finishing its start and Start giving up on it.</summary>
+        sealed class StartTicket
         {
+            int state;   // 0 waiting, 1 the thread got there, 2 Start gave up
+            public bool Arrive() { return Interlocked.CompareExchange(ref state, 1, 0) == 0; }
+            public bool Abandon() { return Interlocked.CompareExchange(ref state, 2, 0) == 0; }
+        }
+
+        void Run(ManualResetEvent started, StartTicket ticket)
+        {
+            bool ok = false;
             try
             {
                 threadId = Native.GetCurrentThreadId();
@@ -139,13 +157,19 @@ namespace MacroKit.Win32
                 foregroundHook = Native.SetWinEventHook(Native.EVENT_SYSTEM_FOREGROUND, Native.EVENT_SYSTEM_FOREGROUND, IntPtr.Zero,
                     foregroundProc, 0, 0, Native.WINEVENT_OUTOFCONTEXT);
                 if (foregroundHook == IntPtr.Zero) throw new InvalidOperationException("Windows would not report window focus changes.");
-                running = true;
+                ok = true;
             }
             catch (Exception ex)
             {
                 startError = ex is InvalidOperationException ? ex.Message : "Macro Kit could not start watching the keyboard and mouse: " + ex.Message;
                 Log.Error("Input hook start failed.", ex);
             }
+            if (!ticket.Arrive())
+            {
+                if (ok) Log.Warn("The input hook started after Macro Kit had given up on it, so it was shut down again.");
+                ok = false;
+            }
+            running = ok;
             started.Set();
             if (!running)
             {
@@ -182,19 +206,20 @@ namespace MacroKit.Win32
             if (window == IntPtr.Zero) throw new InvalidOperationException("Windows would not create the hotkey window.");
         }
 
+        // A reinstall puts the new hook in before removing the old one, so a failed one leaves the working hook in place.
         void InstallKeyboard()
         {
-            if (keyboardHook != IntPtr.Zero) Native.UnhookWindowsHookEx(keyboardHook);
             // hMod = the exe's own module: low-level hooks run in the installing thread, but SetWindowsHookEx still wants a valid module.
-            keyboardHook = Native.SetWindowsHookExW(Native.WH_KEYBOARD_LL, keyboardProc, Native.GetModuleHandleW(null), 0);
-            if (keyboardHook == IntPtr.Zero) throw new InvalidOperationException("Windows would not let Macro Kit watch the keyboard (error " + Marshal.GetLastWin32Error() + ").");
+            if (!HookDecoding.ReplaceHook(ref keyboardHook,
+                () => Native.SetWindowsHookExW(Native.WH_KEYBOARD_LL, keyboardProc, Native.GetModuleHandleW(null), 0), Native.UnhookWindowsHookEx))
+                throw new InvalidOperationException("Windows would not let Macro Kit watch the keyboard (error " + Marshal.GetLastWin32Error() + ").");
         }
 
         void InstallMouse()
         {
-            if (mouseHook != IntPtr.Zero) Native.UnhookWindowsHookEx(mouseHook);
-            mouseHook = Native.SetWindowsHookExW(Native.WH_MOUSE_LL, mouseProc, Native.GetModuleHandleW(null), 0);
-            if (mouseHook == IntPtr.Zero) throw new InvalidOperationException("Windows would not let Macro Kit watch the mouse (error " + Marshal.GetLastWin32Error() + ").");
+            if (!HookDecoding.ReplaceHook(ref mouseHook,
+                () => Native.SetWindowsHookExW(Native.WH_MOUSE_LL, mouseProc, Native.GetModuleHandleW(null), 0), Native.UnhookWindowsHookEx))
+                throw new InvalidOperationException("Windows would not let Macro Kit watch the mouse (error " + Marshal.GetLastWin32Error() + ").");
         }
 
         void Teardown()
@@ -243,6 +268,7 @@ namespace MacroKit.Win32
             if (handler == null) return false;
             var raw = Marshal.PtrToStructure<Native.KBDLLHOOKSTRUCT>(lParam);
             KeyEvent e = HookDecoding.DecodeKey(raw, message, clock.ElapsedMilliseconds);
+            if (!e.Injected) NoteLateness(raw.time);
             string typed = e.Down && !e.Injected ? translator.Translate(e.Vk, e.Scan) : null;
             return handler(e, typed);
         }
@@ -254,6 +280,7 @@ namespace MacroKit.Win32
             var raw = Marshal.PtrToStructure<Native.MSLLHOOKSTRUCT>(lParam);
             MouseEvent e;
             if (!HookDecoding.DecodeMouse(raw, message, clock.ElapsedMilliseconds, out e)) return;
+            if (!e.Injected) NoteLateness(raw.time);
             bool click = e.Kind == MouseEventKind.Down || e.Kind == MouseEventKind.Up || e.Kind == MouseEventKind.Wheel || e.Kind == MouseEventKind.HWheel;
             if (!e.Injected && click) e.OverOwnWindow = IsOverOwnWindow(raw.pt);
             handler(e);
@@ -301,6 +328,24 @@ namespace MacroKit.Win32
             Native.PostMessageW(window, WmReinstallHooks, UIntPtr.Zero, IntPtr.Zero);
         }
 
+        // Hook thread. eventTime is the input's own time stamp (GetTickCount clock). Input that arrives late shows the thread was
+        // stalled, which is when Windows drops hooks without a word, so the hooks are put back: at most every 5 s, logged once a minute.
+        void NoteLateness(uint eventTime)
+        {
+            if (eventTime == 0) return;   // some devices send no time stamp
+            uint late = HookDecoding.Lateness(unchecked((uint)Environment.TickCount), eventTime);
+            if (late < LateEventMs || late > 60000) return;   // more than a minute is a wrong stamp, not a stall
+            long now = clock.ElapsedMilliseconds;
+            if (now - lastLateReinstallMs < ReinstallEveryMs) return;
+            lastLateReinstallMs = now;
+            if (now - lastLateLogMs >= 60000)
+            {
+                lastLateLogMs = now;
+                Log.Warn("Input reached the hook " + late + " ms late; reinstalling the hooks in case Windows dropped them.");
+            }
+            Native.PostMessageW(window, WmReinstallHooks, UIntPtr.Zero, IntPtr.Zero);
+        }
+
         void ForegroundCallback(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint eventThread, uint eventTime)
         {
             if (eventType != Native.EVENT_SYSTEM_FOREGROUND || idObject != Native.OBJID_WINDOW || hwnd == IntPtr.Zero) return;
@@ -328,8 +373,10 @@ namespace MacroKit.Win32
                     while (queue.TryDequeue(out work)) work.Run();
                     return IntPtr.Zero;
                 case WmReinstallHooks:
-                    try { InstallKeyboard(); InstallMouse(); }
-                    catch (Exception ex) { Log.Error("Could not reinstall the input hooks.", ex); }
+                    try { InstallKeyboard(); }
+                    catch (Exception ex) { Log.Error("Could not reinstall the keyboard hook.", ex); }
+                    try { InstallMouse(); }
+                    catch (Exception ex) { Log.Error("Could not reinstall the mouse hook.", ex); }
                     return IntPtr.Zero;
             }
             return Native.DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -359,21 +406,35 @@ namespace MacroKit.Win32
         {
             readonly Func<bool> work;
             readonly ManualResetEvent done = new ManualResetEvent(false);
+            int state;   // 0 queued, 1 running or ran, 2 given up (then it never runs)
             public bool Result;
 
             public QueuedWork(Func<bool> work) { this.work = work; }
 
             public void Run()
             {
+                if (Interlocked.CompareExchange(ref state, 1, 0) != 0) return;
                 try { Result = work(); }
                 catch (Exception ex) { Log.Error("Work on the input hook thread failed.", ex); }
                 finally { done.Set(); }
             }
 
             /// <summary>Releases the waiting caller with a failure, without running the work (the thread is going away).</summary>
-            public void Abandon() { done.Set(); }
+            public void Abandon() { GiveUp(); done.Set(); }
 
-            public bool Wait(int ms) { return done.WaitOne(ms); }
+            /// <summary>The work will never run (for example the hook thread could not be told about it).</summary>
+            public void GiveUp() { Interlocked.CompareExchange(ref state, 2, 0); }
+
+            /// <summary>
+            /// Waits for the work. Work that has not started in time is given up for good, so a hotkey the caller was told did not
+            /// register can never register later behind its back. Work that already started is waited for a little longer.
+            /// </summary>
+            public bool Wait(int ms)
+            {
+                if (done.WaitOne(ms)) return true;
+                if (Interlocked.CompareExchange(ref state, 2, 0) == 0) return false;
+                return done.WaitOne(ms);
+            }
         }
 
         // Runs work on the hook thread and waits for it. Returns false when the hook is not running or does not answer in time.
@@ -383,7 +444,7 @@ namespace MacroKit.Win32
             if (!running) return false;
             var item = new QueuedWork(work);
             queue.Enqueue(item);
-            if (!Native.PostMessageW(window, WmRunQueued, UIntPtr.Zero, IntPtr.Zero)) return false;
+            if (!Native.PostMessageW(window, WmRunQueued, UIntPtr.Zero, IntPtr.Zero)) { item.GiveUp(); return false; }
             return item.Wait(QueuedWorkTimeoutMs) && item.Result;
         }
 

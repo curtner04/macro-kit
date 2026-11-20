@@ -2,7 +2,7 @@
 # the clipboard, the installer queue or the project-root exe.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test.ps1 [test-name-filter]
 # 1. MacroKit.Tests.exe: the logic tests (console app, opens no windows).
-# 2. When the app supports it: "Macro Kit.exe --self-test-ui <dir> --data <tmp> --no-input", run on the hidden desktop
+# 2. "Macro Kit.exe --self-test-ui <dir> --data <tmp> --no-input", run on the hidden desktop
 #    (Toolchains\HiddenDesktop\Invoke-OnHiddenDesktop.ps1) so no window ever appears on a real screen.
 # Exit code 0 = everything passed.
 param([string]$Filter)
@@ -27,32 +27,21 @@ try {
     $env:MK_DATA_ROOT = $data
     $testExe = Join-Path $out 'MacroKit.Tests.exe'
     if ($Filter) { & $testExe $Filter } else { & $testExe }
-    $failures += $LASTEXITCODE
+    $logicExit = $LASTEXITCODE
+    if ($logicExit -ne 0) { Write-Output "Logic tests FAILED (exit code $logicExit)."; $failures++ } else { Write-Output 'Logic tests passed.' }
     Remove-Item Env:\MK_DATA_ROOT -ErrorAction SilentlyContinue
 
-    # UI self test, only once the app shell implements --self-test-ui (the option text is in the exe's string table).
+    # UI self test on a private hidden desktop. It always runs: if the runner is missing the script fails instead of skipping.
     $appExe = Join-Path $out 'Macro Kit.exe'
-    $needle = [Text.Encoding]::Unicode.GetBytes('--self-test-ui')
-    $bytes = [IO.File]::ReadAllBytes($appExe)
-    $supported = $false
-    for ($i = 0; $i -le $bytes.Length - $needle.Length -and -not $supported; $i++) {
-        if ($bytes[$i] -ne $needle[0]) { continue }
-        $match = $true
-        for ($j = 1; $j -lt $needle.Length; $j++) { if ($bytes[$i + $j] -ne $needle[$j]) { $match = $false; break } }
-        if ($match) { $supported = $true }
-    }
-    if ($supported) {
-        if (-not (Test-Path -LiteralPath $hiddenRunner)) { throw "The hidden-desktop runner is missing: $hiddenRunner" }
-        $argumentString = '--self-test-ui {q}' + $ui + '{q} --data {q}' + (Join-Path $root 'ui-data') + '{q} --no-input'
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $hiddenRunner -FilePath $appExe -ArgumentString $argumentString -WorkingDirectory $out -TimeoutMinutes 5
-        $uiExit = $LASTEXITCODE
-        $report = Join-Path $ui 'self-test.txt'
-        if (Test-Path -LiteralPath $report) { Get-Content -LiteralPath $report | ForEach-Object { Write-Output $_ } }
-        if ($uiExit -ne 0) { Write-Output "UI self test FAILED (exit code $uiExit)."; $failures++ } else { Write-Output 'UI self test passed.' }
-    }
-    else {
-        Write-Output 'UI self test skipped: this build of Macro Kit.exe has no --self-test-ui yet.'
-    }
+    if (-not (Test-Path -LiteralPath $hiddenRunner)) { throw "The hidden-desktop runner is missing: $hiddenRunner" }
+    # A private hidden desktop per run, so test runs in several working copies never share windows or focus.
+    $desktop = 'MacroKitTest-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+    $argumentString = '--self-test-ui {q}' + $ui + '{q} --data {q}' + (Join-Path $root 'ui-data') + '{q} --no-input'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $hiddenRunner -FilePath $appExe -ArgumentString $argumentString -WorkingDirectory $out -TimeoutMinutes 5 -DesktopName $desktop
+    $uiExit = $LASTEXITCODE
+    $report = Join-Path $ui 'self-test.txt'
+    if (Test-Path -LiteralPath $report) { Get-Content -LiteralPath $report | ForEach-Object { Write-Output $_ } }
+    if ($uiExit -ne 0) { Write-Output "UI self test FAILED (exit code $uiExit)."; $failures++ } else { Write-Output 'UI self test passed.' }
 }
 catch {
     Write-Output ('ERROR: ' + $_.Exception.Message)

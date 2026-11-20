@@ -527,7 +527,13 @@ namespace MacroKit.Keybinds
                 row++;
                 if (string.IsNullOrWhiteSpace(shortcut.Keys)) { if (!string.IsNullOrWhiteSpace(shortcut.Action)) problems.Add("Shortcut " + row + " has no keys."); continue; }
                 Hotkey combo;
-                if (!KeyText.TryParse(shortcut.Keys, out combo)) problems.Add("Shortcut " + row + ": Macro Kit does not recognise “" + shortcut.Keys.Trim() + "”. Try a form such as Ctrl+Shift+M or F9.");
+                if (!KeyText.TryParse(shortcut.Keys, out combo))
+                {
+                    // "Ctrl+K, Ctrl+C": a comma after a key (not the comma key itself, as in Ctrl+,) means two steps.
+                    if (System.Text.RegularExpressions.Regex.IsMatch(shortcut.Keys, @"[^+\s]\s*,\s*\S"))
+                        problems.Add("Shortcut " + row + ": chords such as Ctrl+K, Ctrl+C are not supported. Add only the first step, or leave it out.");
+                    else problems.Add("Shortcut " + row + ": Macro Kit does not recognise “" + shortcut.Keys.Trim() + "”. Try a form such as Ctrl+Shift+M or F9.");
+                }
             }
             return problems;
         }

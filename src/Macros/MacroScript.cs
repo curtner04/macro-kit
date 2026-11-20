@@ -147,7 +147,10 @@ namespace MacroKit.Macros
 
         public static string WaitWindow(string window, int timeoutMs)
         {
-            return "{{WAITWINDOW:" + Arg((window ?? "").Trim()) + (timeoutMs == MacroParser.DefaultWaitWindowMs ? "" : ":" + timeoutMs.ToString(CultureInfo.InvariantCulture)) + "}}";
+            string name = Arg((window ?? "").Trim());
+            // A title that ends in ":digits" would be read back as the time limit, so the limit is written whenever the title looks like that.
+            bool writeLimit = timeoutMs != MacroParser.DefaultWaitWindowMs || System.Text.RegularExpressions.Regex.IsMatch(name, @":\s*\d+\s*$");
+            return "{{WAITWINDOW:" + name + (writeLimit ? ":" + timeoutMs.ToString(CultureInfo.InvariantCulture) : "") + "}}";
         }
 
         // ---- Variables and clipboard ----

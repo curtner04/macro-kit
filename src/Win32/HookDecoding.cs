@@ -63,6 +63,30 @@ namespace MacroKit.Win32
             return false;
         }
 
+        /// <summary>
+        /// How many ms after its own time stamp an input event reached the hook, on the GetTickCount clock (which wraps every 49.7 days).
+        /// A stamp slightly ahead of now (the two clocks tick separately) counts as on time.
+        /// </summary>
+        public static uint Lateness(uint nowTicks, uint eventTicks)
+        {
+            uint late = unchecked(nowTicks - eventTicks);
+            return late > int.MaxValue ? 0u : late;
+        }
+
+        /// <summary>
+        /// Puts a new hook in place of <paramref name="hook"/>. The new one goes in first and the old one is removed only after, so a
+        /// failed install (false) leaves the old hook working. Both run on the hook thread with no messages between, so no event is
+        /// seen twice.
+        /// </summary>
+        public static bool ReplaceHook(ref IntPtr hook, Func<IntPtr> install, Func<IntPtr, bool> unhook)
+        {
+            IntPtr fresh = install();
+            if (fresh == IntPtr.Zero) return false;
+            if (hook != IntPtr.Zero) unhook(hook);
+            hook = fresh;
+            return true;
+        }
+
         /// <summary>True when the point is inside the rectangle (left and top edges count, right and bottom do not, like Windows).</summary>
         public static bool PointInRect(Native.RECT rect, int x, int y)
         {
