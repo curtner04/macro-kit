@@ -157,6 +157,7 @@ namespace MacroKit.App
                         Settle(main);
                         Capture(main, Path.Combine(folder, (tab + 1) + "-" + tabs[tab] + "-" + suffix + ".png"));
                     });
+                    if (theme == "Light") AuditPage(main, "the " + tabs[tab] + " tab");
                 }
                 PhrasesTab.PhraseExpressRunning = () => false;
                 Step("render macros with errors (" + suffix + ")", () =>
@@ -174,6 +175,13 @@ namespace MacroKit.App
                     main.Height = 2100;
                     Settle(main);
                     Capture(main, Path.Combine(folder, "3-macros-full-" + suffix + ".png"));
+                    if (theme == "Light")
+                        foreach (string section in MacrosTab.OptionSections)
+                        {
+                            main.Macros.ToggleOptions(true, section);
+                            Settle(main);
+                            AuditPage(main, "the macro editor with the code and the " + section + " card");
+                        }
                     main.Macros.ToggleStreamDeck(false);
                     main.Macros.ToggleOptions(false);
                     main.Height = 720;
@@ -210,6 +218,7 @@ namespace MacroKit.App
                     rec.Press(System.Windows.Input.Key.Enter);
                     Settle(rec);
                     Capture(rec, Path.Combine(folder, "7-key-recorder-" + suffix + ".png"));
+                    if (suffix == "light") AuditPage(rec, "the key recorder");
                     rec.Close();
                 });
                 Step("render macros, every command group (" + suffix + ")", () =>
@@ -256,7 +265,7 @@ namespace MacroKit.App
                     main.Height = 720;
                     Settle(main);
                 });
-                Step("render deck (" + suffix + ")", () => RenderFloating(shell.Deck, Path.Combine(folder, "5-deck-" + suffix + ".png")));
+                Step("render deck (" + suffix + ")", () => { RenderFloating(shell.Deck, Path.Combine(folder, "5-deck-" + suffix + ".png")); if (suffix == "light") AuditPage(shell.Deck, "the Deck"); });
                 RenderPills(shell, controller, folder, suffix);
                 Step("render the add-an-app editor (" + suffix + ")", () =>
                 {
@@ -269,6 +278,7 @@ namespace MacroKit.App
                     host.Show();
                     Settle(host);
                     Capture(host, Path.Combine(folder, "5-keybinds-editor-" + suffix + ".png"));
+                    if (suffix == "light") AuditPage(host, "the shortcut editor");
                     host.Content = null;
                     host.Close();
                 });
@@ -1053,12 +1063,12 @@ namespace MacroKit.App
                 }
                 finally { c.Macros.Remove(m); main.Macros.ReloadList(); }
             });
-            Check("a macro can be switched off, and the options open from their line", () =>
+            Check("a macro can be switched off, and each option chip opens only its own card", () =>
             {
                 var m = new MacroDef { Name = "Paused test", Hotkey = "" };
                 m.Schedule.Kind = ScheduleKind.Daily;
                 c.Macros.Add(m);
-                bool optionsWere = c.Settings.ShowMacroOptions;
+                string optionsWere = c.Settings.MacroOptionsSection;
                 LicenseInfo licenseWas = Edition.License;
                 try
                 {
@@ -1074,12 +1084,19 @@ namespace MacroKit.App
                     main.Macros.PressEnabled(true);
                     bool back = !main.Macros.ShowsAsOff(m) && m.Enabled && main.Macros.ScheduleStatusText.Contains("Next run");
                     main.Macros.ToggleOptions(false);
-                    main.Macros.ClickOptionsLine();
-                    bool opened = main.Macros.OptionsVisible;
-                    if (!(onNext && offNext && dim && back && opened)) throw new Exception(string.Join(",", onNext, offNext, dim, back, opened) + " " + line);
+                    main.Macros.ClickOptionChip("window");
+                    bool opened = main.Macros.OpenOptionSection == "window" && c.Settings.MacroOptionsSection == "window";
+                    main.Macros.ClickOptionChip("schedule");
+                    bool switched = main.Macros.OpenOptionSection == "schedule";
+                    main.Macros.ClickOptionChip("schedule");
+                    bool closed = main.Macros.OpenOptionSection == "" && !main.Macros.OptionsVisible;
+                    string[] chips = main.Macros.OptionChipValues;
+                    bool values = chips.Length == 4 && chips[0] == "Once" && chips[1] == "Previous window" && chips[2] == (m.ShowOnDeck ? "Deck" : "Run button") && chips[3].StartsWith("Every day", StringComparison.Ordinal);
+                    if (!(onNext && offNext && dim && back && opened && switched && closed && values))
+                        throw new Exception(string.Join(",", onNext, offNext, dim, back, opened, switched, closed, values) + " " + line + " | " + string.Join(" / ", chips));
                     return true;
                 }
-                finally { Edition.Set(licenseWas); c.Macros.Remove(m); main.Macros.ToggleOptions(optionsWere); main.Macros.ReloadList(); }
+                finally { Edition.Set(licenseWas); c.Macros.Remove(m); c.Settings.MacroOptionsSection = optionsWere; main.Macros.ToggleOptions(!string.IsNullOrEmpty(optionsWere), optionsWere); main.Macros.ReloadList(); }
             });
             Check("Paste text updates the per-pass estimate on the code card", () =>
             {
@@ -1240,7 +1257,6 @@ namespace MacroKit.App
             {
                 main.SelectTab(2);
                 main.Macros.SelectMacro(2);
-                main.Macros.InsertIntoCode = true;
                 if (main.Macros.InsertIntoCode) throw new Exception("the hidden Stream Deck code was the target");
                 main.Macros.ToggleStreamDeck(true);
                 if (!main.Macros.StreamDeckCodeVisible || !main.Macros.InsertIntoCode) throw new Exception("the Stream Deck code did not show");
@@ -1249,7 +1265,6 @@ namespace MacroKit.App
             {
                 main.SelectTab(2);
                 main.Macros.SelectMacro(2);
-                main.Macros.InsertIntoCode = true;
                 main.Macros.SetScript("ab");
                 main.Macros.CaretIndex = 1;
                 main.Macros.Insert("{{ENTER}}");
@@ -1325,7 +1340,6 @@ namespace MacroKit.App
             });
             Step("the palette adds plain steps", () =>
             {
-                main.Macros.InsertIntoCode = false;
                 main.Macros.SetPlain("type \"a\"");
                 main.Macros.TextEditor.CaretIndex = main.Macros.PlainText.Length;
                 main.Macros.Insert("{{ENTER}}");
@@ -1572,6 +1586,7 @@ namespace MacroKit.App
             {
                 shell.RecorderBar.Render(new ActivityInfo { Kind = ActivityKind.Recording, Name = "Recording", Started = now.AddSeconds(-12) });
                 RenderFloating(shell.RecorderBar, Path.Combine(folder, "7-recorder-bar-" + suffix + ".png"));
+                if (suffix == "light") AuditPage(shell.RecorderBar, "the recorder bar");
                 shell.RecorderBar.Hide();
             });
             Step("render pill shown for moving (" + suffix + ")", () =>
@@ -1619,6 +1634,78 @@ namespace MacroKit.App
             w.UpdateLayout();
             Pump();
             w.UpdateLayout();
+        }
+
+        // ------------------------------------------------------------------ page audits
+
+        static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+        {
+            int n = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < n; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                yield return child;
+                foreach (DependencyObject d in Descendants(child)) yield return d;
+            }
+        }
+
+        /// <summary>Something to find an element by in a failure line: its tooltip, tag or text.</summary>
+        static string Describe(FrameworkElement e)
+        {
+            string hint = e.ToolTip as string;
+            if (string.IsNullOrEmpty(hint)) hint = e.Tag as string;
+            if (string.IsNullOrEmpty(hint) && e is System.Windows.Controls.TextBox) hint = ((System.Windows.Controls.TextBox)e).Text;
+            if (string.IsNullOrEmpty(hint))
+            {
+                var parent = VisualTreeHelper.GetParent(e) as FrameworkElement;
+                for (int up = 0; parent != null && up < 4 && string.IsNullOrEmpty(hint); up++, parent = VisualTreeHelper.GetParent(parent) as FrameworkElement)
+                    hint = Descendants(parent).OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t) && t.Length > 2);
+            }
+            hint = (hint ?? "").Replace("\n", " ");
+            return e.GetType().Name + (e.Name.Length > 0 ? "#" + e.Name : "") + " (" + (hint.Length > 40 ? hint.Substring(0, 40) + "…" : hint) + ")";
+        }
+
+        /// <summary>
+        /// Every control a person can Tab to must have a screen-reader name, and no visible wrapped paragraph may run past
+        /// Ui.MaxParaLength characters (longer help belongs behind an ⓘ button). Lines in item lists hold the person's own data.
+        /// </summary>
+        static void AuditPage(Window w, string page)
+        {
+            var unnamed = new List<string>();
+            var longText = new List<string>();
+            foreach (DependencyObject d in Descendants(w))
+            {
+                var c = d as System.Windows.Controls.Control;
+                if (c != null && c.IsVisible && c.IsEnabled && c.Focusable && System.Windows.Input.KeyboardNavigation.GetIsTabStop(c)
+                    && !(c is System.Windows.Controls.ScrollViewer) && !(c is System.Windows.Controls.ListBoxItem) && !(c is System.Windows.Controls.ComboBoxItem)
+                    && !(c is System.Windows.Controls.Primitives.Thumb) && !(c is System.Windows.Controls.Primitives.RepeatButton) && !(c is System.Windows.Controls.Frame)
+                    && c.TemplatedParent == null)
+                {
+                    var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(c);
+                    string name = peer == null ? "" : peer.GetName();
+                    if (string.IsNullOrWhiteSpace(name)) unnamed.Add(Describe(c));
+                }
+                var t = d as System.Windows.Controls.TextBlock;
+                if (t != null && t.IsVisible && t.TextWrapping != TextWrapping.NoWrap && (t.Text ?? "").Length > Ui.MaxParaLength
+                    && t.Text.IndexOf((char)0x200B) < 0   // a folder path, not prose
+                    && !Ancestors(t).Any(a => a is System.Windows.Controls.ListBoxItem || a is System.Windows.Controls.Primitives.TextBoxBase))
+                    longText.Add("[" + t.Text.Length + "] " + t.Text.Substring(0, 50) + "…");
+            }
+            Check("every control you can Tab to on " + page + " has a screen-reader name", () =>
+            {
+                if (unnamed.Count > 0) throw new InvalidOperationException(unnamed.Count + " unnamed: " + string.Join("; ", unnamed.Distinct().Take(12)));
+                return true;
+            });
+            Check("no paragraph on " + page + " runs past " + Ui.MaxParaLength + " characters", () =>
+            {
+                if (longText.Count > 0) throw new InvalidOperationException(string.Join("; ", longText.Distinct().Take(8)));
+                return true;
+            });
+        }
+
+        static IEnumerable<DependencyObject> Ancestors(DependencyObject d)
+        {
+            for (DependencyObject p = VisualTreeHelper.GetParent(d); p != null; p = VisualTreeHelper.GetParent(p)) yield return p;
         }
 
         static void Capture(Window w, string file)

@@ -92,6 +92,7 @@ namespace MacroKit.App
                 Text = string.Join(Environment.NewLine, c.Settings.ExcludedPrograms),
                 ToolTip = "One program per line, for example game.exe."
             };
+            System.Windows.Automation.AutomationProperties.SetName(excluded, "Programs where phrases never expand");
             excluded.TextChanged += (s, e) =>
             {
                 if (loading) return;
@@ -128,7 +129,8 @@ namespace MacroKit.App
                 Ui.Text("Your data is kept in", "Muted", false, 12), dataPath,
                 pathButtons,
                 links,
-                Ui.Para("Windows stops programs from typing into, or watching, programs that run as administrator. To use Macro Kit with those, run Macro Kit as administrator too. Macro Kit warns you when the window it works in runs as administrator.", "Muted", 12)));
+                Ui.Help("To use Macro Kit with programs that run as administrator, run it as administrator too.",
+                    "Windows stops programs from typing into, or watching, programs that run as administrator. Macro Kit warns you when the window it works in runs as administrator.")));
 
             // The macro editor: typed lines or key tiles. Asked once on the first launch.
             var typed = new RadioButton { Content = "Lines: one step per line, like ctrl+c or wait 50ms", GroupName = "macroEditor" };
@@ -181,6 +183,7 @@ namespace MacroKit.App
             {
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 var control = (FrameworkElement)rows[i].Value;
+                if (string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(control))) System.Windows.Automation.AutomationProperties.SetName(control, rows[i].Key);
                 var label = Ui.Text(rows[i].Key, "Muted", false, 12);
                 label.Margin = new Thickness(0, i == 0 ? 0 : 9, 0, 0);
                 label.ToolTip = control.ToolTip;
@@ -275,7 +278,8 @@ namespace MacroKit.App
             }
             else
             {
-                var pitch = Ui.Para("Everything you see works free, forever. Macro Kit Pro adds conditions in macros and scheduled macros, and supports the work on Macro Kit.", "Muted", 12);
+                var pitch = Ui.Help("Everything you see works free, forever.",
+                    "Macro Kit Pro adds conditions in macros and scheduled macros, and supports the work on Macro Kit.");
                 pitch.Margin = new Thickness(0, 4, 0, 6);
                 edition.Children.Add(pitch);
                 edition.Children.Add(Ui.Row(8,

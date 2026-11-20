@@ -52,6 +52,7 @@ namespace MacroKit.App
             if (c.InputEnabled) Probe = HotkeyProbe.IsFree;
 
             // ---- "Is it free?"
+            System.Windows.Automation.AutomationProperties.SetName(checkBox, "Keys to check");
             checkBox.ReleasesHotkeys = true;   // Macro Kit's own hotkeys must not run while you press keys here
             checkBox.Placeholder = "Click, then press keys";
             checkBox.Changed += () => Check(checkBox.Value, true);
@@ -65,7 +66,8 @@ namespace MacroKit.App
                 Ui.Para("Press keys to see which of your apps already use them.", "Muted", 12),
                 boxRow,
                 verdict,
-                Ui.Para("Keys another app grabs in every window (such as Snipline's PrtSc) may run that app instead of appearing here. Type them in the search box instead, for example ctrl+prtsc.", "Muted", 11.5)));
+                Ui.Help("A key another app grabs may never reach this box.",
+                    "Keys another app takes in every window (such as Snipline's PrtSc) may run that app instead of appearing here. Type them in the search box instead, for example ctrl+prtsc.")));
 
             // ---- apps
             var refresh = Ui.IconButton(Ui.GlyphRefresh, "Refresh", Refresh, "Small", "Read every app's shortcuts again.");
@@ -80,7 +82,7 @@ namespace MacroKit.App
             appsHeader.Children.Add(add);
             Grid.SetColumn(refresh, 2);
             appsHeader.Children.Add(refresh);
-            var appsHint = Ui.Para("Missing a program? Add app lets you type in its shortcuts.", "Muted", 11.5);
+            var appsHint = Ui.Para("Missing a program? Add app lets you type in its shortcuts.", "Muted", 12);
             var appsCard = Ui.Card(Ui.Stack(8, appsHeader, apps, appsHint));
 
             var left = Ui.Stack(0, checkCard, appsCard);
@@ -115,10 +117,10 @@ namespace MacroKit.App
             headRow.Children.Add(summary);
 
             var columns = RowGrid();
-            AddCell(columns, Ui.Text("Keys", "Muted", true, 11.5), 0);
-            AddCell(columns, Ui.Text("App", "Muted", true, 11.5), 1);
-            AddCell(columns, Ui.Text("Action", "Muted", true, 11.5), 2);
-            AddCell(columns, Ui.Text("Works in", "Muted", true, 11.5), 3);
+            AddCell(columns, Ui.Text("Keys", "Muted", true, 12), 0);
+            AddCell(columns, Ui.Text("App", "Muted", true, 12), 1);
+            AddCell(columns, Ui.Text("Action", "Muted", true, 12), 2);
+            AddCell(columns, Ui.Text("Works in", "Muted", true, 12), 3);
             columns.Margin = new Thickness(10, 8, 26, 4);
 
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
@@ -227,7 +229,7 @@ namespace MacroKit.App
                 var stack = Ui.Stack(2, top, counts);
                 if (app.Source.Length > 0)
                 {
-                    var source = Ui.Text(app.Source, "Muted", false, 11);
+                    var source = Ui.Text(app.Source, "Muted", false, 12);
                     source.FontFamily = Ui.MonoFont;
                     source.ToolTip = "Read from " + app.Source + (catalog != null ? " at " + catalog.ReadAt.ToString("t") : "");
                     source.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -235,15 +237,16 @@ namespace MacroKit.App
                 }
                 else if (app.CustomId != null)
                 {
-                    stack.Children.Add(Ui.Text("Added by you", "Muted", false, 11));
+                    stack.Children.Add(Ui.Text("Added by you", "Muted", false, 12));
                 }
                 if (app.Problem != null)
                 {
-                    var problem = Ui.Text(app.Problem, "Warn", false, 11.5, true);
+                    var problem = Ui.Text(app.Problem, "Warn", false, 12, true);
                     stack.Children.Add(problem);
                 }
                 var button = new Button { Content = stack, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 6), ToolTip = "Show only " + app.App + "'s shortcuts." };
                 button.SetResourceReference(FrameworkElement.StyleProperty, "Ghost");
+                System.Windows.Automation.AutomationProperties.SetName(button, app.App + " shortcuts");
                 string appName = app.App;
                 appCards[appName] = button;
                 button.Click += (s, e) => appFilter.SelectedItem = (appFilter.SelectedItem as string) == appName ? "All apps" : appName;
@@ -405,7 +408,7 @@ namespace MacroKit.App
             string note = k.Note;
             if (!k.Saved) note = note.Length == 0 ? "Built in" : "Built in · " + note;
             if (!k.Enabled) note = "Switched off" + (note.Length > 0 ? " · " + note : "");
-            if (note.Length > 0) action.Children.Add(Ui.Text(note, "Muted", false, 11.5, true));
+            if (note.Length > 0) action.Children.Add(Ui.Text(note, "Muted", false, 12, true));
             string clash;
             if (clashNotes.TryGetValue(k, out clash))
             {
@@ -416,7 +419,7 @@ namespace MacroKit.App
                 icon.VerticalAlignment = VerticalAlignment.Top;
                 icon.Margin = new Thickness(0, 2, 5, 0);
                 warn.Children.Add(icon);
-                var warnText = Ui.Text(clash, "Warn", false, 11.5, true);
+                var warnText = Ui.Text(clash, "Warn", false, 12, true);
                 Grid.SetColumn(warnText, 1);
                 warn.Children.Add(warnText);
                 action.Children.Add(warn);

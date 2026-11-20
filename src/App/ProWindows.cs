@@ -128,7 +128,7 @@ namespace MacroKit.App
             var row = new Grid { Margin = new Thickness(0, 8, 0, 0) };
             row.ColumnDefinitions.Add(new ColumnDefinition());
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var code = Ui.Text(item.IsPhrase ? "Phrase: type " + item.Trigger : item.Script, "Muted", false, 11.5, true);
+            var code = Ui.Text(item.IsPhrase ? "Phrase: type " + item.Trigger : item.Script, "Muted", false, 12, true);
             code.FontFamily = Ui.MonoFont;
             var text = Ui.Stack(2, Ui.Text(item.Name, "Text", true, 13), Ui.Para(item.Description, "Muted", 12), code);
             row.Children.Add(text);

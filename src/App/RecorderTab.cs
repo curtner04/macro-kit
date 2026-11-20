@@ -27,7 +27,7 @@ namespace MacroKit.App
         const int UndoDepth = 10;
         readonly TextBox listSearch = new TextBox();
         FrameworkElement recordIcon, playIcon;
-        readonly TextBlock recordHint = Ui.Text("", "Muted", false, 11), playHint = Ui.Text("", "Muted", false, 11), stopHint = Ui.Text("", "Muted", false, 11);
+        readonly TextBlock recordHint = Ui.Text("", "Muted", false, 12), playHint = Ui.Text("", "Muted", false, 12), stopHint = Ui.Text("", "Muted", false, 12);
         readonly Slider speed = new Slider { Minimum = -1, Maximum = 2, SmallChange = 0.01, LargeChange = 0.1, IsMoveToPointEnabled = true };
         readonly TextBlock speedValue = Ui.Text("", null, true);
         readonly List<KeyValuePair<double, Button>> speedChips = new List<KeyValuePair<double, Button>>();
@@ -120,6 +120,7 @@ namespace MacroKit.App
             ((FrameworkElement)transport.Children[2]).Margin = new Thickness(0);
 
             // ---- playback options
+            System.Windows.Automation.AutomationProperties.SetName(speed, "Playback speed");
             speed.ValueChanged += (s, e) => { if (!loading) SetSpeed(SnapSpeed(Math.Pow(10, speed.Value)), false); };
             foreach (double chip in new[] { 0.5, 1, 2, 5, 10 })
             {
@@ -146,6 +147,9 @@ namespace MacroKit.App
             continuous.Checked += (s, e) => RepeatChanged(RepeatMode.Continuous);
             repeatTimes.Changed += () => { if (loading) return; if (times.IsChecked != true) times.IsChecked = true; int n = repeatTimes.Value; c.EditPlayback(SelectedId, p => p.RepeatTimes = n); };
             repeatDelay.Changed += () => { if (loading) return; int ms = repeatDelay.Value; c.EditPlayback(SelectedId, p => p.RepeatDelayMs = ms); };
+            System.Windows.Automation.AutomationProperties.SetName(times, "Repeat a set number of times");
+            System.Windows.Automation.AutomationProperties.SetName(repeatTimes, "Times to repeat");
+            System.Windows.Automation.AutomationProperties.SetName(repeatDelay, "Wait between repeats, in milliseconds");
             var timesRow = Ui.Row(0, times, repeatTimes, Ui.Text("times", null));
             repeatTimes.Margin = new Thickness(2, 0, 7, 0);
             var repeatRow = Ui.Row(18, once, timesRow, continuous);
@@ -160,6 +164,7 @@ namespace MacroKit.App
                 ShowHotkeyError();
                 UpdateHints();
             };
+            System.Windows.Automation.AutomationProperties.SetName(hotkey, "Recording hotkey");
             if (!c.InputEnabled) hotkey.ToolTip = "Hotkeys are off in this session (input is turned off).";
             hotkeyError.TextWrapping = TextWrapping.Wrap;
             hotkeyError.Visibility = Visibility.Collapsed;
@@ -174,7 +179,8 @@ namespace MacroKit.App
                 onDeck,
                 Ui.Spacer(2),
                 convertButton,
-                Ui.Para("Convert to macro turns the clicks, typing and pauses into steps you can read and change on the Macros tab. Mouse movement between clicks is left out.", "Muted", 12)));
+                Ui.Help("Turns the clicks, typing and pauses into steps on the Macros tab.",
+                    "There you can read and change each step. Mouse movement between clicks is left out.")));
 
             var playback = Ui.Card(Ui.Stack(8,
                 Ui.Heading("Playback"),
@@ -190,7 +196,8 @@ namespace MacroKit.App
             autoSave.IsChecked = c.Settings.AutoSaveRecordings;
             autoSave.Click += (s, e) => { c.Settings.AutoSaveRecordings = autoSave.IsChecked == true; c.MarkDirty(SaveParts.Settings); };
             var recording = Ui.Card(Ui.Stack(8, Ui.Heading("Recording"), mouseMoves, autoSave,
-                Ui.Para("While it records, Macro Kit shrinks to a small bar: Stop keeps the take, Restart starts over, Discard throws it away. Clicks on the bar are never recorded. Macro Kit hides while it plays; Esc stops a playback, and hotkeys work from any program.", "Muted", 12)));
+                Ui.Help("Macro Kit shrinks to a small bar while it records, and hides while it plays.",
+                    "On the bar, Stop keeps the take, Restart starts over and Discard throws it away; clicks on the bar are never recorded. Esc stops a playback, and the hotkeys work from any program.")));
 
             var right = new StackPanel();
             if (!c.Settings.HotkeysChosen)
@@ -371,7 +378,7 @@ namespace MacroKit.App
             }
             head.Children.Add(Ui.Text(name, "Text", true));
             panel.Children.Add(head);
-            var sub = Ui.Text(AppController.FormatDuration(durationMs) + "  ·  " + events.ToString("N0", CultureInfo.CurrentCulture) + " events  ·  " + FormatCreated(created), "Muted", false, 11.5);
+            var sub = Ui.Text(AppController.FormatDuration(durationMs) + "  ·  " + events.ToString("N0", CultureInfo.CurrentCulture) + " events  ·  " + FormatCreated(created), "Muted", false, 12);
             sub.Margin = new Thickness(0, 2, 0, 0);
             panel.Children.Add(sub);
             return new ListBoxItem { Content = panel, Tag = id };

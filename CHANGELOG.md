@@ -1,5 +1,15 @@
 # Macro Kit changelog
 
+## 1.10.0 - 2026-11-20
+
+A calmer macro editor and easier reading, for everyone and for screen readers.
+
+- **Options as four chips**: under a macro's steps, one strip shows **Repeat**, **Window**, **Start** and **Schedule**, each with its value (*Once*, *Previous window*, *Ctrl+Alt+1 · Deck*, *Off*). A click opens only that card, a second click closes it, and Macro Kit remembers which one you had open. At the usual window size the whole macro fits without scrolling.
+- **Lines, Tiles or Code**: the Stream Deck text is now a third view beside Lines and Tiles, so the *Show code* switch is gone. Code shows the Super Macro text with **Copy**, and you can change it there.
+- **Shorter help**: each card keeps one line of help; the rest sits behind an ⓘ button you can click, or reach with Tab and open with Enter or Space.
+- **Easier to read**: small captions and notes are a little larger, and labels are no longer in capital letters.
+- **Screen readers**: every button, box, list and switch you can reach with Tab now has a name, including icon-only buttons, the option chips and the Keybinds app cards.
+
 ## 1.9.0 - 2026-11-20
 
 Quicker to set up and quicker to use from the keyboard.

@@ -41,7 +41,8 @@ namespace MacroKit.App
             this.takenNames = takenNames ?? new List<string>();
 
             var title = Ui.Heading(existing == null ? "Add an app" : "Edit " + existing.Name);
-            var intro = Ui.Para("Type in the shortcuts of a program Macro Kit cannot read by itself. They count everywhere on the tab: in the list, in the overlap warnings and in Is it free?. This only changes Macro Kit's list, never the program.", "Muted", 12);
+            var intro = Ui.Help("Type in the shortcuts of a program Macro Kit cannot read by itself.",
+                "They count everywhere on the tab: in the list, in the overlap warnings and in Is it free?. This only changes Macro Kit's list, never the program.");
             intro.Margin = new Thickness(0, 4, 0, 0);
 
             name.Text = existing != null ? existing.Name : "";
@@ -53,9 +54,9 @@ namespace MacroKit.App
             var fields = Ui.WrapRow(12, Ui.Field("App name", name), Ui.Field("Program (optional)", program));
             fields.Margin = new Thickness(0, 12, 0, 0);
 
-            var head = ShortcutRow.Columns(Ui.Text("Keys", "Muted", true, 11.5), Ui.Text("What it does", "Muted", true, 11.5), Ui.Text("Works in", "Muted", true, 11.5), new Border());
+            var head = ShortcutRow.Columns(Ui.Text("Keys", "Muted", true, 12), Ui.Text("What it does", "Muted", true, 12), Ui.Text("Works in", "Muted", true, 12), new Border());
             head.Margin = new Thickness(0, 14, 0, 4);
-            var hint = Ui.Para("Click a Keys box and press the keys, or type them, such as ctrl+shift+m, F9 or prtsc.", "Muted", 11.5);
+            var hint = Ui.Para("Click a Keys box and press the keys, or type them, such as ctrl+shift+m, F9 or prtsc.", "Muted", 12);
             var addRow = Ui.IconButton(Ui.GlyphAdd, "Add shortcut", () => { ShortcutRow row = AddRow("", "", false); row.Keys.Focus(); }, "Small");
             addRow.HorizontalAlignment = HorizontalAlignment.Left;
             addRow.Margin = new Thickness(0, 8, 0, 0);

@@ -59,6 +59,56 @@ namespace MacroKit.App
             return t;
         }
 
+        /// <summary>Longest a help paragraph may be on screen (about one line of a card); longer help goes behind an ⓘ (<see cref="Help"/>).</summary>
+        public const int MaxParaLength = 120;
+
+        /// <summary>
+        /// One short line of help with an ⓘ at its end that opens <paramref name="more"/> in a small pop-up (Enter or Space on it too).
+        /// The text is kept short so a card stays one line of help; the rest is there for whoever wants it.
+        /// </summary>
+        public static TextBlock Help(string text, string more, string foregroundKey = "Muted", double size = 12)
+        {
+            var t = Para(text, foregroundKey, size);
+            t.Inlines.Add(new System.Windows.Documents.Run(" "));
+            t.Inlines.Add(new System.Windows.Documents.InlineUIContainer(InfoButton(more)) { BaselineAlignment = BaselineAlignment.Center });
+            return t;
+        }
+
+        /// <summary>The ⓘ button on its own: a click shows <paramref name="more"/> under it; a click elsewhere or Esc closes it.</summary>
+        public static Button InfoButton(string more)
+        {
+            var b = Button(Glyph(GlyphInfo, 12, "Accent"), null, "Link", "More about this");
+            b.Padding = new Thickness(2, 0, 2, 0);
+            b.MinWidth = 0;
+            b.MinHeight = 0;
+            b.Cursor = Cursors.Hand;
+            b.Tag = more;
+            System.Windows.Automation.AutomationProperties.SetName(b, "More about this");
+            System.Windows.Automation.AutomationProperties.SetHelpText(b, more);
+            var text = Para(more, "Text", 12.5);
+            text.MaxWidth = 340;
+            var border = new Border { Child = text, CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Padding = new Thickness(12, 9, 12, 10),
+                Margin = new Thickness(0, 4, 8, 12), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 12, ShadowDepth = 2, Opacity = 0.35 } };
+            Ref(border, Border.BackgroundProperty, "Card");
+            Ref(border, Border.BorderBrushProperty, "Border");
+            var popup = new Popup { PlacementTarget = b, Placement = PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true, PopupAnimation = PopupAnimation.Fade, Child = border };
+            b.Click += (s, e) => { text.Text = b.Tag as string ?? ""; popup.IsOpen = !popup.IsOpen; };
+            b.PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape && popup.IsOpen) { e.Handled = true; popup.IsOpen = false; } };
+            return b;
+        }
+
+        /// <summary>Changes what the ⓘ at the end of a <see cref="Help"/> line says.</summary>
+        public static void SetMore(TextBlock help, string more)
+        {
+            foreach (var box in help.Inlines.OfType<System.Windows.Documents.InlineUIContainer>())
+            {
+                var b = box.Child as Button;
+                if (b == null) continue;
+                b.Tag = more;
+                System.Windows.Automation.AutomationProperties.SetHelpText(b, more);
+            }
+        }
+
         public static TextBlock Heading(string text, string styleKey = "H2")
         {
             return Style(new TextBlock { Text = text ?? "", TextWrapping = TextWrapping.Wrap }, styleKey);
@@ -114,7 +164,32 @@ namespace MacroKit.App
             if (styleKey != null) b.SetResourceReference(FrameworkElement.StyleProperty, styleKey);
             if (tooltip != null) b.ToolTip = tooltip;
             if (click != null) b.Click += (s, e) => click();
+            if (!(content is string)) NameFromContent(b, content, tooltip);
             return b;
+        }
+
+        /// <summary>
+        /// Gives a button whose content is not plain text a screen-reader name: the text in it (kept in step when one TextBlock
+        /// holds it), or else the tooltip, so an icon-only button is never read out as just "button". Icon glyphs are not text.
+        /// </summary>
+        static void NameFromContent(Button b, object content, string tooltip)
+        {
+            var texts = new List<TextBlock>();
+            CollectText(content as DependencyObject, texts);
+            if (texts.Count == 1)
+                b.SetBinding(System.Windows.Automation.AutomationProperties.NameProperty, new System.Windows.Data.Binding("Text") { Source = texts[0] });
+            else if (texts.Count > 1)
+                System.Windows.Automation.AutomationProperties.SetName(b, string.Join(" ", texts.Select(t => t.Text).Where(t => !string.IsNullOrWhiteSpace(t))));
+            else if (!string.IsNullOrWhiteSpace(tooltip))
+                System.Windows.Automation.AutomationProperties.SetName(b, tooltip);
+        }
+
+        static void CollectText(DependencyObject node, List<TextBlock> texts)
+        {
+            if (node == null) return;
+            var t = node as TextBlock;
+            if (t != null) { if (!ReferenceEquals(t.FontFamily, IconFont)) texts.Add(t); return; }
+            foreach (object child in LogicalTreeHelper.GetChildren(node)) CollectText(child as DependencyObject, texts);
         }
 
         /// <summary>A button with an icon glyph and a label.</summary>
@@ -192,6 +267,7 @@ namespace MacroKit.App
             text.Margin = new Thickness(8, 0, 0, 0);
             text.VerticalAlignment = VerticalAlignment.Center;
             box.TextChanged += (s, e) => text.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(box))) System.Windows.Automation.AutomationProperties.SetName(box, hint);
             var grid = new Grid();
             grid.Children.Add(box);
             grid.Children.Add(text);

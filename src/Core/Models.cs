@@ -309,7 +309,8 @@ namespace MacroKit.Core
         public string MacroEditor { get; set; }           // "" = not chosen yet (asked once), "Text" = type it, "Tiles" = key tiles
         public bool ShowStreamDeckCode { get; set; }      // the Macros tab shows the Super Macro text for Stream Deck
         public bool ShowAllCommands { get; set; }         // the Macros tab shows the full command palette
-        public bool ShowMacroOptions { get; set; }        // the Macros tab shows the repeat, window, hotkey and schedule cards
+        public bool ShowMacroOptions { get; set; }        // before 1.10.0: the Macros tab showed all four option cards (now unused, kept so older versions read the file)
+        public string MacroOptionsSection { get; set; }   // the Macros tab option card that is open: repeat, window, start, schedule, or "" for none
         public string RecordKeyDelays { get; set; }       // Record keystrokes: "None", "Standard" (50 ms) or "Real" (the pauses as pressed)
         public bool TrayCloseNoticeShown { get; set; }    // the first close to the tray said where Macro Kit went (shown once)
         public bool WindowMaximized { get; set; }         // the main window was maximized when last used (the size above is the normal one)

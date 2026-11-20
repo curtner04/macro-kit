@@ -249,6 +249,7 @@ namespace MacroKit.App
         {
             this.controller = controller;
             windows.ToolTip = "The windows that are open now, like the Alt+Tab list.";
+            AutomationProperties.SetName(windows, "Open windows");
             windows.DropDownOpened += (s, e) => FillWindows();
             windows.SelectionChanged += (s, e) =>
             {
@@ -261,6 +262,8 @@ namespace MacroKit.App
             var pick = Ui.IconButton(Ui.GlyphTarget, "Pick", Pick, "Ghost", "Macro Kit steps aside. Switch to the window you want and Macro Kit takes it.");
             program.ToolTip = "The program, for example Chrome.exe or EXCEL.EXE.";
             title.ToolTip = "Part of the window title. Leave empty to match any window of that program.";
+            AutomationProperties.SetName(program, "Program");
+            AutomationProperties.SetName(title, "Window title contains");
             program.TextChanged += (s, e) => Edited();
             title.TextChanged += (s, e) => Edited();
             hint = Ui.Text("", "Muted", false, 12, true);
@@ -272,7 +275,7 @@ namespace MacroKit.App
             summaryDetail = Ui.Text("", "Muted", false, 12);
             var names = Ui.Stack(1, summary, summaryDetail);
             names.VerticalAlignment = VerticalAlignment.Center;
-            foundText = new TextBlock { FontSize = 11, FontWeight = FontWeights.SemiBold };
+            foundText = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold };
             found = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 1, 8, 2), VerticalAlignment = VerticalAlignment.Center, Child = foundText, Margin = new Thickness(10, 0, 0, 0) };
             var icon = Ui.Glyph(Ui.GlyphTarget, 16, "Muted");
             icon.Margin = new Thickness(2, 0, 12, 0);
@@ -523,7 +526,7 @@ namespace MacroKit.App
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);
-            var hint = Ui.Para("Enter inserts the phrase. Esc leaves what you typed as it was.", "Muted", 11.5);
+            var hint = Ui.Para("Enter inserts the phrase. Esc leaves what you typed as it was.", "Muted", 12);
             hint.Margin = new Thickness(0, 10, 0, 0);
             panel.Children.Add(hint);
             w.Content = panel;

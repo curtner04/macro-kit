@@ -958,7 +958,8 @@ namespace MacroKit.App
 
             var dot = Ui.Shape("record", 12, "Rec");
             var title = Ui.Row(9, dot, Ui.Text("Recording keys", "Text", true, 15));
-            help = Ui.Para(UseKeyboardHook ? HookHelp : NoHookHelp, "Muted", 12);
+            help = Ui.Help("Press keys the way you want the macro to; each shortcut becomes one step. Click Done when you have finished.",
+                UseKeyboardHook ? HookMore : NoHookMore);
             var frame = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Padding = new Thickness(10, 10, 4, 4), MinHeight = 86 };
             Ui.Ref(frame, Border.BackgroundProperty, "Input");
             Ui.Ref(frame, Border.BorderBrushProperty, "Border");
@@ -1010,10 +1011,10 @@ namespace MacroKit.App
             row.Children.Add(b);
         }
 
-        const string HookHelp = "Press keys and shortcuts the way you want the macro to, including Alt+Tab, the Windows key and PrtSc. Each shortcut becomes one step, such as Ctrl + C. " +
-            "Click Done when you have finished. Only Ctrl+Alt+Delete and Win+L stay with Windows; add those by typing them.";
-        const string NoHookHelp = "Press keys and shortcuts the way you want the macro to. Each shortcut becomes one step, such as Ctrl + C. " +
-            "Click Done when you have finished. Shortcuts Windows keeps for itself, like Alt+Tab or Win+L, can't be recorded here; add those by typing them.";
+        const string HookMore = "Alt+Tab, the Windows key and PrtSc are recorded too; a shortcut becomes one step, such as Ctrl + C. " +
+            "Only Ctrl+Alt+Delete and Win+L stay with Windows; add those by typing them.";
+        const string NoHookMore = "A shortcut becomes one step, such as Ctrl + C. " +
+            "Shortcuts Windows keeps for itself, like Alt+Tab or Win+L, can't be recorded here; add those by typing them.";
 
         static Button Button(string label, Action click, string style)
         {
@@ -1090,7 +1091,7 @@ namespace MacroKit.App
             Log.Warn("The key recorder's hook stopped getting keys; it now records the keys the window gets.");
             capture.Dispose();
             capture = null;
-            help.Text = NoHookHelp;
+            Ui.SetMore(help, NoHookMore);
         }
 
         void KeyPressed(ushort key, uint time, bool repeat)

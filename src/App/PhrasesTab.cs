@@ -55,7 +55,7 @@ namespace MacroKit.App
             enabledSwitch.Click += (s, e) => c.SetPhrasesEnabled(enabledSwitch.IsChecked == true);
             if (!c.InputEnabled) enabledSwitch.ToolTip = "Typing is not watched in this session (input is turned off).";
 
-            warning = Ui.Note("PhraseExpress is also running. Both programs may expand the same trigger, so you could see the text twice. Close one of them, or use different triggers.", "Warn");
+            warning = Ui.Note("PhraseExpress is also running, so a trigger may expand twice. Close one, or use different triggers.", "Warn");
             warning.Margin = new Thickness(0, 10, 0, 0);
 
             listEmpty = Ui.Para("No phrases yet. Press New phrase, then type a trigger such as /shrug and the text to put in its place.");
@@ -123,7 +123,7 @@ namespace MacroKit.App
             pasteIt = new RadioButton { Content = "Paste the text (faster for long text)", GroupName = "method" };
             typeIt.Checked += (s, e) => Apply(p => p.Method = InsertMethod.Type);
             pasteIt.Checked += (s, e) => Apply(p => p.Method = InsertMethod.Paste);
-            var pasteNote = Ui.Para("Pasting puts your clipboard text back afterwards. Pictures and files on the clipboard are not restored.", "Muted", 11.5);
+            var pasteNote = Ui.Para("Pasting puts your clipboard text back afterwards. Pictures and files on the clipboard are not restored.", "Muted", 12);
             pasteNote.Margin = new Thickness(26, 0, 0, 0);
             matchCase = new CheckBox { Content = "Match upper and lower case exactly" };
             matchCase.Click += (s, e) => Apply(p => p.MatchCase = matchCase.IsChecked == true);
@@ -135,16 +135,17 @@ namespace MacroKit.App
             group.LostKeyboardFocus += (s, e) => { if (!loading && !group.IsKeyboardFocusWithin) RegroupKeepingSelection(); };
             group.SelectionChanged += (s, e) => { if (!loading && group.SelectedItem is string) Dispatcher.CurrentDispatcher.BeginInvoke(new Action(RegroupKeepingSelection)); };
 
-            var placeholderNote = Ui.Para("Put in the date, the time, what you copied, where the caret ends up, or a fill-in you are asked for: " + MacroKit.Phrases.Placeholders.Help + ".", "Muted", 11.5);
+            var placeholderNote = Ui.Help("Placeholders put in the date, the time, what you copied, and more.",
+                "Put in the date, the time, what you copied, where the caret ends up, or a fill-in you are asked for: " + MacroKit.Phrases.Placeholders.Help + ".");
             placeholderNote.TextWrapping = TextWrapping.Wrap;
-            preview = Ui.Para("", "Muted", 11.5);
+            preview = Ui.Para("", "Muted", 12);
             preview.Visibility = Visibility.Collapsed;
             var form = Ui.Stack(10,
                 Ui.Field("Trigger", trigger), triggerNote,
                 Ui.Field("Replacement", replacement), preview, placeholderNote,
                 Ui.Field("Group (optional)", group),
-                Ui.Stack(6, Ui.Caption("EXPAND"), immediately, afterDelimiter),
-                Ui.Stack(6, Ui.Caption("INSERT"), typeIt, pasteIt, pasteNote),
+                Ui.Stack(6, Ui.Caption("Expand"), immediately, afterDelimiter),
+                Ui.Stack(6, Ui.Caption("Insert"), typeIt, pasteIt, pasteNote),
                 Ui.Row(22, matchCase, phraseEnabled));
             triggerNote.Margin = new Thickness(0, -4, 0, 0);
             preview.Margin = new Thickness(0, -4, 0, 0);
@@ -156,7 +157,8 @@ namespace MacroKit.App
             var tryIt = Ui.Button("Try it", () => new InputCheckWindow(owner, c).ShowDialog(), "Small", c.InputEnabled ? "Check that phrases expand on this PC, with a safe test phrase." : "Not available in this session (input is turned off).");
             tryIt.IsEnabled = c.InputEnabled;
             tryIt.Margin = new Thickness(10, 0, 0, 0);
-            var howItWorks = Ui.Para("Type a trigger in any other program (Notepad, email, a browser) and it turns into its text. Phrases never expand inside Macro Kit itself.", "Muted", 12);
+            var howItWorks = Ui.Help("Type a trigger in any other program and it turns into its text.",
+                "Notepad, an email, a browser: any program but Macro Kit itself, where phrases never expand.");
             var howRow = new DockPanel { Margin = new Thickness(0, 4, 0, 0), LastChildFill = true };
             DockPanel.SetDock(tryIt, Dock.Right);
             howRow.Children.Add(tryIt);
@@ -286,7 +288,7 @@ namespace MacroKit.App
 
         static ListBoxItem MakeHeader(string name)
         {
-            var t = Ui.Text(name.ToUpperInvariant(), "Muted", true, 11);
+            var t = Ui.Text(name, "Muted", true, 12);
             t.Margin = new Thickness(0, 6, 0, 0);
             return new ListBoxItem { Content = t, Tag = name, Focusable = false, IsHitTestVisible = false, Padding = new Thickness(6, 4, 6, 2) };
         }
