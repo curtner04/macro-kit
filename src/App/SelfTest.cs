@@ -122,7 +122,13 @@ namespace MacroKit.App
             MainWindow main = shell.Main;
             UseKeybindFixtures(main.Keybinds, controller);
             controller.Pending = new Rec { Name = "Recording 2026-11-12 09:30", Created = "2026-11-12T09:30:00-05:00", DurationMs = 5600 };
-            for (int i = 0; i < 120; i++) controller.Pending.Events.Add(new RecEvent(i * 40, RecKind.Move, 50 + i, 80));
+            for (int i = 0; i < 120; i++)
+            {
+                // Mostly moves, with a few clicks and key presses, so the Trim strip has something to show.
+                RecKind kind = i % 30 == 5 ? RecKind.ButtonDown : i % 30 == 6 ? RecKind.ButtonUp : i % 20 == 12 ? RecKind.KeyDown : i % 20 == 13 ? RecKind.KeyUp : RecKind.Move;
+                int a = kind == RecKind.Move ? 50 + i : kind == RecKind.KeyDown || kind == RecKind.KeyUp ? 'A' : 0;
+                controller.Pending.Events.Add(new RecEvent(i * 40, kind, a, kind == RecKind.Move ? 80 : 0));
+            }
             controller.Pending.DurationMs = 4760;
             controller.SelectRecording(controller.Pending.Id);
             controller.RefreshRecordings();
@@ -479,6 +485,50 @@ namespace MacroKit.App
                 finally
                 {
                     controller.DeleteRecording(doomed.Id);
+                    controller.SelectRecording(before);
+                    controller.RefreshRecordings();
+                }
+                throw new Exception(detail);
+            });
+            Check("the Trim card cuts the start and end, shortens pauses, and Undo puts the recording back", () =>
+            {
+                string before = controller.Settings.SelectedRecordingId;
+                var rec = new Rec { Name = "Zed trim", DurationMs = 10000 };
+                rec.Events.AddRange(new[]
+                {
+                    new RecEvent(1000, RecKind.KeyDown, 'A', 0), new RecEvent(1050, RecKind.KeyUp, 'A', 0),
+                    new RecEvent(6000, RecKind.KeyDown, 'B', 0), new RecEvent(6050, RecKind.KeyUp, 'B', 0),
+                    new RecEvent(8000, RecKind.Move, 20, 20), new RecEvent(8000, RecKind.ButtonDown, 0, 0), new RecEvent(8020, RecKind.ButtonUp, 0, 0),
+                });
+                controller.Storage.SaveRecording(rec);
+                controller.SelectRecording(rec.Id);
+                controller.RefreshRecordings();
+                var trim = main.Recorder.Trim;
+                string detail = "";
+                try
+                {
+                    trim.Load();
+                    bool shown = trim.Shown && trim.RangeStart == 0 && trim.RangeEnd == 10000 && trim.RangeText.StartsWith("All", StringComparison.Ordinal) && !trim.TrimEnabled;
+                    trim.PressKeyOnStartHandleForTest(System.Windows.Input.Key.Right, true);
+                    bool keys = trim.RangeStart == 1000 && trim.TrimEnabled;
+                    trim.SetRangeForTest(500, 7000);
+                    trim.TrimForTest();
+                    Rec cut = controller.LoadRecording(rec.Id);
+                    bool trimmed = cut.DurationMs == 6500 && cut.Events[0].T == 500 && trim.CanUndo && trim.RangeEnd == 6500;
+                    bool pauses = trim.PauseText.StartsWith("1 pause", StringComparison.Ordinal);
+                    trim.ShortenForTest();
+                    bool shorter = controller.LoadRecording(rec.Id).DurationMs == 2050;
+                    trim.UndoForTest();
+                    bool undone1 = controller.LoadRecording(rec.Id).DurationMs == 6500;
+                    trim.UndoForTest();
+                    bool undone2 = controller.LoadRecording(rec.Id).DurationMs == 10000 && controller.LoadRecording(rec.Id).Events.Count == 7 && !trim.CanUndo;
+                    bool follow = main.Recorder.FollowWindowsShown && controller.PlaybackFor(rec.Id).FollowWindows;
+                    detail = string.Join(",", shown, keys, trimmed, pauses, shorter, undone1, undone2, follow) + " " + trim.RangeText + " / " + trim.PauseText;
+                    if (shown && keys && trimmed && pauses && shorter && undone1 && undone2 && follow) return true;
+                }
+                finally
+                {
+                    controller.DeleteRecording(rec.Id);
                     controller.SelectRecording(before);
                     controller.RefreshRecordings();
                 }

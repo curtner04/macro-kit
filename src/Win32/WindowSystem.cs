@@ -51,7 +51,7 @@ namespace MacroKit.Win32
     /// Give it the InputHook to follow focus changes as they happen; without one it still works, it just notices a focus
     /// change the next time it is asked.
     /// </summary>
-    public sealed class WindowSystem : IWindowSystem
+    public sealed class WindowSystem : IWindowSystem, IWindowProbe
     {
         const string UwpFrameClass = "ApplicationFrameWindow";
         const string UwpCoreClass = "Windows.UI.Core.CoreWindow";
@@ -62,6 +62,7 @@ namespace MacroKit.Win32
         IntPtr nameCacheWindow;
         uint nameCacheProcess;
         string nameCacheValue = "";
+        readonly Dictionary<uint, string> programByProcess = new Dictionary<uint, string>();   // for WindowAt, which runs on every recorded click
 
         public WindowSystem() { }
 
@@ -315,7 +316,7 @@ namespace MacroKit.Win32
                 elevated = Elevation.IsProcessElevated(pid);
                 elevationByProcess[pid] = elevated;
             }
-            return new WindowInfo
+            var info = new WindowInfo
             {
                 Handle = hwnd,
                 Title = TitleOf(hwnd),
@@ -324,6 +325,48 @@ namespace MacroKit.Win32
                 ClassName = className,
                 IsElevated = elevated,
             };
+            ReadBounds(hwnd, info);
+            return info;
+        }
+
+        static void ReadBounds(IntPtr hwnd, WindowInfo info)
+        {
+            Native.RECT r;
+            if (!Native.GetWindowRect(hwnd, out r)) return;
+            info.Left = r.Left;
+            info.Top = r.Top;
+            info.Width = r.Right - r.Left;
+            info.Height = r.Bottom - r.Top;
+        }
+
+        /// <summary>
+        /// The top-level window under a point, for the recorder. Sends no messages (it runs inside the mouse hook) and skips the
+        /// elevation check; the program name is cached per process.
+        /// </summary>
+        public WindowInfo WindowAt(int x, int y, out bool switchable)
+        {
+            switchable = false;
+            IntPtr child = Native.WindowFromPoint(new Native.POINT { X = x, Y = y });
+            IntPtr hwnd = child == IntPtr.Zero ? IntPtr.Zero : Native.GetAncestor(child, Native.GA_ROOT);
+            if (hwnd == IntPtr.Zero) return null;
+            WindowFacts facts = ReadFacts(hwnd);
+            switchable = WindowFilter.IsSwitchable(facts);
+            uint framePid;
+            Native.GetWindowThreadProcessId(hwnd, out framePid);
+            uint pid = RealProcessId(hwnd, facts.ClassName, framePid);
+            string program;
+            lock (gate)
+            {
+                if (!programByProcess.TryGetValue(pid, out program))
+                {
+                    if (programByProcess.Count > 200) programByProcess.Clear();
+                    program = ImageNameOf(pid);
+                    programByProcess[pid] = program;
+                }
+            }
+            var info = new WindowInfo { Handle = hwnd, Title = facts.Title, ProcessName = program, ProcessId = (int)pid, ClassName = facts.ClassName };
+            ReadBounds(hwnd, info);
+            return info;
         }
 
         string ProcessNameFor(IntPtr hwnd, string className)

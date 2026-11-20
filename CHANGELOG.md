@@ -1,5 +1,15 @@
 # Macro Kit changelog
 
+## 1.11.0 - 2026-11-20
+
+Recordings that keep working when windows move, and that you can tidy up after recording.
+
+- **Clicks follow their window**: a new recording remembers which window each click was made in (its program, title and position). When it plays, Macro Kit finds that window, waiting up to 5 seconds for it, brings it to the front and clicks the same spots in it, even if it has moved. If the window is not open, playback stops and says so ("Couldn't find “Book1 - Excel” (EXCEL.EXE)") instead of clicking blind. It is a switch in each recording's Playback card, on for new recordings. Recordings made before 1.11 play exactly as before.
+- **Convert to macro follows windows too**: the macro switches to each window first (`{{FOCUS:...}}`) and its clicks are measured from that window with the new `{{WINDOWXY:x,y}}` command (plain line: *move mouse to 50, 30 in the window*). `{{WINDOWXY}}` is Macro Kit only; Super Macro does not know it.
+- **Trim a recording**: under Playback, a strip shows the selected recording with its clicks and keys marked. Drag the two handles, or Tab to one and use the arrow keys, to cut the start and end, then press **Trim**. Nothing is left held down: a key pressed before the cut loses its release, and one still down at the end is let go there.
+- **Shorten pauses**: *Shorten pauses over 2 s to 0.5 s* (both can be changed) cuts the waiting out of a recording. A pause while a key or button is held, such as a long press or a slow drag, stays as it is.
+- **Undo** puts a trimmed or shortened recording back as it was, up to ten steps.
+
 ## 1.10.0 - 2026-11-20
 
 A calmer macro editor and easier reading, for everyone and for screen readers.

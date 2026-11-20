@@ -20,21 +20,31 @@ namespace MacroKit.Macros
         const int DoubleClickMs = 500;
         const int MaxPauseMs = 3600000;
 
-        /// <summary>The macro for a recording. <paramref name="speed"/> is its playback speed: at 2× the pauses are half as long.</summary>
-        public static MacroDef Convert(Core.Recording recording, double speed = 1)
+        /// <summary>
+        /// The macro for a recording. <paramref name="speed"/> is its playback speed: at 2× the pauses are half as long. With
+        /// <paramref name="followWindows"/>, a recording that knows its windows switches to each one ({{FOCUS}}) and clicks at spots
+        /// measured from that window ({{WINDOWXY}}), so the macro still works when the window has moved.
+        /// </summary>
+        public static MacroDef Convert(Core.Recording recording, double speed = 1, bool followWindows = true)
         {
             if (recording == null) throw new ArgumentNullException("recording");
             string name = string.IsNullOrWhiteSpace(recording.Name) ? "Recording" : recording.Name.Trim();
             return new MacroDef
             {
                 Name = name + " (from recording)",
-                Script = Script(recording.Events, speed),
+                Script = Script(recording.Events, followWindows ? recording.Windows : null, speed),
                 NewLineIsEnter = false,   // one step per line; Enter is written as {{ENTER}}
                 ShowOnDeck = false,
             };
         }
 
         public static string Script(IList<RecEvent> events, double speed = 1)
+        {
+            return Script(events, null, speed);
+        }
+
+        /// <summary>With <paramref name="windows"/> (the recording's), each window's steps start with {{FOCUS}} and use {{WINDOWXY}}.</summary>
+        public static string Script(IList<RecEvent> events, IList<RecWindow> windows, double speed)
         {
             var w = new Writer(speed > 0 && !double.IsNaN(speed) && !double.IsInfinity(speed) ? speed : 1);
             int x = 0, y = 0;              // where the pointer is in the recording
@@ -74,6 +84,11 @@ namespace MacroKit.Macros
                 {
                     case RecKind.Move:
                         x = e.A; y = e.B; havePos = true;
+                        break;
+                    case RecKind.Window:
+                        if (windows == null) break;
+                        if (e.A >= 0 && e.A < windows.Count) w.Window(e.T, windows[e.A]);
+                        else w.Screen();
                         break;
                     case RecKind.ButtonDown:
                     {
@@ -235,6 +250,8 @@ namespace MacroKit.Macros
             int lastT = -1;          // when the last step happened (-1 = nothing yet)
             int lastX = int.MinValue, lastY = int.MinValue;
             int clickIndex = -1, clickT, clickX, clickY;   // the last line, when it is a plain left click (for double clicks)
+            RecWindow window;        // the window spots are measured from, or null for the screen
+            string focused;          // what the last {{FOCUS}} named
 
             void Pause(int t, int least)
             {
@@ -282,8 +299,36 @@ namespace MacroKit.Macros
             public void MoveTo(int t, int x, int y)
             {
                 if (x == lastX && y == lastY) return;
-                Step(t, "{{MOUSEXY:" + x.ToString(CultureInfo.InvariantCulture) + "," + y.ToString(CultureInfo.InvariantCulture) + "}}", false);
+                Step(t, window == null ? MacroScript.MouseTo(x, y) : MacroScript.MouseToInWindow(x - window.Left, y - window.Top), false);
                 lastX = x; lastY = y;
+            }
+
+            /// <summary>The next clicks are in this window: switch to it, and measure spots from its top-left corner.</summary>
+            public void Window(int t, RecWindow w)
+            {
+                window = w;
+                lastX = lastY = int.MinValue;
+                string name = FocusName(w);
+                if (name.Length == 0) { window = null; return; }   // nothing to find it by: keep screen spots
+                if (name == focused) return;
+                Step(t, "{{FOCUS:" + name + "}}", false);
+                focused = name;
+            }
+
+            /// <summary>The next clicks are on the screen itself (the taskbar, the desktop).</summary>
+            public void Screen()
+            {
+                window = null;
+                focused = null;
+                lastX = lastY = int.MinValue;
+            }
+
+            // The title finds the very window; a title with characters that mean something in a macro uses the program instead.
+            static string FocusName(RecWindow w)
+            {
+                string title = (w.Title ?? "").Trim();
+                if (title.Length > 0 && title.IndexOfAny(new[] { '{', '}', '$', '\n' }) < 0) return title;
+                return (w.Program ?? "").Trim();
             }
 
             public void Click(int t, MouseButton button, int x, int y)

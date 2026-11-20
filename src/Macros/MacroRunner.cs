@@ -633,6 +633,14 @@ namespace MacroKit.Macros
                     case StepKind.MouseMoveBy:
                         Input.MouseMoveBy(step.X, step.Y);
                         break;
+                    case StepKind.MouseMoveInWindow:
+                        {
+                            IntPtr front = Windows.Foreground;
+                            WindowInfo window = front == IntPtr.Zero || Windows.IsOwnWindow(front) ? null : Windows.Describe(front);
+                            if (window == null) throw new RunStopped("Line " + step.Line + ": {{WINDOWXY}} needs a window in front to measure from. Put {{FOCUS:...}} before it.");
+                            Input.MouseMoveTo(window.Left + step.X, window.Top + step.Y);
+                            break;
+                        }
                     case StepKind.MouseMoveNormalized:
                         Input.MouseMoveNormalized(step.X, step.Y);
                         break;

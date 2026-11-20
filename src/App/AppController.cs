@@ -172,7 +172,7 @@ namespace MacroKit.App
             engine.AskForFields = AskPhraseFields;
             engine.InPasswordField = windows.FocusIsPasswordEdit;
             engine.Foreground = () => windows.Foreground;
-            recorder = new Recorder(clock);
+            recorder = new Recorder(clock) { WindowProbe = windows };
             ApplyEngineSettings();
             engine.SetPhrases(Phrases);
 
@@ -1125,7 +1125,7 @@ namespace MacroKit.App
             CancellationToken token = cts.Token;
             WarnIfTargetIsElevated(activity);
             GetOutOfTheWay(true);
-            var player = new Player(input, clock);
+            var player = new Player(input, clock, windows);
             player.Progress += p =>
             {
                 activity.Pass = p.Pass;
@@ -1386,7 +1386,8 @@ namespace MacroKit.App
         {
             Rec recording = LoadRecording(id);
             if (recording == null) { SetStatus("Pick a recording to convert first.", true); return null; }
-            MacroDef macro = RecordingToMacro.Convert(recording, PlaybackFor(recording.Id).Speed);
+            PlaybackSettings playback = PlaybackFor(recording.Id);
+            MacroDef macro = RecordingToMacro.Convert(recording, playback.Speed, playback.FollowWindows);
             if (macro.Script.Length == 0) { SetStatus("“" + recording.Name + "” has no clicks or keys, so there is nothing to turn into a macro.", true); return null; }
             string name = macro.Name;
             for (int n = 2; Macros.Any(m => string.Equals(m.Name, macro.Name, StringComparison.OrdinalIgnoreCase)); n++) macro.Name = name + " " + n;
@@ -1502,6 +1503,31 @@ namespace MacroKit.App
                 return true;
             }
             catch (Exception ex) { SetStatus("Could not put the recording back: " + ex.Message, true); return false; }
+        }
+
+        /// <summary>
+        /// Saves an edited copy of a recording (trimmed, pauses shortened, or put back by Undo) under its own id. An unsaved take
+        /// stays unsaved. Not while recording or playing. Returns false, with the reason in the status line, when it could not.
+        /// </summary>
+        public bool ReplaceRecording(Rec edited, string done)
+        {
+            if (edited == null) return false;
+            if (IsBusy) { SetStatus("Stop the recording or playback first.", true); return false; }
+            if (!RecordingExists(edited.Id)) { SetStatus("That recording is gone.", true); return false; }
+            try
+            {
+                if (Pending != null && Pending.Id == edited.Id) Pending = edited;
+                else Storage.SaveRecording(edited);
+                RefreshRecordings();
+                if (!string.IsNullOrEmpty(done)) SetStatus(done, false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Saving an edited recording failed", ex);
+                SetStatus("Could not save the recording: " + ex.Message, true);
+                return false;
+            }
         }
 
         public void ExportRecording(string id, string file)

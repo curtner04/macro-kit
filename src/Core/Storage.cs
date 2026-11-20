@@ -274,7 +274,7 @@ namespace MacroKit.Core
             if (recording == null) throw new ArgumentNullException("recording");
             lock (gate)
             {
-                if (recording.Events == null) recording.Events = new List<RecEvent>();
+                if (recording.Events == null) recording.Events = new List<RecEvent>(); if (recording.Windows == null) recording.Windows = new List<RecWindow>();
                 if (!IsSafeId(recording.Id)) recording.Id = Guid.NewGuid().ToString("N");
                 // Not saved over while it is in use, and the index is left alone too, so the two never disagree.
                 if (IsBlocked(RecordingPath(recording.Id))) throw new IOException(RecordingInUse);
@@ -345,7 +345,7 @@ namespace MacroKit.Core
             }
             if (recording.Schema > 1) throw new InvalidDataException("That recording was made by a newer version of Macro Kit.");
             recording.Id = Guid.NewGuid().ToString("N");
-            if (recording.Events == null) recording.Events = new List<RecEvent>();
+            if (recording.Events == null) recording.Events = new List<RecEvent>(); if (recording.Windows == null) recording.Windows = new List<RecWindow>();
             lock (gate) SaveRecording(recording);
             return recording;
         }
@@ -382,7 +382,7 @@ namespace MacroKit.Core
             if (recording != null)
             {
                 recording.Id = id;   // the file name is the identity
-                if (recording.Events == null) recording.Events = new List<RecEvent>();
+                if (recording.Events == null) recording.Events = new List<RecEvent>(); if (recording.Windows == null) recording.Windows = new List<RecWindow>();
             }
             return recording;
         }

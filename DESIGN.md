@@ -234,17 +234,22 @@ public sealed class AppSettings {
 Recordings:
 
 ```csharp
-public enum RecKind { Move = 0, ButtonDown = 1, ButtonUp = 2, Wheel = 3, HWheel = 4, KeyDown = 5, KeyUp = 6 }
+public enum RecKind { Move = 0, ButtonDown = 1, ButtonUp = 2, Wheel = 3, HWheel = 4, KeyDown = 5, KeyUp = 6, Window = 7 }
 public struct RecEvent { public int T; public RecKind Kind; public int A; public int B; }
 // Move: A=x, B=y (physical virtual-desktop pixels)
 // ButtonDown/ButtonUp: A=(int)MouseButton, B=0. Buttons carry no position: the recorder always writes a Move to the click point
 //   right before a button event when the last recorded position differs (also when RecordMouseMoves is off).
 // Wheel/HWheel: A=delta · KeyDown/KeyUp: A=vk, B=scan | (extended ? 0x10000 : 0)
-public sealed class Recording { int Schema = 1; string Id; string Name; string Created /* ISO 8601 local with offset */; int DurationMs; List<RecEvent> Events; }
+// Window (1.11, Schema 2): the clicks after it were made in Windows[A]; A=-1 = the screen itself (taskbar, desktop). Written right
+//   before a click's Move when the top-level window under it changes (menus of the same program keep the window). Older versions skip it.
+public sealed class RecWindow { string Program; string Title; int Left, Top, Width, Height; /* physical pixels when clicked */ }
+public sealed class Recording { int Schema = 1 /* 2 = knows windows */; string Id; string Name; string Created /* ISO 8601 local with offset */; int DurationMs; List<RecEvent> Events; List<RecWindow> Windows; }
 public sealed class RecordingInfo { string Id; string Name; string Created; int DurationMs; int EventCount; }
 ```
 
 On disk each recording event is a compact array `[t,kind,a,b]` (custom (de)serialization; recordings can hold 100k events).
+
+Playback with `PlaybackSettings.FollowWindows` (default on) finds each `RecWindow` (`Player.FindRecordedWindow`: same program and title, then a title that holds the other, then the program's only window; waits up to 5 s), activates it and shifts the clicks by how far it moved; a missing window stops playback. `RecordingEdit` (`src\Recording\RecordingEdit.cs`) trims and shortens pauses as pure functions that return a copy, which the Recorder's Trim card saves through `AppController.ReplaceRecording` and keeps for Undo.
 
 ### Storage (`src\Core\Storage.cs`, `Paths.cs`)
 
@@ -291,7 +296,7 @@ Rules:
 - Commands (args separated by `:`; coordinates by `,`; numbers are integers, may be negative where noted):
   - `{{PAUSE:ms}}` (0–3,600,000).
   - `{{KEYPRESS:KEY:count[:delayMs]}}` repeat a key; `{{KEYDOWN:KEY}}` / `{{KEYUP:KEY}}` hold and release (KEY may be any key name, including modifiers).
-  - Mouse: `{{MOUSEXY:x,y}}` absolute pixels (0,0 = top-left of the primary monitor, negatives allowed), `{{MOUSEMOVE:dx,dy}}` relative, `{{MOUSEPOS:x,y}}` deprecated normalized 0–65535, `{{MLEFTDOWN}}` `{{MLEFTUP}}` `{{MLEFTDBLCLICK}}` `{{MRIGHTDOWN}}` `{{MRIGHTUP}}` `{{MRIGHTDBLCLICK}}` `{{MMIDDLEDOWN}}` `{{MMIDDLEUP}}`, `{{MSCROLLUP[:n]}}` `{{MSCROLLDOWN[:n]}}` `{{MSCROLLLEFT[:n]}}` `{{MSCROLLRIGHT[:n]}}` (default 1 notch), `{{MSAVEPOS}}` (sets `$MOUSE_X`/`$MOUSE_Y`), `{{MLOADPOS}}`.
+  - Mouse: `{{MOUSEXY:x,y}}` absolute pixels (0,0 = top-left of the primary monitor, negatives allowed), `{{WINDOWXY:x,y}}` (1.11, Macro Kit only) pixels from the top-left corner of the foreground window (`IWindowSystem.Describe`; stops the run when no window but Macro Kit's is in front), `{{MOUSEMOVE:dx,dy}}` relative, `{{MOUSEPOS:x,y}}` deprecated normalized 0–65535, `{{MLEFTDOWN}}` `{{MLEFTUP}}` `{{MLEFTDBLCLICK}}` `{{MRIGHTDOWN}}` `{{MRIGHTUP}}` `{{MRIGHTDBLCLICK}}` `{{MMIDDLEDOWN}}` `{{MMIDDLEUP}}`, `{{MSCROLLUP[:n]}}` `{{MSCROLLDOWN[:n]}}` `{{MSCROLLLEFT[:n]}}` `{{MSCROLLRIGHT[:n]}}` (default 1 notch), `{{MSAVEPOS}}` (sets `$MOUSE_X`/`$MOUSE_Y`), `{{MLOADPOS}}`.
   - Variables (live for one run, across its repeats): `{{VARSET:name:value}}`, `{{OUTPUT:name}}` (types it; `$name` also accepted), `{{VARUNSET:name}}`, `{{VARUNSETALL}}`, `{{SETCLIPBOARD:value}}`, `{{VARSETFROMCLIPBOARD:name}}`. Inside command arguments `$Name` is replaced by the variable's value at run time; predefined `$SMCOLON` `:`, `$SMDOLLAR` `$`, `$SMLCB` `{`, `$SMRCB` `}`, `$SMSPACE` space, `$SMENTER` Enter (typed as the Enter key by OUTPUT), `$MOUSE_X`, `$MOUSE_Y`, and `$DATE` / `$TIME` (this PC's short date and time, filled in when the command runs). Unknown `$Name` → empty. `{{VARUNSETALL}}` keeps only the built-in characters.
   - Known Super Macro commands Macro Kit does not support (`INPUT`, `OUTPUTTOFILE`, `APPENDTOFILE`, `VARSETFROMFILE`, `VARSETFROMENV`, `SETICONFROMFILE`, `SETKEYTITLE`, functions, `FOR`, `WHILE`) → error "`{{INPUT}}` is a Super Macro command Macro Kit doesn't support." Unknown names → "Unknown key or command “FOO”." Errors carry the span; the runner refuses to run a script with errors.
   - Blocks (1.3, 1.4): `{{LOOP:n}}…{{ENDLOOP}}`, `{{SWITCH}}…{{OR}}…{{ENDSWITCH}}` (take turns; the turn is kept per macro and block in `MacroRunner.Turns`, in memory for the app's life), `{{RANDOM}}…{{OR}}…{{ENDRANDOM}}`, and the Pro-only `{{IF}}`/`{{IFWINDOW}}`/`{{ELSE}}`/`{{ENDIF}}`. Flow steps link through `Jump`; a switch or random start holds `Branches` (its own index and each `{{OR}}`'s). Mismatched or unclosed blocks are parse errors naming the block.

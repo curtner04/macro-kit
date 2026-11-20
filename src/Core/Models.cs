@@ -235,6 +235,8 @@ namespace MacroKit.Core
         public RepeatMode Repeat { get; set; }
         public int RepeatTimes { get; set; }
         public int RepeatDelayMs { get; set; }
+        /// <summary>Clicks follow the window they were made in: playback finds it, brings it forward and allows for where it moved.</summary>
+        public bool FollowWindows { get; set; }
 
         public PlaybackSettings()
         {
@@ -242,11 +244,12 @@ namespace MacroKit.Core
             Repeat = RepeatMode.Once;
             RepeatTimes = 2;
             RepeatDelayMs = 0;
+            FollowWindows = true;
         }
 
         public PlaybackSettings Copy()
         {
-            return new PlaybackSettings { Speed = Speed, Repeat = Repeat, RepeatTimes = RepeatTimes, RepeatDelayMs = RepeatDelayMs };
+            return new PlaybackSettings { Speed = Speed, Repeat = Repeat, RepeatTimes = RepeatTimes, RepeatDelayMs = RepeatDelayMs, FollowWindows = FollowWindows };
         }
     }
 
@@ -360,12 +363,14 @@ namespace MacroKit.Core
         }
     }
 
-    public enum RecKind { Move = 0, ButtonDown = 1, ButtonUp = 2, Wheel = 3, HWheel = 4, KeyDown = 5, KeyUp = 6 }
+    public enum RecKind { Move = 0, ButtonDown = 1, ButtonUp = 2, Wheel = 3, HWheel = 4, KeyDown = 5, KeyUp = 6, Window = 7 }
 
     /// <summary>
     /// One recorded input event. Move: A=x, B=y (physical virtual-desktop pixels).
     /// ButtonDown/ButtonUp: A=(int)MouseButton, B=0 (buttons carry no position: the recorder writes a Move to the click point first).
     /// Wheel/HWheel: A=delta. KeyDown/KeyUp: A=vk, B=scan | (extended ? 0x10000 : 0).
+    /// Window (recording format 2): the clicks after it were made in Recording.Windows[A]; A=-1 means on the screen itself
+    /// (the taskbar or the desktop), not in a window. B=0. Older versions skip it, so they play the clicks where they were.
     /// </summary>
     public struct RecEvent
     {
@@ -383,14 +388,41 @@ namespace MacroKit.Core
         }
     }
 
+    /// <summary>A window a recording clicked in: its program and title, and where it was (physical pixels) when the click was made.</summary>
+    public sealed class RecWindow
+    {
+        public string Program { get; set; }   // "EXCEL.EXE"
+        public string Title { get; set; }     // "Book1 - Excel"
+        public int Left { get; set; }
+        public int Top { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+
+        public RecWindow()
+        {
+            Program = "";
+            Title = "";
+        }
+
+        /// <summary>“Book1 - Excel” (EXCEL.EXE), or just the program when the window has no title.</summary>
+        public override string ToString()
+        {
+            string title = (Title ?? "").Trim(), program = (Program ?? "").Trim();
+            if (title.Length == 0) return program.Length == 0 ? "the window" : program;
+            return "“" + title + "”" + (program.Length == 0 ? "" : " (" + program + ")");
+        }
+    }
+
     public sealed class Recording
     {
+        /// <summary>1 = events only; 2 = it also says which window each click was made in (Windows and RecKind.Window events).</summary>
         public int Schema { get; set; }
         public string Id { get; set; }
         public string Name { get; set; }
         public string Created { get; set; }      // ISO 8601, local time with offset
         public int DurationMs { get; set; }
         public List<RecEvent> Events { get; set; }
+        public List<RecWindow> Windows { get; set; }
 
         public Recording()
         {
@@ -400,7 +432,11 @@ namespace MacroKit.Core
             Created = "";
             DurationMs = 0;
             Events = new List<RecEvent>();
+            Windows = new List<RecWindow>();
         }
+
+        /// <summary>True when the recording knows the windows its clicks were made in.</summary>
+        public bool KnowsWindows { get { return Windows != null && Windows.Count > 0; } }
 
         /// <summary>Local time with offset, for example 2026-11-12T08:41:00-05:00.</summary>
         public static string NowIso()

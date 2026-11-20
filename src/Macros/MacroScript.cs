@@ -58,6 +58,8 @@ namespace MacroKit.Macros
         }
 
         public static string MouseTo(int x, int y) { return "{{MOUSEXY:" + Pair(x, y) + "}}"; }
+        /// <summary>{{WINDOWXY:x,y}}: a spot measured from the top-left corner of the window in front (Macro Kit only).</summary>
+        public static string MouseToInWindow(int x, int y) { return "{{WINDOWXY:" + Pair(x, y) + "}}"; }
         public static string MouseBy(int dx, int dy) { return "{{MOUSEMOVE:" + Pair(dx, dy) + "}}"; }
         public static string MouseNormalized(int x, int y) { return "{{MOUSEPOS:" + Pair(x, y) + "}}"; }
 

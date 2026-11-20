@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace MacroKit.Recording
@@ -29,18 +30,33 @@ namespace MacroKit.Recording
         const int ModifierWaitMs = 3000;
         const int ModifierPollMs = 25;
         static readonly ushort[] ModifierKeys = { 0x10, 0x11, 0x12, 0x5B, 0x5C };   // Shift, Ctrl, Alt, left and right Win
+        /// <summary>How long playback waits for a recorded window to appear (like {{WAITWINDOW}}, but shorter).</summary>
+        public const int FindWindowMs = 5000;
+        const int FindWindowPollMs = 100;
+        const int ActivateMs = 2000;
 
         readonly IInputSink input;
         readonly IClock clock;
+        readonly IWindowSystem windows;
 
         public event Action<PlaybackProgress> Progress;
 
-        public Player(IInputSink input, IClock clock)
+        public Player(IInputSink input, IClock clock) : this(input, clock, null) { }
+
+        /// <summary>With <paramref name="windows"/>, clicks of a recording that knows its windows follow those windows (PlaybackSettings.FollowWindows).</summary>
+        public Player(IInputSink input, IClock clock, IWindowSystem windows)
         {
             if (input == null) throw new ArgumentNullException("input");
             if (clock == null) throw new ArgumentNullException("clock");
             this.input = input;
             this.clock = clock;
+            this.windows = windows;
+        }
+
+        /// <summary>A recorded window that is not open: playback stops instead of clicking where it used to be.</summary>
+        sealed class WindowMissingException : Exception
+        {
+            public WindowMissingException(string message) : base(message) { }
         }
 
         /// <summary>Runs the recording as the settings say. Never throws: failures come back in <see cref="RunResult.Error"/>.</summary>
@@ -78,6 +94,7 @@ namespace MacroKit.Recording
                 int delayMs = Math.Max(0, settings.RepeatDelayMs);
 
                 List<RecEvent> events = rec.Events;
+                bool follow = settings.FollowWindows && windows != null && rec.KnowsWindows;
                 int lastT = Math.Max(rec.DurationMs, events[events.Count - 1].T);
                 int passLengthMs = Scale(lastT, speed);
 
@@ -89,6 +106,7 @@ namespace MacroKit.Recording
                     if (pass > 1 && delayMs > 0) clock.Sleep(delayMs, token);
 
                     long passStart = clock.NowMs;
+                    int dx = 0, dy = 0;   // how far the window the clicks are in has moved since the recording
                     for (int i = 0; i < events.Count; i++)
                     {
                         token.ThrowIfCancellationRequested();
@@ -106,7 +124,13 @@ namespace MacroKit.Recording
                             && now >= passStart + Scale(events[i + 1].T, speed))
                             continue;
 
-                        Apply(events[i], held);
+                        if (events[i].Kind == RecKind.Window)
+                        {
+                            // Waiting for the window does not make the rest of the pass hurry to catch up.
+                            if (follow) passStart += FollowWindow(rec, events[i].A, token, ref dx, ref dy);
+                            continue;
+                        }
+                        Apply(events[i], held, dx, dy);
 
                         if (!reported || now - lastProgress >= ProgressIntervalMs)
                         {
@@ -136,6 +160,11 @@ namespace MacroKit.Recording
             catch (OperationCanceledException)
             {
                 result.Cancelled = true;
+            }
+            catch (WindowMissingException ex)
+            {
+                Log.Info("Playback stopped: " + ex.Message);
+                result.Error = "Playback stopped: " + ex.Message;
             }
             catch (Exception ex)
             {
@@ -182,12 +211,61 @@ namespace MacroKit.Recording
             return (int)Math.Round(Math.Max(0, t) / speed);
         }
 
-        void Apply(RecEvent e, HeldInput held)
+        /// <summary>
+        /// Finds the window the next clicks were made in (waiting up to <see cref="FindWindowMs"/>), brings it to the front and
+        /// sets how far it moved since the recording. Returns how long that took, in ms. -1 (the screen itself) clears the shift.
+        /// </summary>
+        long FollowWindow(Recording rec, int index, CancellationToken token, ref int dx, ref int dy)
+        {
+            dx = 0;
+            dy = 0;
+            if (index < 0 || index >= rec.Windows.Count) return 0;
+            RecWindow want = rec.Windows[index];
+            long start = clock.NowMs;
+            WindowInfo found;
+            while ((found = FindRecordedWindow(windows, want)) == null)
+            {
+                if (clock.NowMs - start >= FindWindowMs)
+                    throw new WindowMissingException("couldn't find " + want + ". Open it, or switch off Clicks follow their window to click where it used to be.");
+                clock.Sleep(FindWindowPollMs, token);
+            }
+            if (!windows.Activate(found.Handle, ActivateMs)) Log.Warn("Playback could not bring " + want + " to the front; its clicks go on.");
+            WindowInfo now = windows.Describe(found.Handle) ?? found;   // restoring a minimised window moves it
+            dx = now.Left - want.Left;
+            dy = now.Top - want.Top;
+            return clock.NowMs - start;
+        }
+
+        /// <summary>
+        /// The open window that is the recorded one: the same program with the same title; else a title that holds the other
+        /// (Notepad's "*" for unsaved changes); else the program's only window. Null when none, or when that is ambiguous.
+        /// </summary>
+        public static WindowInfo FindRecordedWindow(IWindowSystem windows, RecWindow want)
+        {
+            if (windows == null || want == null) return null;
+            IList<WindowInfo> open = windows.ListSwitchableWindows();
+            string program = (want.Program ?? "").Trim(), title = (want.Title ?? "").Trim();
+            Func<WindowInfo, bool> sameProgram = w => program.Length == 0 || string.Equals((w.ProcessName ?? "").Trim(), program, StringComparison.OrdinalIgnoreCase);
+            Func<WindowInfo, string> titleOf = w => (w.Title ?? "").Trim();
+            WindowInfo exact = open.FirstOrDefault(w => sameProgram(w) && titleOf(w) == title);
+            if (exact != null) return exact;
+            if (title.Length >= 3)
+            {
+                WindowInfo close = open.FirstOrDefault(w => sameProgram(w) && titleOf(w).Length >= 3
+                    && (titleOf(w).IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0 || title.IndexOf(titleOf(w), StringComparison.OrdinalIgnoreCase) >= 0));
+                if (close != null) return close;
+            }
+            if (program.Length == 0) return null;
+            List<WindowInfo> ofProgram = open.Where(sameProgram).ToList();
+            return ofProgram.Count == 1 ? ofProgram[0] : null;
+        }
+
+        void Apply(RecEvent e, HeldInput held, int dx, int dy)
         {
             switch (e.Kind)
             {
                 case RecKind.Move:
-                    input.MouseMoveTo(e.A, e.B);
+                    input.MouseMoveTo(e.A + dx, e.B + dy);
                     break;
                 case RecKind.ButtonDown:
                 case RecKind.ButtonUp:

@@ -32,11 +32,15 @@ namespace MacroKit.App
         readonly TextBlock speedValue = Ui.Text("", null, true);
         readonly List<KeyValuePair<double, Button>> speedChips = new List<KeyValuePair<double, Button>>();
         readonly RadioButton once, times, continuous;
+        readonly CheckBox followWindows = new CheckBox { Content = "Clicks follow their window",
+            ToolTip = "Playback finds each window the recording clicked in, brings it to the front and clicks the same spots in it, even if it has moved. If the window is not open, playback stops instead of clicking blind. Recordings made before Macro Kit 1.11 click where they always did." };
         readonly NumberBox repeatTimes, repeatDelay;
         readonly HotkeyBox hotkey = new HotkeyBox(true, 190);
         readonly TextBlock hotkeyError = Ui.Text("", "Bad", false, 12);
         readonly CheckBox onDeck = new CheckBox { Content = "Show a button for it on the Deck", ToolTip = "The Deck gets a button that plays this recording (and stops it while it plays)." };
         readonly Button convertButton;
+        /// <summary>The Trim card: cut the selected recording's start and end, shorten its pauses.</summary>
+        public readonly RecorderTrim Trim;
         readonly TextBlock playbackFor = Ui.Text("", "Muted", false, 12);
         bool loading;
         string primaryNow = "";
@@ -60,6 +64,7 @@ namespace MacroKit.App
                 UpdateButtons();
                 LoadPlayback();
                 LoadOptions();
+                Trim.QueueLoad();
             };
             // Standard list shortcuts: double-click or F2 renames, Delete deletes (and Undo delete puts it back).
             list.MouseDoubleClick += (s, e) =>
@@ -155,6 +160,7 @@ namespace MacroKit.App
             var repeatRow = Ui.Row(18, once, timesRow, continuous);
             var delayRow = Ui.Row(7, Ui.Text("Wait", "Muted", false, 12), repeatDelay, Ui.Text("ms between repeats", "Muted", false, 12));
             delayRow.ToolTip = "1000 ms = 1 second.";
+            followWindows.Click += (s, e) => { if (loading) return; bool on = followWindows.IsChecked == true; c.EditPlayback(SelectedId, p => p.FollowWindows = on); };
 
             // ---- the selected recording's own hotkey, Deck button and macro
             hotkey.Changed += () =>
@@ -187,7 +193,9 @@ namespace MacroKit.App
                 playbackFor,
                 speedHead, speed, chips,
                 Ui.Spacer(2),
-                Ui.Text("Repeat", "Muted", false, 12), repeatRow, delayRow));
+                Ui.Text("Repeat", "Muted", false, 12), repeatRow, delayRow,
+                Ui.Spacer(2),
+                followWindows));
 
             var mouseMoves = new CheckBox { Content = "Record mouse movement" , ToolTip = "Off records clicks and keys only; the cursor jumps straight to each click." };
             mouseMoves.IsChecked = c.Settings.RecordMouseMoves;
@@ -207,6 +215,8 @@ namespace MacroKit.App
             }
             right.Children.Add(Ui.Card(Ui.Stack(0, transport)));
             right.Children.Add(playback);
+            Trim = new RecorderTrim(c, () => SelectedId);
+            right.Children.Add(Trim.Card);
             right.Children.Add(options);
             right.Children.Add(recording);
             var rightScroll = new ScrollViewer { Content = right, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -219,7 +229,7 @@ namespace MacroKit.App
             grid.Children.Add(rightScroll);
             Root = grid;
 
-            c.RecordingsChanged += () => { Reload(); LoadPlayback(); LoadOptions(); };
+            c.RecordingsChanged += () => { Reload(); LoadPlayback(); LoadOptions(); Trim.QueueLoad(); };
             c.ActivityChanged += UpdateButtons;
             c.HotkeysChanged += ShowHotkeyError;
             c.Edited += parts => { if ((parts & SaveParts.Settings) != 0) UpdateHints(); };
@@ -498,6 +508,8 @@ namespace MacroKit.App
 
         /// <summary>Self-test: presses Delete; true when Undo delete is offered.</summary>
         public bool DeleteSelected() { Delete(); return undoButton.Visibility == Visibility.Visible; }
+        /// <summary>For the self test: whether "Clicks follow their window" shows as on.</summary>
+        public bool FollowWindowsShown { get { return followWindows.IsChecked == true; } }
 
         /// <summary>Self-test: presses Undo delete.</summary>
         public void UndoLastDelete() { UndoDelete(); }
@@ -550,6 +562,7 @@ namespace MacroKit.App
             once.IsChecked = p.Repeat == RepeatMode.Once;
             times.IsChecked = p.Repeat == RepeatMode.Times;
             continuous.IsChecked = p.Repeat == RepeatMode.Continuous;
+            followWindows.IsChecked = p.FollowWindows;
             loading = false;
             ShowSpeed();
         }

@@ -95,6 +95,7 @@ namespace MacroKit.Core
         public int ProcessId;
         public string ClassName;
         public bool IsElevated;      // best effort: true when the process token says elevated or cannot be read
+        public int Left, Top, Width, Height;   // where the window is, in physical pixels on the virtual desktop
 
         public override string ToString()
         {
@@ -193,6 +194,16 @@ namespace MacroKit.Core
     }
 
     /// <summary>Windows. Real: Win32.WindowSystem. Tests: Fakes.FakeWindowSystem.</summary>
+    /// <summary>
+    /// What the recorder asks on every click: the top-level window under a point. Cheap and message-free, so it can run inside the
+    /// mouse hook. Real: Win32.WindowSystem. Tests: Fakes.FakeWindowProbe.
+    /// </summary>
+    public interface IWindowProbe
+    {
+        /// <summary>The window under (x, y), or null. <paramref name="switchable"/> is true when Alt+Tab would list it (not a menu, the taskbar or the desktop).</summary>
+        WindowInfo WindowAt(int x, int y, out bool switchable);
+    }
+
     public interface IWindowSystem
     {
         IntPtr Foreground { get; }

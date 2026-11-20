@@ -20,7 +20,7 @@ namespace MacroKit.Macros
 
         static readonly HashSet<string> Commands = new HashSet<string>
         {
-            "PAUSE", "KEYPRESS", "KEYDOWN", "KEYUP", "MOUSEXY", "MOUSEMOVE", "MOUSEPOS",
+            "PAUSE", "KEYPRESS", "KEYDOWN", "KEYUP", "MOUSEXY", "MOUSEMOVE", "MOUSEPOS", "WINDOWXY",
             "MLEFTDOWN", "MLEFTUP", "MLEFTDBLCLICK", "MRIGHTDOWN", "MRIGHTUP", "MRIGHTDBLCLICK", "MMIDDLEDOWN", "MMIDDLEUP",
             "MSCROLLUP", "MSCROLLDOWN", "MSCROLLLEFT", "MSCROLLRIGHT", "MSAVEPOS", "MLOADPOS",
             "VARSET", "OUTPUT", "VARUNSET", "VARUNSETALL", "SETCLIPBOARD", "VARSETFROMCLIPBOARD"
@@ -251,6 +251,10 @@ namespace MacroKit.Macros
                     case "MOUSEXY":
                         if (!Pair(args, -100000, 100000, out x, out y)) return tag + " needs two numbers, like {{MOUSEXY:100,200}}.";
                         step.Kind = StepKind.MouseMoveTo; step.X = x; step.Y = y;
+                        return null;
+                    case "WINDOWXY":
+                        if (!Pair(args, -100000, 100000, out x, out y)) return tag + " needs two numbers, like {{WINDOWXY:100,200}}: the spot measured from the top-left corner of the window in front.";
+                        step.Kind = StepKind.MouseMoveInWindow; step.X = x; step.Y = y;
                         return null;
                     case "MOUSEMOVE":
                         if (!Pair(args, -100000, 100000, out x, out y)) return tag + " needs two numbers, like {{MOUSEMOVE:10,-5}}.";

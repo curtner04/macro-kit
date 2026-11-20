@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace MacroKit.Recording
 {
@@ -36,6 +37,19 @@ namespace MacroKit.Recording
         readonly HashSet<MouseButton> buttonsDropped = new HashSet<MouseButton>();   // downs dropped over our own window
         readonly HashSet<ushort> heldAtStart = new HashSet<ushort>();                // keys already down at Start, ignored until released
         int injectedIgnored;
+
+        // Which window the clicks are in (recording format 2). windowIndex is into windows; -1 = on the screen itself.
+        List<RecWindow> windows = new List<RecWindow>();
+        bool wroteWindow;
+        int windowIndex = -1;
+        IntPtr windowHandle;
+        int windowProcess;
+
+        /// <summary>
+        /// Says which window is under each click, so playback can find the window again (null: clicks are kept as screen positions).
+        /// Set it before Start.
+        /// </summary>
+        public IWindowProbe WindowProbe { get; set; }
 
         public Recorder(IClock clock)
         {
@@ -81,6 +95,11 @@ namespace MacroKit.Recording
                 buttonsDropped.Clear();
                 heldAtStart.Clear();
                 if (heldKeys != null) foreach (ushort vk in heldKeys) heldAtStart.Add(vk);
+                windows = new List<RecWindow>();
+                wroteWindow = false;
+                windowIndex = -1;
+                windowHandle = IntPtr.Zero;
+                windowProcess = 0;
             }
         }
 
@@ -147,6 +166,7 @@ namespace MacroKit.Recording
                             break;
                         }
                         buttonsDropped.Remove(e.Button);
+                        NoteWindow(t, e.X, e.Y);
                         MoveBeforeAction(t, e.X, e.Y);
                         buttonsDown.Add(e.Button);
                         events.Add(new RecEvent(t, RecKind.ButtonDown, (int)e.Button, 0));
@@ -177,11 +197,14 @@ namespace MacroKit.Recording
         public Recording Stop(IEnumerable<Hotkey> hotkeysToStrip)
         {
             List<RecEvent> result;
+            List<RecWindow> clickedIn;
             lock (gate)
             {
                 recording = false;
                 result = events;
                 events = new List<RecEvent>();
+                clickedIn = windows;
+                windows = new List<RecWindow>();
                 keysDown.Clear();
                 buttonsDown.Clear();
                 buttonsDropped.Clear();
@@ -199,6 +222,12 @@ namespace MacroKit.Recording
             rec.Created = Recording.NowIso();
             rec.Events = result;
             rec.DurationMs = result.Count == 0 ? 0 : Math.Max(0, result[result.Count - 1].T);
+            if (result.Any(ev => ev.Kind == RecKind.Window && ev.A >= 0))
+            {
+                rec.Windows = clickedIn;
+                rec.Schema = 2;
+            }
+            else rec.Events.RemoveAll(ev => ev.Kind == RecKind.Window);   // only screen markers: nothing to follow
             return rec;
         }
 
@@ -213,13 +242,13 @@ namespace MacroKit.Recording
             {
                 if (!recording) return false;
                 int i = events.Count - 1;
-                while (i >= 0 && events[i].Kind == RecKind.Move) i--;
+                while (i >= 0 && Passive(events[i].Kind)) i--;
                 if (i < 0 || events[i].A != (int)button) return false;
                 int down;
                 if (events[i].Kind == RecKind.ButtonUp)
                 {
                     down = i - 1;
-                    while (down >= 0 && events[down].Kind == RecKind.Move) down--;
+                    while (down >= 0 && Passive(events[down].Kind)) down--;
                     if (down < 0 || events[down].Kind != RecKind.ButtonDown || events[down].A != (int)button) return false;
                 }
                 else if (events[i].Kind == RecKind.ButtonDown && buttonsDown.Contains(button))
@@ -230,7 +259,7 @@ namespace MacroKit.Recording
                 }
                 else return false;
                 // The moves that took the pointer to the click go as well.
-                while (down > 0 && events[down - 1].Kind == RecKind.Move) down--;
+                while (down > 0 && Passive(events[down - 1].Kind)) down--;
                 events.RemoveRange(down, events.Count - down);
                 haveWritten = false;   // the next action writes its own position again
                 return true;
@@ -270,6 +299,47 @@ namespace MacroKit.Recording
                 events.Add(new RecEvent(t, RecKind.Move, x, y));
         }
 
+        /// <summary>Moves and window marks: events that do nothing by themselves.</summary>
+        static bool Passive(RecKind kind) { return kind == RecKind.Move || kind == RecKind.Window; }
+
+        /// <summary>
+        /// Before a click, notes the window under it when that is a different window than the last click's, or the same window
+        /// moved. A menu or pop-up of the same program belongs with its window; the taskbar, the desktop or another program's
+        /// pop-up is marked as the screen itself (-1), where playback clicks without moving anything.
+        /// </summary>
+        void NoteWindow(int t, int x, int y)
+        {
+            IWindowProbe probe = WindowProbe;
+            if (probe == null) return;
+            WindowInfo w;
+            bool switchable;
+            try { w = probe.WindowAt(x, y, out switchable); }
+            catch (Exception ex) { Log.Warn("Could not tell which window a click was in: " + ex.Message); return; }
+            if (w == null) return;
+            if (!switchable)
+            {
+                if (wroteWindow && w.ProcessId == windowProcess) return;
+                windowProcess = w.ProcessId;
+                if (wroteWindow && windowIndex < 0) return;
+                windowIndex = -1;
+                windowHandle = IntPtr.Zero;
+                wroteWindow = true;
+                events.Add(new RecEvent(t, RecKind.Window, -1, 0));
+                return;
+            }
+            if (w.Handle == windowHandle && windowIndex >= 0)
+            {
+                RecWindow last = windows[windowIndex];
+                if (last.Left == w.Left && last.Top == w.Top) return;
+            }
+            windows.Add(new RecWindow { Program = w.ProcessName ?? "", Title = w.Title ?? "", Left = w.Left, Top = w.Top, Width = w.Width, Height = w.Height });
+            windowIndex = windows.Count - 1;
+            windowHandle = w.Handle;
+            windowProcess = w.ProcessId;
+            wroteWindow = true;
+            events.Add(new RecEvent(t, RecKind.Window, windowIndex, 0));
+        }
+
         /// <summary>Buttons and wheel carry no position, so the cursor is moved to the click point first when needed.</summary>
         void MoveBeforeAction(int t, int x, int y)
         {
@@ -287,7 +357,7 @@ namespace MacroKit.Recording
         static void DropTrailingMoves(List<RecEvent> list)
         {
             int keep = list.Count;
-            while (keep > 0 && list[keep - 1].Kind == RecKind.Move) keep--;
+            while (keep > 0 && Passive(list[keep - 1].Kind)) keep--;
             if (keep < list.Count) list.RemoveRange(keep, list.Count - keep);
         }
 

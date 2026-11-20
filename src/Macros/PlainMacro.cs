@@ -213,8 +213,17 @@ namespace MacroKit.Macros
             if (Word(s, out rest, "move mouse to", "move the mouse to", "mouse to", "move to"))
             {
                 kind = PlainKind.Mouse;
+                bool inWindow = false;
+                foreach (string suffix in new[] { " in the window", " in window" })
+                {
+                    if (!rest.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) continue;
+                    rest = rest.Substring(0, rest.Length - suffix.Length).TrimEnd();
+                    inWindow = true;
+                    break;
+                }
                 Match m = Point.Match(rest);
                 if (!m.Success) { error = "Give the spot as two numbers, like: move mouse to 640, 400."; return null; }
+                if (inWindow) return MacroScript.MouseToInWindow(Int(m.Groups["x"].Value), Int(m.Groups["y"].Value));
                 return MacroScript.MouseTo(Int(m.Groups["x"].Value), Int(m.Groups["y"].Value));
             }
             if (Word(s, out rest, "move mouse by", "move the mouse by", "mouse by", "move by"))
@@ -632,6 +641,7 @@ namespace MacroKit.Macros
                 case StepKind.Pause: return "wait " + Ms(s.Ms);
                 case StepKind.MouseMoveTo: return "move mouse to " + s.X + ", " + s.Y;
                 case StepKind.MouseMoveBy: return "move mouse by " + s.X + ", " + s.Y;
+                case StepKind.MouseMoveInWindow: return "move mouse to " + s.X + ", " + s.Y + " in the window";
                 case StepKind.MouseDown: return "hold " + ButtonWord(s.Button) + " mouse";
                 case StepKind.MouseUp: return "release " + ButtonWord(s.Button) + " mouse";
                 case StepKind.MouseClick: return s.Button == MouseButton.Left ? "click" : ButtonWord(s.Button) + " click";
@@ -804,6 +814,7 @@ namespace MacroKit.Macros
             new[] { "click", "Left click" }, new[] { "left click", "Left click" }, new[] { "right click", "Right click" }, new[] { "double click", "Double-click" },
             new[] { "middle click", "Middle click" }, new[] { "hold left mouse", "Hold the left button" }, new[] { "release left mouse", "Let go of the left button" },
             new[] { "move mouse to 640, 400", "Move the pointer" }, new[] { "move mouse by 10, 0", "Nudge the pointer" },
+            new[] { "move mouse to 100, 50 in the window", "Move the pointer to a spot in the window in front" },
             new[] { "scroll down 3", "Mouse wheel" }, new[] { "scroll up 3", "Mouse wheel" },
             new[] { "remember mouse position", "Save where the pointer is" }, new[] { "restore mouse position", "Put the pointer back" },
             new[] { "open notepad", "Open a program, file or web page" }, new[] { "open https://", "Open a web page" },

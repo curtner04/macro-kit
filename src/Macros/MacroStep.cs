@@ -15,7 +15,9 @@ namespace MacroKit.Macros
         LoopStart, LoopEnd, If, IfWindow, Else, EndIf,
         SwitchStart, RandomStart, Or, EndSwitch, EndRandom,
         // Stream Deck-style actions. Value holds the raw argument, with $names still to be filled in at run time.
-        Open, CloseApp, PlaySound, Lock, Volume, RunMacro, FocusWindow, WaitWindow
+        Open, CloseApp, PlaySound, Lock, Volume, RunMacro, FocusWindow, WaitWindow,
+        // Macro Kit only: a spot measured from the top-left corner of the window in front ({{WINDOWXY}}).
+        MouseMoveInWindow
     }
 
     /// <summary>One parsed command (or run of literal text) of a Super Macro script.</summary>
@@ -108,6 +110,7 @@ namespace MacroKit.Macros
                 case StepKind.Pause: return "Wait " + Ms + " ms";
                 case StepKind.MouseMoveTo: return "Move mouse to " + X + ", " + Y;
                 case StepKind.MouseMoveBy: return "Move mouse by " + X + ", " + Y;
+                case StepKind.MouseMoveInWindow: return "Move mouse to " + X + ", " + Y + " in the window";
                 case StepKind.MouseMoveNormalized: return "Move mouse to " + X + ", " + Y + " (0 to 65535 scale)";
                 case StepKind.MouseDown: return "Hold " + ButtonName() + " mouse button";
                 case StepKind.MouseUp: return "Release " + ButtonName() + " mouse button";
