@@ -490,14 +490,42 @@ namespace MacroKit.App
         /// </summary>
         public static Dictionary<string, string> Fill(string trigger, IList<string> names, Action<Window> shown)
         {
+            return Ask("Fill in the phrase", "Fill in " + trigger, null, names, "Insert", "Cancel", "Enter inserts the phrase. Esc leaves what you typed as it was.", shown);
+        }
+
+        /// <summary>
+        /// 1.12.0: the question a macro's {{INPUT}} asks while it runs, in the same popup as a phrase's {fill:Name}. Returns the
+        /// answer (it may be empty), or null when the person stops the macro.
+        /// </summary>
+        public static string AskForMacro(string macroName, string name, string question, Action<Window> shown)
+        {
+            string heading = string.IsNullOrWhiteSpace(question) ? "The macro needs a value" : question.Trim();
+            string from = string.IsNullOrWhiteSpace(macroName) ? null : "From the macro \u201c" + macroName.Trim() + "\u201d.";
+            Dictionary<string, string> answers = Ask("Macro Kit: " + (string.IsNullOrWhiteSpace(macroName) ? "a macro asks" : macroName.Trim()), heading, from,
+                new[] { name }, "Continue", "Stop the macro", "Enter carries on with the macro. Esc stops it.", shown);
+            string answer;
+            return answers != null && answers.TryGetValue(name, out answer) ? answer ?? "" : null;
+        }
+
+        // One box per name, on top of everything, for a phrase's fill-ins and a macro's question.
+        static Dictionary<string, string> Ask(string title, string heading, string note, IList<string> names, string okText, string cancelText, string hintText, Action<Window> shown)
+        {
             var w = new Window
             {
-                Title = "Fill in the phrase", Width = 420, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
+                Title = title, Width = 420, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize,
                 ShowInTaskbar = true, Topmost = true, WindowStartupLocation = WindowStartupLocation.CenterScreen
             };
             Theme.Style(w);
             var panel = new StackPanel { Margin = new Thickness(22, 20, 22, 18) };
-            panel.Children.Add(Ui.Heading("Fill in " + trigger));
+            var head = Ui.Heading(heading);
+            head.TextWrapping = TextWrapping.Wrap;
+            panel.Children.Add(head);
+            if (note != null)
+            {
+                var sub = Ui.Para(note, "Muted", 12);
+                sub.Margin = new Thickness(0, 4, 0, 0);
+                panel.Children.Add(sub);
+            }
             var boxes = new List<TextBox>();
             foreach (string name in names)
             {
@@ -510,7 +538,7 @@ namespace MacroKit.App
                 panel.Children.Add(box);
             }
             Dictionary<string, string> result = null;
-            Button ok = Ui.Button("Insert", () =>
+            Button ok = Ui.Button(okText, () =>
             {
                 result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < names.Count; i++) result[names[i]] = boxes[i].Text;
@@ -518,7 +546,7 @@ namespace MacroKit.App
             }, "Primary");
             ok.MinWidth = 84;
             ok.IsDefault = true;
-            Button cancel = Ui.Button("Cancel", () => w.DialogResult = false, "Ghost");
+            Button cancel = Ui.Button(cancelText, () => w.DialogResult = false, "Ghost");
             cancel.MinWidth = 84;
             cancel.IsCancel = true;
             cancel.Margin = new Thickness(8, 0, 0, 0);
@@ -526,7 +554,7 @@ namespace MacroKit.App
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
             panel.Children.Add(buttons);
-            var hint = Ui.Para("Enter inserts the phrase. Esc leaves what you typed as it was.", "Muted", 12);
+            var hint = Ui.Para(hintText, "Muted", 12);
             hint.Margin = new Thickness(0, 10, 0, 0);
             panel.Children.Add(hint);
             w.Content = panel;

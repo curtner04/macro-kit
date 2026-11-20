@@ -90,6 +90,12 @@ namespace MacroKit.App
         readonly ComboBox closeProgram = new ComboBox { IsEditable = true, Width = 170 };
         readonly ComboBox windowName = new ComboBox { IsEditable = true, Width = 240 };
         readonly NumberBox waitWindowSeconds = new NumberBox(10, 1, 3600, 56);
+        readonly NumberBox pixelX = new NumberBox(0, -100000, 100000, 66);
+        readonly NumberBox pixelY = new NumberBox(0, -100000, 100000, 66);
+        readonly TextBox pixelColor = new TextBox { Width = 76 };
+        readonly Border pixelSwatch = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center };
+        readonly NumberBox waitPixelSeconds = new NumberBox(10, 1, 3600, 56);
+        Button pickPixel;
         readonly NumberBox volumePercent = new NumberBox(50, 0, 100, 50);
         readonly TextBox soundFile = new TextBox();
         readonly TextBox varName = new TextBox();
@@ -750,5 +756,9 @@ namespace MacroKit.App
         public string[] OpenCommandGroups { get { return groups.Where(g => g.Open && g.Root.Visibility == Visibility.Visible).Select(g => g.Id).ToArray(); } }
         /// <summary>Self test: opens every group for a screenshot without saving it; SearchCommands("") puts the saved layout back.</summary>
         public void OpenAllCommandGroups() { palette.Visibility = Visibility.Visible; foreach (CommandGroup g in groups) SetOpen(g, true, false); RefreshProCommands(); }
+        /// <summary>Self test: fills the colour row and returns what its Add would insert (null when the colour isn't valid).</summary>
+        public string ColourCommand(int x, int y, string colour, int seconds) { pixelX.Value = x; pixelY.Value = y; pixelColor.Text = colour; waitPixelSeconds.Value = seconds; return PixelToken(); }
+        /// <summary>Self test: the swatch shows the colour typed in.</summary>
+        public string SwatchColour { get { var b = pixelSwatch.Background as System.Windows.Media.SolidColorBrush; return b == null ? "" : b.Color.ToString(); } }
     }
 }

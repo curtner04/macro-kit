@@ -204,6 +204,13 @@ namespace MacroKit.Core
         WindowInfo WindowAt(int x, int y, out bool switchable);
     }
 
+    /// <summary>Reads colours off the screen for {{WAITPIXEL}}. Real: Win32.ScreenPixels. Tests: Fakes.FakeScreen.</summary>
+    public interface IScreen
+    {
+        /// <summary>The colour at screen point (x, y) as 0xRRGGBB; false when it can't be read (off every monitor, a locked screen).</summary>
+        bool TryGetPixel(int x, int y, out int rgb);
+    }
+
     public interface IWindowSystem
     {
         IntPtr Foreground { get; }

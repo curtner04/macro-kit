@@ -48,9 +48,9 @@ namespace MacroKit.App
             list.Children.Add(Group("text", "Type text and notes", "Text to type, a note to yourself", "type text string phrase comment note", BuildTextGroup()));
             list.Children.Add(Group("mouse", "Mouse", "Click, move, scroll", "mouse click left right middle double move position scroll wheel pointer cursor", BuildMouseGroup()));
             list.Children.Add(Group("apps", "Apps and websites", "Open a program, file or web page, close a program, lock the PC", "open run launch start program app exe file folder website url browser link close quit exit kill lock", BuildAppsGroup()));
-            list.Children.Add(Group("windows", "Windows", "Switch to a window, wait for one to open", "window focus activate switch bring front wait title", BuildWindowsGroup()));
+            list.Children.Add(Group("windows", "Windows", "Switch to a window, wait for one to open or for a colour", "window focus activate switch bring front wait title colour color pixel appear screen until", BuildWindowsGroup()));
             list.Children.Add(Group("media", "Media and sound", "Play, pause, skip, volume, play a sound file", "media play pause next previous track stop mute volume louder quieter sound audio wav mp3 music", BuildMediaGroup()));
-            list.Children.Add(Group("vars", "Variables and clipboard", "Remember a value, type it, use the clipboard", "variable var value set output clipboard copy remember", BuildVariablesGroup()));
+            list.Children.Add(Group("vars", "Variables and clipboard", "Remember a value, ask for one, use the clipboard", "variable var value set output clipboard copy remember input ask prompt question", BuildVariablesGroup()));
             list.Children.Add(Group("conditions", "Conditions", "Do steps only if a value or window matches", "if else condition compare window when check", BuildConditionsGroup(), Ui.Pill("PRO", "Good", "GoodBg", 10)));
             noMatches = Ui.Text("No command matches. Try another word.", "Muted", false, 12);
             noMatches.Margin = new Thickness(12, 4, 0, 6);
@@ -223,7 +223,63 @@ namespace MacroKit.App
             var waitRow = Ui.WrapRow(6, Ui.Text("Wait up to", "Muted", false, 12), waitWindowSeconds, Ui.Text("seconds for it to open", "Muted", false, 12),
                 ActionButton("Add", () => windowName.Text.Trim().Length == 0 ? null : MacroScript.WaitWindow(windowName.Text, waitWindowSeconds.Value * 1000),
                     "Wait until a window like this opens (after Open, for example), then carry on in it. The macro stops if it doesn't open in time."));
-            return Ui.Stack(4, focusRow, waitRow);
+
+            // 1.12.0: wait until a spot in the window turns a colour (a button lights up, a page finishes loading).
+            AutomationProperties.SetName(pixelX, "Colour spot, across from the window's left edge");
+            AutomationProperties.SetName(pixelY, "Colour spot, down from the window's top edge");
+            AutomationProperties.SetName(pixelColor, "Colour to wait for");
+            AutomationProperties.SetName(waitPixelSeconds, "Seconds to wait for the colour");
+            pixelX.ToolTip = "Across from the window's left edge, in pixels.";
+            pixelY.ToolTip = "Down from the window's top edge, in pixels.";
+            pixelColor.ToolTip = "The colour as #RRGGBB, such as #1E90FF. Pick fills it in. A few shades either way still counts.";
+            Ui.Ref(pixelSwatch, Border.BorderBrushProperty, "Border");
+            pixelColor.TextChanged += (s, e) => ShowSwatch();
+            ShowSwatch();
+            pickPixel = Ui.Button("Pick\u2026", PickPixel, "Small", "Point at the spot in the other window. After 3 seconds its place and colour are filled in.");
+            var pixelRow = Ui.WrapRow(6, Ui.Text("At", "Muted", false, 12), pixelX, Ui.Text(",", "Muted"), pixelY, pixelSwatch, pixelColor, pickPixel,
+                Ui.Text("up to", "Muted", false, 12), waitPixelSeconds, Ui.Text("s", "Muted", false, 12),
+                ActionButton("Add", PixelToken, "Wait until this spot in the window in front turns this colour, then carry on. The macro stops if it doesn't in time. Only Macro Kit runs this; a Stream Deck doesn't."));
+            return Ui.Stack(4, focusRow, waitRow, Ui.Stack(4, Ui.Caption("Wait until a spot turns a colour"), pixelRow));
+        }
+
+        string PixelToken()
+        {
+            int rgb;
+            if (!MacroParser.TryColor(pixelColor.Text, out rgb)) return null;
+            return MacroScript.WaitPixel(pixelX.Value, pixelY.Value, rgb, waitPixelSeconds.Value * 1000);
+        }
+
+        void ShowSwatch()
+        {
+            int rgb;
+            if (MacroParser.TryColor(pixelColor.Text, out rgb))
+                pixelSwatch.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+            else Ui.Ref(pixelSwatch, Border.BackgroundProperty, "Card2");
+        }
+
+        /// <summary>Fills the colour row from a point on the screen (the Pick button, after its countdown; the self test calls it directly).</summary>
+        internal bool FillPixelFrom(ScreenPoint p)
+        {
+            bool switchable;
+            WindowInfo window = c.WindowProbe.WindowAt(p.X, p.Y, out switchable);
+            if (window == null || c.Windows.IsOwnWindow(window.Handle))
+            {
+                c.SetStatus("Point at the other program's window, not at Macro Kit, then press Pick again.", true);
+                return false;
+            }
+            int rgb;
+            if (!c.Screen.TryGetPixel(p.X, p.Y, out rgb))
+            {
+                c.SetStatus("Macro Kit couldn't read the colour there. Try another spot.", true);
+                return false;
+            }
+            pixelX.Value = p.X - window.Left;
+            pixelY.Value = p.Y - window.Top;
+            pixelColor.Text = MacroParser.FormatColor(rgb);
+            string title = (window.Title ?? "").Trim();
+            if (switchable && title.Length > 0) windowName.Text = title;
+            c.SetStatus(pixelX.Value + ", " + pixelY.Value + " in " + (title.Length > 0 ? "\u201c" + title + "\u201d" : "that window") + " is " + pixelColor.Text + ". Press Add to wait for it.", false);
+            return true;
         }
 
         FrameworkElement BuildMediaGroup()
@@ -255,6 +311,7 @@ namespace MacroKit.App
                 ActionButton("Set", () => VarToken(n => MacroScript.SetVar(n, varValue.Text)), "Remember this value under this name."),
                 ActionButton("Type it", () => VarToken(MacroScript.OutputVar), "Type the variable's value."),
                 ActionButton("From the clipboard", () => VarToken(MacroScript.VarFromClipboard), "Remember what is on the clipboard under this name."),
+                ActionButton("Ask while running", () => VarToken(n => MacroScript.Input(n)), "While the macro runs, ask for a value in a small window and remember it under this name. To word the question, add it after a colon: {{INPUT:row:Which row?}}"),
                 ActionButton("Value to the clipboard", () => MacroScript.SetClipboard(varValue.Text), "Put the value on the clipboard."));
             return setRow;
         }
@@ -518,6 +575,24 @@ namespace MacroKit.App
             script.SelectionLength = 0;
             script.Focus();
             script.ScrollToLine(script.GetLineIndexFromCharacterIndex(script.CaretIndex));
+        }
+
+        void PickPixel()
+        {
+            if (countdown != null) return;
+            int left = 3;
+            pickPixel.Content = left + "\u2026";
+            countdown = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            countdown.Tick += (s, e) =>
+            {
+                left--;
+                if (left > 0) { pickPixel.Content = left + "\u2026"; return; }
+                countdown.Stop();
+                countdown = null;
+                pickPixel.Content = "Pick\u2026";
+                FillPixelFrom(c.Input.CursorPosition);
+            };
+            countdown.Start();
         }
 
         void PickPosition()

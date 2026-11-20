@@ -58,6 +58,16 @@ namespace MacroKit.Macros
         /// <summary>Finds another saved macro by name for {{MACRO:name}} (null = none). Called on the worker thread.</summary>
         public Func<string, MacroDef> FindMacro { get; set; }
 
+        /// <summary>Reads the screen for {{WAITPIXEL}} (null = it stops the run with a message).</summary>
+        public IScreen Screen { get; set; }
+
+        /// <summary>
+        /// Asks the person for {{INPUT}}: (macro name, variable name, question, the run's token) gives the answer, or null when they
+        /// cancel (the run then stops as if Stop was pressed). Called on the worker thread; it blocks until answered. Null = it stops
+        /// the run with a message.
+        /// </summary>
+        public Func<string, string, string, CancellationToken, string> AskForInput { get; set; }
+
         /// <summary>
         /// Which choice each {{SWITCH}} block takes next. Share one dictionary between runs so the blocks take turns from run to run
         /// (the shell keeps one for as long as Macro Kit runs). Locked while in use.
@@ -557,6 +567,55 @@ namespace MacroKit.Macros
 
             const int WaitWindowPollMs = 100;
 
+            // {{WAITPIXEL}}: the spot is measured from the window in front each time it looks, so a window that moves or comes to
+            // the front while the macro waits is still read in the right place.
+            void WaitForPixel(MacroStep step)
+            {
+                IScreen screen = owner.Screen;
+                if (screen == null) throw new RunStopped("Line " + step.Line + ": {{WAITPIXEL}} can't read the screen here.");
+                long deadline = Clock.NowMs + step.Ms;
+                int last = -1;
+                WindowInfo seen = null;   // the last window measured from
+                passBusy = true;
+                while (true)
+                {
+                    IntPtr front = Windows.Foreground;
+                    WindowInfo window = front == IntPtr.Zero || Windows.IsOwnWindow(front) ? null : Windows.Describe(front);
+                    int rgb;
+                    if (window != null)
+                    {
+                        seen = window;
+                        if (screen.TryGetPixel(window.Left + step.X, window.Top + step.Y, out rgb))
+                        {
+                            if (MacroParser.ColorsMatch(rgb, step.Color)) return;
+                            last = rgb;
+                        }
+                    }
+                    if (Clock.NowMs >= deadline)
+                    {
+                        string seconds = (step.Ms / 1000.0).ToString("0.#", CultureInfo.InvariantCulture);
+                        if (seen == null) throw new RunStopped("Line " + step.Line + ": {{WAITPIXEL}} needs a window in front to measure from. Put {{FOCUS:...}} before it.");
+                        throw new RunStopped("Line " + step.Line + ": " + step.X + ", " + step.Y + " in " + NameOf(seen) + " didn't turn "
+                            + MacroParser.FormatColor(step.Color) + " within " + seconds + " seconds" + (last >= 0 ? " (it was " + MacroParser.FormatColor(last) + ")." : "."));
+                    }
+                    Clock.Sleep(WaitWindowPollMs, token);
+                }
+            }
+
+            // {{INPUT}}: keys the macro is holding are let go first, so the answer isn't typed with Ctrl or Shift down.
+            void Ask(MacroStep step)
+            {
+                var ask = owner.AskForInput;
+                if (ask == null) throw new RunStopped("Line " + step.Line + ": {{INPUT}} can't ask a question here.");
+                ReleaseHeldInput();
+                string question = Substitute(step.Value).Trim();
+                string answer = ask(macro == null ? "" : macro.Name ?? "", step.Var, question.Length > 0 ? question : null, token);
+                token.ThrowIfCancellationRequested();
+                if (answer == null) throw new OperationCanceledException();
+                variables[step.Var] = answer;
+                passBusy = true;
+            }
+
             int LoopCount(MacroStep step)
             {
                 if (step.Var == null) return step.Count;
@@ -735,6 +794,12 @@ namespace MacroKit.Macros
                         }
                     case StepKind.WaitWindow:
                         WaitForWindow(step);
+                        break;
+                    case StepKind.WaitPixel:
+                        WaitForPixel(step);
+                        break;
+                    case StepKind.AskInput:
+                        Ask(step);
                         break;
                 }
                 if (step.SendsInput)

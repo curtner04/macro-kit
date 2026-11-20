@@ -17,7 +17,10 @@ namespace MacroKit.Macros
         // Stream Deck-style actions. Value holds the raw argument, with $names still to be filled in at run time.
         Open, CloseApp, PlaySound, Lock, Volume, RunMacro, FocusWindow, WaitWindow,
         // Macro Kit only: a spot measured from the top-left corner of the window in front ({{WINDOWXY}}).
-        MouseMoveInWindow
+        MouseMoveInWindow,
+        // 1.12.0. WaitPixel (Macro Kit only): wait until a spot in the window in front turns a colour ({{WAITPIXEL}}).
+        // AskInput: ask the person for a value while the macro runs and keep it in a variable ({{INPUT}}).
+        WaitPixel, AskInput
     }
 
     /// <summary>One parsed command (or run of literal text) of a Super Macro script.</summary>
@@ -33,6 +36,7 @@ namespace MacroKit.Macros
         public MouseButton Button;
         public bool Horizontal;        // MouseWheel
         public int Direction = 1;      // MouseWheel: +1 = up / right, -1 = down / left
+        public int Color;              // WaitPixel: the colour to wait for, as 0xRRGGBB
         public string Var;             // Variable name (without the $)
         public string Value;           // SetVar / SetClipboard: the value, with $names still to be filled in at run time
         public string Command;         // Only for a command whose numbers contain $names: its upper-case name; Args hold the raw arguments.
@@ -85,6 +89,8 @@ namespace MacroKit.Macros
                     case StepKind.RunMacro:
                     case StepKind.FocusWindow:
                     case StepKind.WaitWindow:
+                    case StepKind.WaitPixel:
+                    case StepKind.AskInput:
                         return false;
                     default:
                         return true;
@@ -149,6 +155,8 @@ namespace MacroKit.Macros
                 case StepKind.RunMacro: return "Run the macro “" + Shorten(Value) + "”";
                 case StepKind.FocusWindow: return "Switch to the window “" + Shorten(Value) + "”";
                 case StepKind.WaitWindow: return "Wait for the window “" + Shorten(Value) + "” (up to " + Seconds(Ms) + ")";
+                case StepKind.WaitPixel: return "Wait until " + X + ", " + Y + " in the window is " + MacroParser.FormatColor(Color) + " (up to " + Seconds(Ms) + ")";
+                case StepKind.AskInput: return "Ask for $" + Var + (string.IsNullOrEmpty(Value) ? "" : ": “" + Shorten(Value) + "”");
             }
             return Kind.ToString();
         }

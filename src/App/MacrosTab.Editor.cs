@@ -257,8 +257,16 @@ namespace MacroKit.App
         void CopyCode()
         {
             if (current == null || string.IsNullOrEmpty(current.Script)) { c.SetStatus("There is no code to copy yet.", true); return; }
-            try { Clipboard.SetText(current.Script); c.SetStatus("Stream Deck code copied. Paste it into a Super Macro action.", false); }
+            try { Clipboard.SetText(current.Script); c.SetStatus(CopiedMessage(current.Script), false); }
             catch (Exception ex) { c.SetStatus("Could not copy: " + ex.Message, true); }
+        }
+
+        /// <summary>1.12.0: the copy message warns about commands a Stream Deck's Super Macro action doesn't know.</summary>
+        internal static string CopiedMessage(string script)
+        {
+            IList<string> only = MacroParser.MacroKitOnlyCommands(script);
+            if (only.Count == 0) return "Stream Deck code copied. Paste it into a Super Macro action.";
+            return "Stream Deck code copied. " + string.Join(" and ", only.Select(n => "{{" + n + "}}")) + (only.Count == 1 ? " only runs" : " only run") + " in Macro Kit, not on a Stream Deck.";
         }
 
         /// <summary>The palette adds to the Super Macro text in the Code view (the only editor showing there), otherwise to the steps.</summary>

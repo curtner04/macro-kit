@@ -482,7 +482,7 @@ namespace MacroKit.Tests
         [Test]
         public static void UnsupportedCommandsSayTheyAreNotSupported()
         {
-            Assert.Equal("{{INPUT}} is a Super Macro command Macro Kit doesn't support.", Error("{{INPUT}}").Message);
+            Assert.Equal("{{OUTPUTTOFILE}} is a Super Macro command Macro Kit doesn't support.", Error("{{OUTPUTTOFILE}}").Message);
             foreach (string name in new[] { "OUTPUTTOFILE", "APPENDTOFILE", "VARSETFROMFILE", "VARSETFROMENV", "SETICONFROMFILE", "SETKEYTITLE" })
             {
                 ParseError e = Error("{{" + name + ":whatever}}");

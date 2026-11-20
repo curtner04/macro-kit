@@ -162,6 +162,20 @@ namespace MacroKit.Macros
         public static string SetClipboard(string value) { return "{{SETCLIPBOARD:" + Arg(value, false) + "}}"; }
         public static string VarFromClipboard(string name) { return "{{VARSETFROMCLIPBOARD:" + name + "}}"; }
 
+        /// <summary>{{INPUT:name}} or {{INPUT:name:question}}: ask for a value while the macro runs and keep it in $name.</summary>
+        public static string Input(string name, string question = null)
+        {
+            string q = Arg((question ?? "").Trim(), false);
+            return "{{INPUT:" + name + (q.Length > 0 ? ":" + q : "") + "}}";
+        }
+
+        /// <summary>{{WAITPIXEL:x,y:#RRGGBB}}: wait until a spot in the window in front turns a colour (Macro Kit only).</summary>
+        public static string WaitPixel(int x, int y, int rgb, int timeoutMs)
+        {
+            return "{{WAITPIXEL:" + Pair(x, y) + ":" + MacroParser.FormatColor(rgb)
+                + (timeoutMs != MacroParser.DefaultWaitPixelMs ? ":" + timeoutMs.ToString(CultureInfo.InvariantCulture) : "") + "}}";
+        }
+
         /// <summary>
         /// A value written inside a command. A } would end the command, so it is written as $SMRCB, which the run fills back in.
         /// For a literal value (a path, a web address, a name) a $ is written as $SMDOLLAR so it isn't read as a variable;

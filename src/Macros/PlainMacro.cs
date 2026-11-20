@@ -126,6 +126,8 @@ namespace MacroKit.Macros
         }
 
         static readonly Regex Duration = new Regex(@"^(?<n>\d+(?:\.\d+)?)\s*(?<u>ms|msec|msecs|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        static readonly Regex PixelLine = new Regex(@"^(?<c>#?[0-9A-Fa-f]{6})\s+at\s+(?<x>-?\d+)\s*(?:,\s*|\s+)(?<y>-?\d+)(?:\s+in(?:\s+the)?\s+window)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        static readonly Regex AskLine = new Regex(@"^\$(?<v>[A-Za-z0-9_]+)(?:\s+(?<q>.+))?$", RegexOptions.Compiled);
         static readonly Regex TrailingDuration = new Regex(@"^(?<rest>.+?)\s+(?:up to\s+|for\s+)?(?<d>\d+(?:\.\d+)?\s*(?:ms|msec|msecs|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?))$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         static readonly Regex Count = new Regex(@"^(?<rest>.+?)\s*(?:(?:x|×)\s*(?<n>\d+)|(?<n>\d+)\s*(?:times?|x|×))$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         static readonly Regex Every = new Regex(@"^(?<rest>.+?)[\s,]+(?:every\s+(?<d>[\d.]+\s*[a-z]*)|(?<d>[\d.]+\s*[a-z]*)\s+apart)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -166,6 +168,22 @@ namespace MacroKit.Macros
                 string text = Unquote(rest);
                 if (text.Length == 0) { error = "There is nothing between the quotes to type."; return null; }
                 return MacroScript.Text(text);
+            }
+            if (Word(s, out rest, "wait for colour", "wait for color", "wait for the colour", "wait for the color", "wait until colour", "wait until color"))
+            {
+                // 1.12.0: "wait for colour #1E90FF at 120, 40 in the window 5s"
+                kind = PlainKind.Wait;
+                int ms = MacroParser.DefaultWaitPixelMs;
+                Match d = TrailingDuration.Match(rest);
+                if (d.Success && TryDuration(d.Groups["d"].Value, out ms)) rest = d.Groups["rest"].Value.Trim();
+                Match c = PixelLine.Match(rest);
+                int rgb, x, y;
+                if (!c.Success || !MacroParser.TryColor(c.Groups["c"].Value, out rgb)
+                    || !int.TryParse(c.Groups["x"].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out x)
+                    || !int.TryParse(c.Groups["y"].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out y))
+                { error = "Say the colour and the spot in the window, like: wait for colour #1E90FF at 120, 40 in the window 5s."; return null; }
+                if (ms < 100) { error = "Wait at least 100 ms for a colour."; return null; }
+                return MacroScript.WaitPixel(x, y, rgb, ms);
             }
             if (Word(s, out rest, "wait for window", "wait for the window", "wait for"))
             {
@@ -304,6 +322,15 @@ namespace MacroKit.Macros
                     return MacroScript.Volume(n);
                 error = "Give a level from 0 to 100, like: volume 40%, or a change, like: volume +10.";
                 return null;
+            }
+            if (Word(s, out rest, "ask for", "ask"))
+            {
+                // 1.12.0: "ask for $row" or "ask for $row "Which row?""
+                kind = PlainKind.Variable;
+                Match a = AskLine.Match(rest);
+                if (!a.Success) { error = "Say which value to ask for, like: ask for $row \"Which row?\"."; return null; }
+                string question = Unquote(a.Groups["q"].Value.Trim());
+                return MacroScript.Input(a.Groups["v"].Value, question);
             }
             if (Word(s, out rest, "switch to", "focus", "go to window", "activate"))
             {
@@ -657,6 +684,14 @@ namespace MacroKit.Macros
                 case StepKind.UnsetAllVars: return "forget all variables";
                 case StepKind.SetClipboard: return "set clipboard to " + QuoteIfNeeded(s.Value, false);
                 case StepKind.VarFromClipboard: return "set $" + s.Var + " = clipboard";
+                case StepKind.WaitPixel:
+                    return "wait for colour " + MacroParser.FormatColor(s.Color) + " at " + s.X + ", " + s.Y + " in the window" + (s.Ms == MacroParser.DefaultWaitPixelMs ? "" : " " + Ms(s.Ms));
+                case StepKind.AskInput:
+                    {
+                        if (string.IsNullOrEmpty(s.Value)) return "ask for $" + s.Var;
+                        string question = Literal(s.Value);
+                        return question == null || question.IndexOf('"') >= 0 ? null : "ask for $" + s.Var + " \"" + question + "\"";
+                    }
                 case StepKind.LoopStart: return s.Var != null ? "repeat $" + s.Var + " times" : "repeat " + s.Count + " times";
                 case StepKind.LoopEnd: return "end repeat";
                 case StepKind.If: return Regex.IsMatch(s.Left + " " + s.Right, @"\bcontains\b", RegexOptions.IgnoreCase) ? null : "if " + s.Left + " " + s.Op + " " + s.Right;
@@ -809,6 +844,8 @@ namespace MacroKit.Macros
             new[] { "copy", "Ctrl+C" }, new[] { "paste", "Ctrl+V" }, new[] { "cut", "Ctrl+X" }, new[] { "select all", "Ctrl+A" },
             new[] { "type \"\"", "Type text" }, new[] { "wait 50ms", "Pause" }, new[] { "wait 1s", "Pause a second" },
             new[] { "wait for Notepad 10s", "Wait for a window to open" },
+            new[] { "wait for colour #1E90FF at 100, 50 in the window", "Wait until a spot in the window turns a colour" },
+            new[] { "ask for $name \"\"", "Ask for a value while the macro runs" },
             new[] { "space 10 times every 100ms", "Press a key several times" },
             new[] { "hold shift", "Hold a key down" }, new[] { "release shift", "Let go of a held key" },
             new[] { "click", "Left click" }, new[] { "left click", "Left click" }, new[] { "right click", "Right click" }, new[] { "double click", "Double-click" },

@@ -23,13 +23,16 @@ namespace MacroKit.Macros
             "PAUSE", "KEYPRESS", "KEYDOWN", "KEYUP", "MOUSEXY", "MOUSEMOVE", "MOUSEPOS", "WINDOWXY",
             "MLEFTDOWN", "MLEFTUP", "MLEFTDBLCLICK", "MRIGHTDOWN", "MRIGHTUP", "MRIGHTDBLCLICK", "MMIDDLEDOWN", "MMIDDLEUP",
             "MSCROLLUP", "MSCROLLDOWN", "MSCROLLLEFT", "MSCROLLRIGHT", "MSAVEPOS", "MLOADPOS",
-            "VARSET", "OUTPUT", "VARUNSET", "VARUNSETALL", "SETCLIPBOARD", "VARSETFROMCLIPBOARD"
+            "VARSET", "OUTPUT", "VARUNSET", "VARUNSETALL", "SETCLIPBOARD", "VARSETFROMCLIPBOARD", "WAITPIXEL", "INPUT"
         };
+
+        /// <summary>Commands only Macro Kit runs: a Stream Deck Super Macro action doesn't know them.</summary>
+        public static readonly string[] MacroKitOnly = { "WINDOWXY", "WAITPIXEL" };
 
         // Super Macro commands that need files, prompts or program flow. Macro Kit leaves them out on purpose.
         static readonly HashSet<string> Unsupported = new HashSet<string>
         {
-            "INPUT", "OUTPUTTOFILE", "APPENDTOFILE", "VARSETFROMFILE", "VARSETFROMENV", "SETICONFROMFILE", "SETKEYTITLE",
+            "OUTPUTTOFILE", "APPENDTOFILE", "VARSETFROMFILE", "VARSETFROMENV", "SETICONFROMFILE", "SETKEYTITLE",
             "FUNCTION", "ENDFUNCTION", "CALL", "FOR", "ENDFOR", "WHILE", "ENDWHILE"
         };
 
@@ -48,6 +51,46 @@ namespace MacroKit.Macros
 
         /// <summary>How long {{WAITWINDOW}} waits when the script doesn't say.</summary>
         public const int DefaultWaitWindowMs = 10000;
+
+        /// <summary>How long {{WAITPIXEL}} waits when the script doesn't say.</summary>
+        public const int DefaultWaitPixelMs = 10000;
+
+        /// <summary>How far each of red, green and blue may be off for {{WAITPIXEL}} to count a colour as the same (0 to 255).</summary>
+        public const int PixelTolerance = 10;
+
+        /// <summary>Reads "#1E90FF" or "1E90FF" as 0x1E90FF.</summary>
+        public static bool TryColor(string text, out int rgb)
+        {
+            rgb = 0;
+            text = (text ?? "").Trim();
+            if (text.StartsWith("#", StringComparison.Ordinal)) text = text.Substring(1);
+            return text.Length == 6 && text.All(Uri.IsHexDigit) && int.TryParse(text, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out rgb);
+        }
+
+        /// <summary>0x1E90FF as "#1E90FF".</summary>
+        public static string FormatColor(int rgb) { return "#" + (rgb & 0xFFFFFF).ToString("X6", CultureInfo.InvariantCulture); }
+
+        /// <summary>True when each of red, green and blue is within <see cref="PixelTolerance"/>.</summary>
+        public static bool ColorsMatch(int a, int b)
+        {
+            for (int shift = 0; shift <= 16; shift += 8)
+            {
+                if (Math.Abs(((a >> shift) & 0xFF) - ((b >> shift) & 0xFF)) > PixelTolerance) return false;
+            }
+            return true;
+        }
+
+        /// <summary>The Macro Kit-only commands a script uses ("WINDOWXY", "WAITPIXEL"), in the order they first appear.</summary>
+        public static IList<string> MacroKitOnlyCommands(string script)
+        {
+            var found = new List<string>();
+            foreach (Match m in Regex.Matches(script ?? "", @"\{\{\s*([A-Za-z]+)\s*[:}]"))
+            {
+                string name = m.Groups[1].Value.ToUpperInvariant();
+                if (MacroKitOnly.Contains(name) && !found.Contains(name)) found.Add(name);
+            }
+            return found;
+        }
 
         /// <summary>
         /// Splits {{RUN}}'s argument into what to open and its arguments. A target in double quotes may be followed by arguments
@@ -306,6 +349,23 @@ namespace MacroKit.Macros
                         if (args.Length == 0) return tag + " needs the text to put on the clipboard, like {{SETCLIPBOARD:hello}}.";
                         step.Kind = StepKind.SetClipboard; step.Value = string.Join(":", args);
                         return null;
+
+                    case "INPUT":
+                        // {{INPUT:name}} or {{INPUT:name:The question to ask}}
+                        if (args.Length == 0 || args[0].Length == 0) return tag + " needs a variable name, like {{INPUT:order}}, and optionally a question, like {{INPUT:order:Which order number?}}.";
+                        if (!ValidName(ref args[0])) return NameProblem(tag);
+                        step.Kind = StepKind.AskInput; step.Var = args[0]; step.Value = string.Join(":", args.Skip(1)).Trim();
+                        return null;
+
+                    case "WAITPIXEL":
+                        // {{WAITPIXEL:x,y:#RRGGBB}} or {{WAITPIXEL:x,y:#RRGGBB:5000}}, x and y measured from the window in front
+                        int rgb;
+                        if (args.Length < 2 || args.Length > 3 || !Pair(new[] { args[0] }, -100000, 100000, out x, out y) || !TryColor(args[1], out rgb))
+                            return tag + " needs a spot in the window and a colour, like {{WAITPIXEL:120,40:#1E90FF}}, and optionally a time limit in ms, like {{WAITPIXEL:120,40:#1E90FF:5000}}.";
+                        n = DefaultWaitPixelMs;
+                        if (args.Length == 3 && !Number(args[2], 100, MaxPauseMs, out n)) return "The time limit in " + tag + " must be a whole number of milliseconds from 100 to 3,600,000.";
+                        step.Kind = StepKind.WaitPixel; step.X = x; step.Y = y; step.Color = rgb; step.Ms = n;
+                        return null;
                 }
                 return "Unknown key or command “" + name + "”.";
             }
@@ -461,11 +521,11 @@ namespace MacroKit.Macros
                 string rawName = (colon < 0 ? body : body.Substring(0, colon)).Trim();
                 string name = rawName.ToUpperInvariant();
                 string[] args = colon < 0 ? new string[0] : body.Substring(colon + 1).Split(':').Select(a => a.Trim()).ToArray();
-                if (colon >= 0 && (name == "VARSET" || name == "SETCLIPBOARD"))
+                if (colon >= 0 && (name == "VARSET" || name == "SETCLIPBOARD" || name == "INPUT"))
                 {
                     // The text of a value is exact: spaces at its ends and around inner colons stay. Only a variable name is trimmed.
                     string[] exact = content.Substring(content.IndexOf(':') + 1).Split(':');
-                    if (name == "VARSET") exact[0] = exact[0].Trim();
+                    if (name != "SETCLIPBOARD") exact[0] = exact[0].Trim();
                     args = exact;
                 }
 

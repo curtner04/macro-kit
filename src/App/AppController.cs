@@ -109,6 +109,11 @@ namespace MacroKit.App
         public bool IsUnsaved { get { return unsaved; } }
         public IWindowSystem Windows { get { return windows; } }
         public IInputSink Input { get { return input; } }
+        /// <summary>Reads screen colours ({{WAITPIXEL}} and the palette's colour Pick).</summary>
+        public IScreen Screen { get { return screen; } }
+        /// <summary>The window under a screen point (the palette's colour Pick).</summary>
+        public IWindowProbe WindowProbe { get { return windows; } }
+        readonly IScreen screen = new ScreenPixels();
         public bool HookRunning { get { return hook != null && hook.IsRunning; } }
 
         // Raised on the UI thread.
@@ -925,6 +930,8 @@ namespace MacroKit.App
             // {{MACRO:name}} looks among copies taken now, so edits made while the run goes on can't change it halfway.
             List<MacroDef> others = Macros.Select(m => Json.Deserialize<MacroDef>(Json.Serialize(m))).ToList();
             runner.FindMacro = wanted => others.FirstOrDefault(m => string.Equals((m.Name ?? "").Trim(), wanted, StringComparison.OrdinalIgnoreCase));
+            runner.Screen = screen;
+            runner.AskForInput = AskMacroInput;
             runner.Progress += p => OnMacroProgress(activity, p);
             // The runner calls this once the window it runs in is in front and before its first step.
             runner.TargetReady = ready => HideForRun(activity, ready);
@@ -995,6 +1002,52 @@ namespace MacroKit.App
                 catch (Exception ex) { Log.Warn("Could not go back to the window after the fill-in prompt: " + ex.Message); }
             }
             return answers;
+        }
+
+        // Worker thread (a macro run). Shows the {{INPUT}} question on the UI thread and waits for it, then puts the focus back on
+        // the window the macro runs in. Stop closes the question. Like AskPhraseFields it posts and waits, so Exit never waits on it.
+        string AskMacroInput(string macroName, string name, string question, CancellationToken token)
+        {
+            if (disposed) return null;
+            IntPtr back = windows.Foreground;
+            string answer = null;
+            System.Windows.Window shownWindow = null;
+            var done = new ManualResetEventSlim(false);
+            try
+            {
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (!disposed && !token.IsCancellationRequested) answer = Dialogs.AskForMacro(macroName, name, question, w =>
+                        {
+                            shownWindow = w;
+                            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(w).Handle;
+                            try { windows.Activate(hwnd, 500); } catch (Exception ex) { Log.Warn("Could not bring the macro's question forward: " + ex.Message); }
+                        });
+                    }
+                    catch (Exception ex) { Log.Warn("The macro's question failed: " + ex.Message); }
+                    finally { done.Set(); }
+                }));
+            }
+            catch (Exception) { return null; }   // the dispatcher is shutting down
+            bool closing = false;
+            while (!done.Wait(100))
+            {
+                if (disposed) return null;
+                if (token.IsCancellationRequested && !closing)
+                {
+                    closing = true;
+                    try { dispatcher.BeginInvoke(new Action(() => { if (shownWindow != null && shownWindow.IsVisible) shownWindow.Close(); })); }
+                    catch (Exception) { return null; }
+                }
+            }
+            if (answer != null && back != IntPtr.Zero && !token.IsCancellationRequested)
+            {
+                try { windows.Activate(back, 1000); windows.WaitUntilReady(back, 1000); }
+                catch (Exception ex) { Log.Warn("Could not go back to the window after the macro's question: " + ex.Message); }
+            }
+            return answer;
         }
 
         // ---- recordings

@@ -1,5 +1,13 @@
 # Macro Kit changelog
 
+## 1.12.0 - 2026-11-20
+
+Macros that wait for the screen and ask you for what they need.
+
+- **Wait for a colour**: a macro can wait until a spot in a window turns a colour, such as a Save button lighting up or a progress bar turning green, then carry on. The spot is measured from the window in front, so it still works when the window moves. In the commands panel, Windows has a new row: press **Pick…**, point at the spot, and after 3 seconds Macro Kit fills in the spot, its colour and the window. It waits 10 seconds unless you say; if the colour never comes, the macro stops and says what colour the spot was instead. Plain line: *wait for colour #1E90FF at 120, 40 in the window 5s*; code: `{{WAITPIXEL:120,40:#1E90FF:5000}}`.
+- **Ask while running**: `{{INPUT:row:Which row?}}` (plain line: *ask for $row "Which row?"*) stops to ask for a value in the same small window phrases use for fill-ins, then uses your answer as `$row`. **Continue** or Enter carries on; **Stop the macro** or Esc stops it. Any keys the macro was holding are let go first. It is under Variables in the commands panel as **Ask while running**.
+- **Copy says what a Stream Deck can't run**: copying a macro's code now notes when it uses `{{WAITPIXEL}}` or `{{WINDOWXY}}`, which only Macro Kit runs.
+
 ## 1.11.0 - 2026-11-20
 
 Recordings that keep working when windows move, and that you can tidy up after recording.

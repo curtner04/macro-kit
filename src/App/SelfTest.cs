@@ -1355,6 +1355,21 @@ namespace MacroKit.App
                 if (main.Macros.VisibleCommandGroups != 10) throw new Exception(main.Macros.VisibleCommandGroups + " groups after clearing the search");
                 if (string.Join(",", main.Macros.OpenCommandGroups) != string.Join(",", saved) || !c.Settings.OpenCommandGroups.SequenceEqual(saved)) throw new Exception("the saved open groups changed");
             });
+            Step("the colour row adds {{WAITPIXEL}}, and copying it says only Macro Kit runs it", () =>
+            {
+                main.Macros.SearchCommands("colour");
+                if (string.Join(",", main.Macros.OpenCommandGroups) != "windows") throw new Exception("colour showed " + string.Join(",", main.Macros.OpenCommandGroups));
+                main.Macros.SearchCommands("ask");
+                if (!main.Macros.OpenCommandGroups.Contains("vars")) throw new Exception("ask showed " + string.Join(",", main.Macros.OpenCommandGroups));
+                main.Macros.SearchCommands("");
+                string token = main.Macros.ColourCommand(120, 40, "1e90ff", 5);
+                if (token != "{{WAITPIXEL:120,40:#1E90FF:5000}}") throw new Exception("Add gave " + token);
+                if (main.Macros.SwatchColour != "#FF1E90FF") throw new Exception("the swatch shows " + main.Macros.SwatchColour);
+                if (main.Macros.ColourCommand(1, 2, "blue", 10) != null) throw new Exception("a colour name was accepted");
+                string copied = MacrosTab.CopiedMessage("{{FOCUS:Excel}}" + token);
+                if (!copied.Contains("{{WAITPIXEL}} only runs in Macro Kit")) throw new Exception("copy said: " + copied);
+                if (MacrosTab.CopiedMessage("{{CTRL}{C}}").Contains("only")) throw new Exception("a plain copy warned");
+            });
             Step("parse preview counts steps and problems", () =>
             {
                 main.Macros.SetScript("{{CTRL}{C}}{{PAUSE:50}}");
