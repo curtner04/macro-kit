@@ -201,6 +201,8 @@ namespace MacroKit.App
                 Settings.ExamplesAdded = true;
                 if (!readOnlyFiles.Contains("settings.json")) MarkDirty(SaveParts.Settings);
             }
+            // A brand-new setup asks once which hotkeys to use (the Recorder's "Pick your hotkeys" card); an existing one never does.
+            if (!storage.SettingsFromFile && !readOnlyFiles.Contains("settings.json")) Settings.HotkeysChosen = false;
             storageWarningsShown = storage.Warnings.Count;   // the shell shows these at startup
         }
 
@@ -1452,7 +1454,7 @@ namespace MacroKit.App
             catch (Exception ex) { SetStatus("Could not rename the recording: " + ex.Message, true); }
         }
 
-        public void DeleteRecording(string id)
+        public bool DeleteRecording(string id)
         {
             try
             {
@@ -1462,8 +1464,44 @@ namespace MacroKit.App
                 Settings.RecordingSettings.RemoveAll(o => o.Id == id);
                 MarkDirty(SaveParts.Settings);
                 RefreshRecordings();
+                return true;
             }
-            catch (Exception ex) { SetStatus("Could not delete the recording: " + ex.Message, true); }
+            catch (Exception ex) { SetStatus("Could not delete the recording: " + ex.Message, true); return false; }
+        }
+
+        /// <summary>A deleted recording kept in memory, with its own hotkey, Deck button and playback, so Undo can put it back.</summary>
+        public sealed class RemovedRecording
+        {
+            public Rec Recording;
+            public RecordingOptions Options;
+            public bool WasPending;
+        }
+
+        /// <summary>Deletes a recording and returns what Undo needs to put it back; null when it is gone or could not be deleted.</summary>
+        public RemovedRecording RemoveRecording(string id)
+        {
+            Rec recording = LoadRecording(id);
+            if (recording == null) { SetStatus("That recording is gone.", true); return null; }
+            var removed = new RemovedRecording { Recording = recording, Options = OptionsFor(id), WasPending = Pending != null && Pending.Id == id };
+            return DeleteRecording(id) ? removed : null;
+        }
+
+        /// <summary>Puts a deleted recording back under its own id, with its hotkey, Deck button and playback, and selects it.</summary>
+        public bool RestoreRecording(RemovedRecording removed)
+        {
+            if (removed == null || removed.Recording == null) return false;
+            try
+            {
+                // An unsaved take comes back unsaved, unless a newer take has taken its place meanwhile: then it is saved.
+                if (removed.WasPending && Pending == null) Pending = removed.Recording;
+                else Storage.SaveRecording(removed.Recording);
+                if (removed.Options != null && OptionsFor(removed.Recording.Id) == null) Settings.RecordingSettings.Add(removed.Options);
+                Settings.SelectedRecordingId = removed.Recording.Id;
+                RefreshRecordings();               // listed again first, so its hotkey counts when the settings change below
+                MarkDirty(SaveParts.Settings);
+                return true;
+            }
+            catch (Exception ex) { SetStatus("Could not put the recording back: " + ex.Message, true); return false; }
         }
 
         public void ExportRecording(string id, string file)

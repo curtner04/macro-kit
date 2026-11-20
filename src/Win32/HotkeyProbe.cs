@@ -24,5 +24,21 @@ namespace MacroKit.Win32
             }
             return Marshal.GetLastWin32Error() == Native.ERROR_HOTKEY_ALREADY_REGISTERED ? false : (bool?)null;
         }
+
+        /// <summary>
+        /// True when the current keyboard layout types a character for Ctrl+Alt plus this key (AltGr, as Polish AltGr+S types ś).
+        /// A Ctrl+Alt hotkey on that key would swallow the character in every program.
+        /// </summary>
+        public static bool TypesWithAltGr(ushort vk)
+        {
+            var state = new byte[256];
+            state[Native.VK_CONTROL] = 0x80;
+            state[Native.VK_MENU] = 0x80;
+            var buffer = new char[8];
+            IntPtr layout = Native.GetKeyboardLayout(0);
+            uint scan = Native.MapVirtualKeyExW(vk, 0, layout);   // MAPVK_VK_TO_VSC
+            int count = Native.ToUnicodeEx(vk, scan, state, buffer, buffer.Length, Native.ToUnicodeNoStateChange, layout);
+            return count != 0 && (count < 0 || buffer[0] >= ' ');   // a dead key counts too; control characters do not
+        }
     }
 }

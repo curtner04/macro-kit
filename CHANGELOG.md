@@ -1,5 +1,15 @@
 # Macro Kit changelog
 
+## 1.9.0 - 2026-11-20
+
+Quicker to set up and quicker to use from the keyboard.
+
+- **Pick your hotkeys**: a new setup asks once, at the top of the Recorder, which keys to use for Record, Play, Stop and the Deck: the shorter Ctrl+Alt+R, P, S, D; F13 to F16 for a Stream Deck, keypad or programmable mouse; or the usual Ctrl+Shift+Alt+R, P, S, D. The shorter set is not offered when your keyboard types a character with AltGr and one of those keys, or another program already uses one. An existing setup keeps its keys and never sees the question; Settings can change them any time.
+- **Keyboard shortcuts**: Ctrl+1 to Ctrl+5 and Ctrl+Tab switch tabs, Ctrl+F goes to the search box, Ctrl+N adds a phrase or macro, and F5 plays the selected recording or runs the selected macro. Tooltips name each shortcut.
+- **Delete a recording and undo it**: Delete (the button or the Delete key) takes a recording away straight away, and **Undo delete** puts it back with its hotkey, Deck button and playback settings. The Macros list takes the Delete key too.
+- **Tidier recordings list**: Duplicate, Export file and Import file moved into a ⋯ menu, so the list's buttons fit on one line even in the smallest window.
+- **Where your data is**: Settings > About shows the whole data folder path, wrapped instead of cut off, with **Open folder** and **Copy path** beside it.
+
 ## 1.8.0 - 2026-11-19
 
 A large clean-up release: many small fixes and clearer wording on every tab, and more care that nothing you saved is lost.

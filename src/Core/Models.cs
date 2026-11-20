@@ -313,10 +313,12 @@ namespace MacroKit.Core
         public string RecordKeyDelays { get; set; }       // Record keystrokes: "None", "Standard" (50 ms) or "Real" (the pauses as pressed)
         public bool TrayCloseNoticeShown { get; set; }    // the first close to the tray said where Macro Kit went (shown once)
         public bool WindowMaximized { get; set; }         // the main window was maximized when last used (the size above is the normal one)
+        public bool HotkeysChosen { get; set; }           // false only on a brand-new setup, until the Recorder's "Pick your hotkeys" card is answered
 
         public AppSettings()
         {
             Schema = 1;
+            HotkeysChosen = true;   // a settings file from before 1.9.0 has no such field: its owner already has their keys
             RecordHotkey = "Ctrl+Shift+Alt+R";
             PlayHotkey = "Ctrl+Shift+Alt+P";
             StopHotkey = "Ctrl+Shift+Alt+S";

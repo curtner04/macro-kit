@@ -444,6 +444,115 @@ namespace MacroKit.App
                 if (!ok) throw new Exception(detail);
                 return true;
             });
+            Check("Delete takes a recording away without asking, and Undo delete puts it back with its hotkey", () =>
+            {
+                string before = controller.Settings.SelectedRecordingId;
+                var doomed = new Rec { Name = "Zed undo" };
+                controller.Storage.SaveRecording(doomed);
+                controller.RefreshRecordings();
+                string detail = "";
+                try
+                {
+                    controller.SetRecordingHotkey(doomed.Id, "Ctrl+Alt+F9");
+                    controller.SelectRecording(doomed.Id);
+                    controller.RefreshRecordings();
+                    bool undoShown = main.Recorder.DeleteSelected();
+                    bool gone = controller.Recordings.All(r => r.Id != doomed.Id) && controller.OptionsFor(doomed.Id) == null;
+                    bool listed = main.Recorder.ListButtons.Contains("Undo delete");
+                    main.Recorder.UndoLastDelete();
+                    RecordingOptions back = controller.OptionsFor(doomed.Id);
+                    bool restored = controller.Recordings.Any(r => r.Id == doomed.Id) && back != null && back.Hotkey == "Ctrl+Alt+F9"
+                        && controller.Settings.SelectedRecordingId == doomed.Id && !main.Recorder.ListButtons.Contains("Undo delete");
+                    detail = string.Join(",", undoShown, gone, listed, restored);
+                    if (undoShown && gone && listed && restored) return true;
+                }
+                finally
+                {
+                    controller.DeleteRecording(doomed.Id);
+                    controller.SelectRecording(before);
+                    controller.RefreshRecordings();
+                }
+                throw new Exception(detail);
+            });
+            Check("the recording list's buttons fit on one line at the smallest window, with the rest behind ⋯", () =>
+            {
+                var probe = new Rec { Name = "Zed row" };
+                controller.Storage.SaveRecording(probe);
+                controller.SelectRecording(probe.Id);
+                controller.RefreshRecordings();
+                try
+                {
+                    main.SelectTab(0);
+                    main.Width = MainWindow.MinimumWidth;
+                    main.Height = MainWindow.MinimumHeight;
+                    Settle(main);
+                    List<string> names = main.Recorder.ListButtons;
+                    var row = (System.Windows.Controls.Panel)main.Recorder.ListButtonRow;
+                    var tops = row.Children.OfType<FrameworkElement>().Where(b => b.Visibility == Visibility.Visible)
+                        .Select(b => Math.Round(b.TranslatePoint(new Point(0, 0), row).Y)).Distinct().ToList();
+                    if (!names.Contains("More") || names.Contains("Duplicate") || names.Contains("Export file…") || tops.Count != 1)
+                        throw new Exception(string.Join("|", names) + " rows=" + tops.Count);
+                    return true;
+                }
+                finally
+                {
+                    main.Width = 1040;
+                    main.Height = 720;
+                    Settle(main);
+                    controller.DeleteRecording(probe.Id);
+                    controller.RefreshRecordings();
+                }
+            });
+            Check("Ctrl+number and Ctrl+Tab switch tabs, and Ctrl+F is taken on a page with a search", () =>
+            {
+                var C = System.Windows.Input.ModifierKeys.Control;
+                var CS = System.Windows.Input.ModifierKeys.Control | System.Windows.Input.ModifierKeys.Shift;
+                try
+                {
+                    bool two = main.Shortcut(System.Windows.Input.Key.D2, C) && main.CurrentPage == 1;
+                    bool next = main.Shortcut(System.Windows.Input.Key.Tab, C) && main.CurrentPage == 2;
+                    bool back = main.Shortcut(System.Windows.Input.Key.Tab, CS) && main.CurrentPage == 1;
+                    bool find = main.Shortcut(System.Windows.Input.Key.F, C);
+                    bool one = main.Shortcut(System.Windows.Input.Key.D1, C) && main.CurrentPage == 0;
+                    bool plain = !main.Shortcut(System.Windows.Input.Key.F, System.Windows.Input.ModifierKeys.None);   // typing an f is left alone
+                    if (!(two && next && back && find && one && plain)) throw new Exception(string.Join(",", two, next, back, find, one, plain));
+                    return true;
+                }
+                finally { main.SelectTab(0); }
+            });
+            Check("the first-run hotkey card sets all four hotkeys and goes away; an older settings file never shows it", () =>
+            {
+                string[] was = { controller.Settings.RecordHotkey, controller.Settings.PlayHotkey, controller.Settings.StopHotkey, controller.Settings.DeckHotkey };
+                bool wasChosen = controller.Settings.HotkeysChosen;
+                try
+                {
+                    bool shownMatches = main.Recorder.HotkeyCardShown == !wasChosen;
+                    bool oldFile = new AppSettings().HotkeysChosen;
+                    main.Recorder.ChooseHotkeyPreset(1);
+                    bool set = controller.Settings.RecordHotkey == "F13" && controller.Settings.PlayHotkey == "F14" && controller.Settings.StopHotkey == "F15"
+                        && controller.Settings.DeckHotkey == "F16" && controller.Settings.HotkeysChosen && !main.Recorder.HotkeyCardShown;
+                    bool valid = RecorderTab.HotkeyPresets.All(p => p.All(k => { Hotkey h; return Hotkey.TryParse(k, out h) && h.IsValidGlobal && h.ToString() == k; }));
+                    if (!(shownMatches && oldFile && set && valid)) throw new Exception(string.Join(",", shownMatches, oldFile, set, valid));
+                    return true;
+                }
+                finally
+                {
+                    controller.Settings.RecordHotkey = was[0];
+                    controller.Settings.PlayHotkey = was[1];
+                    controller.Settings.StopHotkey = was[2];
+                    controller.Settings.DeckHotkey = was[3];
+                    controller.Settings.HotkeysChosen = wasChosen;
+                    controller.MarkDirty(SaveParts.Settings);
+                }
+            });
+            Check("About shows the whole data folder path, wrapped rather than cut off", () =>
+            {
+                string root = controller.Storage.DataRoot ?? "";
+                string shown = main.Settings.DataPathShown;
+                string tail = root.Length > 20 ? root.Substring(root.Length - 20) : root;
+                if (shown.Length == 0 || !shown.EndsWith(tail, StringComparison.OrdinalIgnoreCase)) throw new Exception(shown);
+                return true;
+            });
 
             Step("the status popup goes where it was dragged and back to the corner on reset", () =>
             {

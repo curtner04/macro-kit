@@ -104,15 +104,18 @@ namespace MacroKit.App
                 excluded));
 
             // ---- about
-            // The folder's own name, with the full path in the tooltip and behind Open data folder; a long path wrapped over several lines.
+            // The path in full (%LOCALAPPDATA% shortened), wrapped at its backslashes rather than cut off, with Open and Copy beside it.
             string root = c.Storage.DataRoot ?? "";
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string shortRoot = local.Length > 0 && root.StartsWith(local, StringComparison.OrdinalIgnoreCase) ? "%LOCALAPPDATA%" + root.Substring(local.Length) : root;
-            var data = Ui.Text(shortRoot, "Text", false, 12);
-            data.FontFamily = Ui.MonoFont;
-            data.TextTrimming = TextTrimming.CharacterEllipsis;
-            data.ToolTip = root;
-            var links = Ui.Row(8, Ui.Button("Open data folder", openDataFolder, "Small", "Show the folder where your settings, phrases, macros and recordings are kept."),
+            dataPath = Ui.Text(shortRoot.Replace(@"\", "\\" + ZeroWidthSpace), "Text", false, 12, true);   // a zero-width space after each \ lets it wrap there
+            dataPath.FontFamily = Ui.MonoFont;
+            dataPath.ToolTip = root;
+            System.Windows.Automation.AutomationProperties.SetName(dataPath, root);
+            var pathButtons = Ui.Row(8,
+                Ui.Button("Open folder", openDataFolder, "Small", "Show the folder where your settings, phrases, macros and recordings are kept."),
+                Ui.Button("Copy path", () => CopyDataPath(root), "Small", "Copy the folder's full path, to paste into Explorer or a message."));
+            var links = Ui.Row(8,
                 Ui.Button("Changelog", showChangelog, "Small", "What changed in each version."),
                 Ui.Button("Check input", () => new InputCheckWindow(Window.GetWindow(Root), c).ShowDialog(), "Small", "Checks that Windows lets Macro Kit send keys and see your typing on this PC."));
             string readOnly = c.ReadOnlyNotice();
@@ -122,7 +125,8 @@ namespace MacroKit.App
                 Ui.Heading("About"),
                 readOnlyNote,
                 edition,
-                Ui.Text("Your data is kept in", "Muted", false, 12), data,
+                Ui.Text("Your data is kept in", "Muted", false, 12), dataPath,
+                pathButtons,
                 links,
                 Ui.Para("Windows stops programs from typing into, or watching, programs that run as administrator. To use Macro Kit with those, run Macro Kit as administrator too. Macro Kit warns you when the window it works in runs as administrator.", "Muted", 12)));
 
@@ -191,10 +195,28 @@ namespace MacroKit.App
             return grid;
         }
 
+        const char ZeroWidthSpace = '​';
+        TextBlock dataPath;
+
+        /// <summary>The About card's data folder as shown, without the zero-width wrap points.</summary>
+        public string DataPathShown { get { return dataPath == null ? "" : dataPath.Text.Replace(ZeroWidthSpace.ToString(), ""); } }
+
+        void CopyDataPath(string root)
+        {
+            try
+            {
+                Clipboard.SetText(root);
+                c.SetStatus("Copied the data folder's path.");
+            }
+            catch (Exception ex) { c.SetStatus("Could not copy the path: " + ex.Message, true); }   // another program can hold the clipboard
+        }
+
         void AddHotkey(StackPanel panel, string key, string label, Func<string> get, Action<string> set)
         {
             var box = new HotkeyBox(true, 200);
             box.SetText(get());
+            // The Recorder's first-run card can change these too; a box being typed in is left alone.
+            c.Edited += parts => { if ((parts & SaveParts.Settings) != 0 && !box.IsKeyboardFocusWithin) box.SetText(get()); };
             System.Windows.Automation.AutomationProperties.SetName(box, label);
             box.Changed += () =>
             {

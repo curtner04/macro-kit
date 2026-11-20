@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -18,6 +19,8 @@ namespace MacroKit.App
         readonly AppController c;
         readonly AppShell shell;
         readonly RadioButton[] tabButtons = new RadioButton[5];
+        // Page indexes in the order the tabs are shown (Global Keybinds is page 4 but sits before Settings).
+        static readonly int[] shownOrder = { 0, 1, 2, 4, 3 };
         readonly FrameworkElement[] pages = new FrameworkElement[5];
         readonly TextBlock status = Ui.Text("", "Muted", false, 12.5);
         // Clears an ordinary status message after a while, so an old one is never read as news; errors stay until replaced.
@@ -96,7 +99,6 @@ namespace MacroKit.App
             // Page indexes are what Settings.SelectedTab remembers, so Global Keybinds is page 4 although it is shown before Settings.
             string[] names = { "Recorder", "Phrases", "Macros", "Settings", "Global Keybinds" };
             FrameworkElement[] roots = { Recorder.Root, Phrases.Root, Macros.Root, Settings.Root, Keybinds.Root };
-            int[] shownOrder = { 0, 1, 2, 4, 3 };
             var tabRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(22, 8, 22, 0) };
             var content = new Grid { Margin = new Thickness(22, 0, 22, 0) };
             for (int i = 0; i < names.Length; i++)
@@ -110,7 +112,12 @@ namespace MacroKit.App
                 roots[i].Visibility = Visibility.Collapsed;
                 content.Children.Add(roots[i]);
             }
-            foreach (int index in shownOrder) tabRow.Children.Add(tabButtons[index]);
+            for (int position = 0; position < shownOrder.Length; position++)
+            {
+                RadioButton tab = tabButtons[shownOrder[position]];
+                tab.ToolTip = names[shownOrder[position]] + " (Ctrl+" + (position + 1) + ")";
+                tabRow.Children.Add(tab);
+            }
             var rule = new Border { Height = 1, Margin = new Thickness(22, 0, 22, 0) };
             Ui.Ref(rule, Border.BackgroundProperty, "Border");
 
@@ -154,6 +161,72 @@ namespace MacroKit.App
             LocationChanged += (s, e) => RememberPlacement();
             StateChanged += (s, e) => RememberMaximized();
             Closing += OnClosing;
+            KeyDown += OnShortcutKey;
+        }
+
+        // KeyDown bubbles up from the focused control, so a box that uses the key itself (a hotkey box, the step editor's
+        // suggestions) has it first and marks it handled. Ctrl+Tab gets here before WPF's own focus moving, which runs afterwards.
+        void OnShortcutKey(object sender, KeyEventArgs e)
+        {
+            if (e.Handled || Keyboard.FocusedElement is HotkeyBox) return;
+            e.Handled = Shortcut(e.Key == Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers);
+        }
+
+        /// <summary>
+        /// The window's keyboard shortcuts: Ctrl+1 to 5 and Ctrl+Tab (Shift goes back) switch tabs, Ctrl+F goes to the tab's search box,
+        /// Ctrl+N makes a new phrase or macro, F5 plays the recording or runs the macro. True when the key was one of them.
+        /// </summary>
+        public bool Shortcut(Key key, ModifierKeys modifiers)
+        {
+            int current = CurrentPage;
+            if (modifiers == ModifierKeys.Control && (key >= Key.D1 && key <= Key.D5 || key >= Key.NumPad1 && key <= Key.NumPad5))
+            {
+                int position = key >= Key.NumPad1 ? key - Key.NumPad1 : key - Key.D1;
+                if (position >= shownOrder.Length || tabButtons[shownOrder[position]].Visibility != Visibility.Visible) return false;
+                tabButtons[shownOrder[position]].IsChecked = true;
+                return true;
+            }
+            if (key == Key.Tab && (modifiers == ModifierKeys.Control || modifiers == (ModifierKeys.Control | ModifierKeys.Shift)))
+            {
+                int step = (modifiers & ModifierKeys.Shift) != 0 ? -1 : 1;
+                int at = Array.IndexOf(shownOrder, current);
+                for (int tries = 0; tries < shownOrder.Length; tries++)
+                {
+                    at = (at + step + shownOrder.Length) % shownOrder.Length;
+                    if (tabButtons[shownOrder[at]].Visibility == Visibility.Visible) { tabButtons[shownOrder[at]].IsChecked = true; return true; }
+                }
+                return false;
+            }
+            if (modifiers == ModifierKeys.Control && key == Key.F)
+            {
+                if (current == 0) Recorder.FocusSearch();
+                else if (current == 1) Phrases.FocusSearch();
+                else if (current == 2) Macros.FocusSearch();
+                else if (current == 4) Keybinds.FocusSearch();
+                else return false;
+                return true;
+            }
+            if (modifiers == ModifierKeys.Control && key == Key.N)
+            {
+                if (current == 1) Phrases.AddNew();
+                else if (current == 2) Macros.PressNew();
+                else return false;
+                return true;
+            }
+            if (modifiers == ModifierKeys.None && key == Key.F5)
+            {
+                if (current == 0) Recorder.PressPlay();
+                else if (current == 2) Macros.ShortcutRun();
+                else return false;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>The page shown now (0 Recorder, 1 Phrases, 2 Macros, 3 Settings, 4 Global Keybinds).</summary>
+        public int CurrentPage
+        {
+            get { for (int i = 0; i < tabButtons.Length; i++) if (tabButtons[i].IsChecked == true) return i; return 0; }
         }
 
         static ImageSource LoadIcon()

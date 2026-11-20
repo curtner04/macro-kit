@@ -491,5 +491,8 @@ namespace MacroKit.App
 
         /// <summary>Puts text in the search box as if typed (self test).</summary>
         public void SetSearch(string text) { search.Text = text; }
+
+        /// <summary>Ctrl+F: puts the cursor in the search box.</summary>
+        public void FocusSearch() { search.Focus(); search.SelectAll(); }
     }
 }

@@ -62,8 +62,8 @@ namespace MacroKit.App
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
             list.SelectionChanged += (s, e) => { if (!loading) LoadEditor(); };
             list.KeyDown += (s, e) => { if (e.Key == Key.Delete && Selected != null) { e.Handled = true; Delete(); } };
-            var newButton = Ui.Button("New phrase", NewPhrase, null, "Add a phrase.");
-            deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected phrase. You can undo it.");
+            var newButton = Ui.Button("New phrase", NewPhrase, null, "Add a phrase (Ctrl+N).");
+            deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected phrase (Delete key). You can undo it.");
             undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the phrase you just deleted.");
             undoButton.Visibility = Visibility.Collapsed;
             undoButton.Margin = new Thickness(6, 0, 0, 0);
@@ -80,7 +80,7 @@ namespace MacroKit.App
             heading.Children.Add(removeExamples);
             heading.Children.Add(Ui.Heading("Phrases"));
             listGrid.Children.Add(heading);
-            listSearch.ToolTip = "Show only the phrases whose trigger or text holds these words.";
+            listSearch.ToolTip = "Show only the phrases whose trigger or text holds these words (Ctrl+F).";
             listSearch.TextChanged += (s, e) => FilterList();
             var searchBox = Ui.Hinted(listSearch, "Search phrases");
             searchBox.Margin = new Thickness(0, 0, 0, 8);
@@ -272,6 +272,9 @@ namespace MacroKit.App
 
         /// <summary>Self-test: presses New phrase.</summary>
         public void AddNew() { NewPhrase(); }
+
+        /// <summary>Ctrl+F: puts the cursor in the search box.</summary>
+        public void FocusSearch() { listSearch.Focus(); listSearch.SelectAll(); }
 
         /// <summary>Self-test: true when the selected phrase's row is showing in the list.</summary>
         public bool SelectionShown { get { var item = list.SelectedItem as ListBoxItem; return item != null && item.Visibility == Visibility.Visible; } }

@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using MacroKit.Core;
+using MacroKit.Win32;
 using Rec = MacroKit.Core.Recording;
 
 namespace MacroKit.App
@@ -19,7 +20,11 @@ namespace MacroKit.App
         readonly Window owner;
         readonly ListBox list = new ListBox();
         readonly TextBlock listEmpty;
-        readonly Button recordButton, playButton, stopButton, saveButton, renameButton, duplicateButton, deleteButton, exportButton;
+        readonly Button recordButton, playButton, stopButton, saveButton, renameButton, deleteButton, undoButton, moreButton;
+        readonly Popup moreMenu;
+        // What Undo delete puts back: the recordings just deleted, newest last.
+        readonly List<AppController.RemovedRecording> undoStack = new List<AppController.RemovedRecording>();
+        const int UndoDepth = 10;
         readonly TextBox listSearch = new TextBox();
         FrameworkElement recordIcon, playIcon;
         readonly TextBlock recordHint = Ui.Text("", "Muted", false, 11), playHint = Ui.Text("", "Muted", false, 11), stopHint = Ui.Text("", "Muted", false, 11);
@@ -45,7 +50,7 @@ namespace MacroKit.App
             // ---- recordings list
             listEmpty = Ui.Para(EmptyText);
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
-            listSearch.ToolTip = "Show only the recordings whose name holds these words.";
+            listSearch.ToolTip = "Show only the recordings whose name holds these words (Ctrl+F).";
             listSearch.TextChanged += (s, e) => { FilterList(); KeepSelectionShown(); };
             list.SelectionChanged += (s, e) =>
             {
@@ -56,7 +61,7 @@ namespace MacroKit.App
                 LoadPlayback();
                 LoadOptions();
             };
-            // Standard list shortcuts: double-click or F2 renames, Delete asks to delete.
+            // Standard list shortcuts: double-click or F2 renames, Delete deletes (and Undo delete puts it back).
             list.MouseDoubleClick += (s, e) =>
             {
                 var source = e.OriginalSource as DependencyObject;
@@ -68,12 +73,18 @@ namespace MacroKit.App
                 else if (e.Key == Key.Delete) { e.Handled = true; Delete(); }
             };
             saveButton = Ui.Button("Save", () => c.SavePending(), "Small", "Keep the new recording.");
-            renameButton = Ui.Button("Rename…", Rename, "Small", "Give the selected recording a new name.");
-            duplicateButton = Ui.Button("Duplicate", Duplicate, "Small", "Make a copy of the selected recording to change without losing the original. The copy has no hotkey.");
-            deleteButton = Ui.Button("Delete", Delete, "Small", "Delete the selected recording.");
-            exportButton = Ui.Button("Export file…", Export, "Small", "Save the selected recording as a file you can share.");
-            var importButton = Ui.Button("Import file…", Import, "Small", "Add a recording from a file.");
-            var listButtons = Ui.Wrap(saveButton, renameButton, duplicateButton, deleteButton, exportButton, importButton);
+            renameButton = Ui.Button("Rename…", Rename, "Small", "Give the selected recording a new name (F2).");
+            deleteButton = Ui.Button("Delete", Delete, "Small", "Delete the selected recording (Delete key). You can undo it.");
+            undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the recording you just deleted, with its hotkey and Deck button.");
+            undoButton.Visibility = Visibility.Collapsed;
+            // Duplicate, Export and Import sit behind ⋯, so the row fits on one line at the smallest window size.
+            moreButton = Ui.GlyphButton(Ui.GlyphMore, "More: duplicate, export or import a recording", null, "Small");
+            moreMenu = Ui.Menu(moreButton,
+                new KeyValuePair<string, Action>("Duplicate", Duplicate),
+                new KeyValuePair<string, Action>("Export file…", Export),
+                new KeyValuePair<string, Action>("Import file…", Import));
+            moreButton.Click += (s, e) => moreMenu.IsOpen = true;
+            var listButtons = Ui.Wrap(saveButton, renameButton, deleteButton, undoButton, moreButton);
             foreach (UIElement b in listButtons.Children) ((FrameworkElement)b).Margin = new Thickness(0, 0, 6, 6);
 
             var listGrid = new Grid();
@@ -182,6 +193,11 @@ namespace MacroKit.App
                 Ui.Para("While it records, Macro Kit shrinks to a small bar: Stop keeps the take, Restart starts over, Discard throws it away. Clicks on the bar are never recorded. Macro Kit hides while it plays; Esc stops a playback, and hotkeys work from any program.", "Muted", 12)));
 
             var right = new StackPanel();
+            if (!c.Settings.HotkeysChosen)
+            {
+                hotkeyCard = BuildHotkeyCard();
+                right.Children.Add(hotkeyCard);
+            }
             right.Children.Add(Ui.Card(Ui.Stack(0, transport)));
             right.Children.Add(playback);
             right.Children.Add(options);
@@ -204,6 +220,68 @@ namespace MacroKit.App
             LoadPlayback();
             LoadOptions();
             UpdateHints();
+        }
+
+        // ---- first run: pick the four app hotkeys
+
+        /// <summary>The four app hotkey sets the first-run card offers: Record, Play, Stop, Deck.</summary>
+        public static readonly string[][] HotkeyPresets =
+        {
+            new[] { "Ctrl+Alt+R", "Ctrl+Alt+P", "Ctrl+Alt+S", "Ctrl+Alt+D" },
+            new[] { "F13", "F14", "F15", "F16" },
+            new[] { "Ctrl+Shift+Alt+R", "Ctrl+Shift+Alt+P", "Ctrl+Shift+Alt+S", "Ctrl+Shift+Alt+D" },
+        };
+
+        /// <summary>Why the shorter Ctrl+Alt set would get in the way on this PC, or null when it is fine.</summary>
+        string ShorterPresetProblem()
+        {
+            foreach (string text in HotkeyPresets[0])
+            {
+                Hotkey combo;
+                if (!Hotkey.TryParse(text, out combo)) continue;
+                if (HotkeyProbe.TypesWithAltGr(combo.Vk))
+                    return "Not offered: your keyboard types a character with AltGr+" + KeyNames.Display(combo.Vk) + ", and Ctrl+Alt would block it.";
+                if (c.InputEnabled && HotkeyProbe.IsFree(combo) == false)
+                    return "Not offered: another program already uses " + text + ".";
+            }
+            return null;
+        }
+
+        Border BuildHotkeyCard()
+        {
+            string shorterProblem = ShorterPresetProblem();
+            Button shorter = Ui.Button("Ctrl+Alt+R, P, S, D", () => ChooseHotkeyPreset(0), "Small", "Record Ctrl+Alt+R, Play Ctrl+Alt+P, Stop Ctrl+Alt+S, Deck Ctrl+Alt+D.");
+            Button spare = Ui.Button("F13, F14, F15, F16", () => ChooseHotkeyPreset(1), "Small", "Record F13, Play F14, Stop F15, Deck F16: keys a Stream Deck, keypad or programmable mouse can send.");
+            Button keep = Ui.Button("Keep Ctrl+Shift+Alt+R, P, S, D", () => ChooseHotkeyPreset(2), "Small", "Record Ctrl+Shift+Alt+R, Play Ctrl+Shift+Alt+P, Stop Ctrl+Shift+Alt+S, Deck Ctrl+Shift+Alt+D.");
+            var stack = Ui.Stack(8,
+                Ui.Heading("Pick your hotkeys"),
+                Ui.Para("These start a recording, play, stop and open the Deck from any program.", "Muted", 12));
+            stack.Children.Add(Ui.Stack(4, shorter, Ui.Para(shorterProblem ?? "Shorter to press.", shorterProblem == null ? "Muted" : "Bad", 12)));
+            stack.Children.Add(Ui.Stack(4, spare, Ui.Para("For a Stream Deck, keypad or programmable mouse.", "Muted", 12)));
+            stack.Children.Add(Ui.Stack(4, keep, Ui.Para("Least likely to clash with other programs.", "Muted", 12)));
+            foreach (Button b in new[] { shorter, spare, keep }) { b.HorizontalAlignment = HorizontalAlignment.Left; ToolTipService.SetShowOnDisabled(b, true); }
+            shorter.IsEnabled = shorterProblem == null;
+            return Ui.Card(stack);
+        }
+
+        Border hotkeyCard;
+
+        /// <summary>True while the first-run "Pick your hotkeys" card is on screen.</summary>
+        public bool HotkeyCardShown { get { return hotkeyCard != null && hotkeyCard.Visibility == Visibility.Visible; } }
+
+        /// <summary>Applies one of <see cref="HotkeyPresets"/> (Settings can change them later) and puts the card away.</summary>
+        public void ChooseHotkeyPreset(int index)
+        {
+            string[] keys = HotkeyPresets[index];
+            c.Settings.RecordHotkey = keys[0];
+            c.Settings.PlayHotkey = keys[1];
+            c.Settings.StopHotkey = keys[2];
+            c.Settings.DeckHotkey = keys[3];
+            c.Settings.HotkeysChosen = true;
+            c.MarkDirty(SaveParts.Settings);
+            if (hotkeyCard != null) hotkeyCard.Visibility = Visibility.Collapsed;
+            UpdateHints();
+            c.SetStatus("Hotkeys set: Record " + keys[0] + ", Play " + keys[1] + ", Stop " + keys[2] + ", Deck " + keys[3] + ". You can change them in Settings.");
         }
 
         Button Transport(string icon, string label, TextBlock hint, Action click, string tip)
@@ -317,7 +395,6 @@ namespace MacroKit.App
             stopButton.IsEnabled = !idle;
             saveButton.IsEnabled = pendingSelected;
             renameButton.IsEnabled = has;
-            duplicateButton.IsEnabled = has;
             // The blue button is the next thing to do: Save for a new take, otherwise Record, or Play once there is something to play.
             primaryNow = (has ? "Play" : "Record") + (pendingSelected ? "+Save" : "");
             Ui.Style(saveButton, pendingSelected ? "SmallPrimary" : "Small");
@@ -327,10 +404,9 @@ namespace MacroKit.App
             Ui.Ref(playIcon, System.Windows.Shapes.Shape.FillProperty, has ? "AccentFg" : "Text");
             Ui.Ref(recordHint, TextBlock.ForegroundProperty, has ? "Muted" : "AccentFg");
             Ui.Ref(playHint, TextBlock.ForegroundProperty, has ? "AccentFg" : "Muted");
-            playButton.ToolTip = playButton.IsEnabled ? "Play the selected recording." : idle ? "Pick a recording first." : "Wait until the current recording or playback ends.";
+            playButton.ToolTip = playButton.IsEnabled ? "Play the selected recording (F5 here, or its hotkey from any program)." : idle ? "Pick a recording first." : "Wait until the current recording or playback ends.";
             stopButton.ToolTip = stopButton.IsEnabled ? "Stop recording or playback." : "Nothing is recording or playing.";
             deleteButton.IsEnabled = has;
-            exportButton.IsEnabled = has;
             hotkey.IsEnabled = has;
             onDeck.IsEnabled = has;
             convertButton.IsEnabled = has;
@@ -360,7 +436,7 @@ namespace MacroKit.App
         {
             string id = SelectedId;
             Rec source = id == null ? null : c.LoadRecording(id);
-            if (source == null) return;
+            if (source == null) { c.SetStatus("Pick a recording to duplicate first.", true); return; }
             // A copy of the steps and the speed and repeat settings: it has no hotkey or Deck button, which would clash with the original's.
             var copy = new Rec { Name = source.Name + " copy", Created = Rec.NowIso(), DurationMs = source.DurationMs, Events = new List<RecEvent>(source.Events) };
             try
@@ -385,18 +461,59 @@ namespace MacroKit.App
             get { return primaryNow; }
         }
 
+        // Deleted at once, like macros and phrases; Undo delete puts it back with its hotkey, Deck button and playback.
         void Delete()
         {
             string id = SelectedId;
             if (id == null) return;
-            string name = c.Pending != null && c.Pending.Id == id ? c.Pending.Name : c.Recordings.Where(r => r.Id == id).Select(r => r.Name).FirstOrDefault();
-            if (Ui.Confirm(owner, "Delete “" + name + "”? This can't be undone.")) c.DeleteRecording(id);
+            AppController.RemovedRecording removed = c.RemoveRecording(id);
+            if (removed == null) return;
+            undoStack.Add(removed);
+            if (undoStack.Count > UndoDepth) undoStack.RemoveAt(0);
+            ShowUndo();
+            c.SetStatus("Deleted “" + removed.Recording.Name + "”. Press Undo delete to put it back.", false);
         }
+
+        void UndoDelete()
+        {
+            if (undoStack.Count == 0) return;
+            AppController.RemovedRecording removed = undoStack[undoStack.Count - 1];
+            undoStack.RemoveAt(undoStack.Count - 1);
+            ShowUndo();
+            listSearch.Text = "";
+            if (c.RestoreRecording(removed)) c.SetStatus("Put back “" + removed.Recording.Name + "”.", false);
+        }
+
+        void ShowUndo()
+        {
+            undoButton.Visibility = undoStack.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        /// <summary>Self-test: presses Delete; true when Undo delete is offered.</summary>
+        public bool DeleteSelected() { Delete(); return undoButton.Visibility == Visibility.Visible; }
+
+        /// <summary>Self-test: presses Undo delete.</summary>
+        public void UndoLastDelete() { UndoDelete(); }
+
+        /// <summary>Self-test: the list's buttons that are shown, in order (⋯ is "More").</summary>
+        public List<string> ListButtons
+        {
+            get { return new[] { saveButton, renameButton, deleteButton, undoButton, moreButton }.Where(b => b.Visibility == Visibility.Visible).Select(b => b == moreButton ? "More" : b.Content as string).ToList(); }
+        }
+
+        /// <summary>The row of list buttons, for the self-test's layout check at the smallest window size.</summary>
+        public FrameworkElement ListButtonRow { get { return (FrameworkElement)saveButton.Parent; } }
+
+        /// <summary>Ctrl+F: puts the cursor in the search box.</summary>
+        public void FocusSearch() { listSearch.Focus(); listSearch.SelectAll(); }
+
+        /// <summary>F5: plays the selected recording, as the Play button does.</summary>
+        public void PressPlay() { if (playButton.IsEnabled) c.StartPlayback(RunOrigin.MainWindow); }
 
         void Export()
         {
             string id = SelectedId;
-            if (id == null) return;
+            if (id == null) { c.SetStatus("Pick a recording to export first.", true); return; }
             string name = c.Pending != null && c.Pending.Id == id ? c.Pending.Name : c.Recordings.Where(r => r.Id == id).Select(r => r.Name).FirstOrDefault();
             var dialog = new Microsoft.Win32.SaveFileDialog
             {

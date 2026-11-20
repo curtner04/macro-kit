@@ -48,7 +48,7 @@ namespace MacroKit.App
         ParseResult summaryParse;       // the macro's script as last parsed for that line
         readonly CheckBox enabled;
         readonly TextBlock exampleNote = Ui.Text("", "Muted", false, 12, true);
-        const string RunTip = "Run this macro. Macro Kit steps aside and the macro runs in the window you chose below.";
+        const string RunTip = "Run this macro (F5). Macro Kit steps aside and the macro runs in the window you chose below.";
         ScheduleEditor schedule;
         ParseResult parsed;
         bool loading;
@@ -114,9 +114,10 @@ namespace MacroKit.App
             listEmpty = Ui.Para("No macros yet. Press New macro to make one.");
             listEmpty.Margin = new Thickness(10, 8, 10, 0);
             list.SelectionChanged += (s, e) => { if (!loading) Bind((list.SelectedItem as ListBoxItem) == null ? null : (MacroDef)((ListBoxItem)list.SelectedItem).Tag); };
-            var newButton = Ui.Button("New macro", NewMacro, null, "Add an empty macro.");
+            list.KeyDown += (s, e) => { if (e.Key == Key.Delete && current != null) { e.Handled = true; Delete(); } };
+            var newButton = Ui.Button("New macro", NewMacro, null, "Add an empty macro (Ctrl+N).");
             duplicateButton = Ui.Button("Duplicate", Duplicate, null, "Copy the selected macro.");
-            deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected macro. You can undo it.");
+            deleteButton = Ui.Button("Delete", Delete, "Ghost", "Delete the selected macro (Delete key). You can undo it.");
             undoButton = Ui.Button("Undo delete", UndoDelete, "Ghost", "Put back the macro you just deleted.");
             undoButton.Visibility = Visibility.Collapsed;
             removeExamples = Ui.Button("Remove examples", RemoveExamples, "Small", "Remove the example macros you have not changed. You can undo it.");
@@ -142,7 +143,7 @@ namespace MacroKit.App
             listGrid.Children.Add(headingRow);
             AutomationProperties.SetName(listSearch, "Search macros");
             AutomationProperties.SetName(list, "Macros");
-            listSearch.ToolTip = "Show only the macros whose name, steps or hotkey hold these words.";
+            listSearch.ToolTip = "Show only the macros whose name, steps or hotkey hold these words (Ctrl+F).";
             listSearch.TextChanged += (s, e) => FilterList();
             var searchBox = Ui.Hinted(listSearch, "Search macros");
             searchBox.Margin = new Thickness(0, 0, 0, 8);
@@ -1522,6 +1523,10 @@ namespace MacroKit.App
         public void PressNew() { NewMacro(); }
         public void PressDuplicate() { Duplicate(); }
         public void PressRun() { RunClicked(); }
+        /// <summary>F5: runs the selected macro, as the Run button does (nothing while it is greyed out).</summary>
+        public void ShortcutRun() { if (runButton.IsEnabled) RunClicked(); }
+        /// <summary>Ctrl+F: puts the cursor in the search box.</summary>
+        public void FocusSearch() { listSearch.Focus(); listSearch.SelectAll(); }
         public string SelectedName { get { return current == null ? null : current.Name; } }
         public void PressEnabled(bool on) { enabled.IsChecked = on; EnabledChanged(on); }
         /// <summary>Self-test: the line under the schedule.</summary>
