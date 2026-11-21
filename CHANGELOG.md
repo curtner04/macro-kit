@@ -1,5 +1,9 @@
 # Macro Kit changelog
 
+## 1.12.2 - 2026-11-21
+
+- **Import takes new recordings again**: a recording made since 1.11 that clicks in a window could be exported, but importing it, or restoring it on another PC, failed with "made by a newer version of Macro Kit". Those recordings now import with their windows.
+
 ## 1.12.1 - 2026-11-21
 
 Fixes from a review of 1.11 and 1.12.

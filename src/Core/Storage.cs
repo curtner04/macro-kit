@@ -343,7 +343,7 @@ namespace MacroKit.Core
             {
                 throw new InvalidDataException("That file is not a Macro Kit recording.", e);
             }
-            if (recording.Schema > 1) throw new InvalidDataException("That recording was made by a newer version of Macro Kit.");
+            if (recording.Schema > Recording.NewestSchema) throw new InvalidDataException("That recording was made by a newer version of Macro Kit.");
             recording.Id = Guid.NewGuid().ToString("N");
             if (recording.Events == null) recording.Events = new List<RecEvent>(); if (recording.Windows == null) recording.Windows = new List<RecWindow>();
             lock (gate) SaveRecording(recording);

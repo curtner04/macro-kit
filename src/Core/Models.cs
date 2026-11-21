@@ -417,6 +417,8 @@ namespace MacroKit.Core
     {
         /// <summary>1 = events only; 2 = it also says which window each click was made in (Windows and RecKind.Window events).</summary>
         public int Schema { get; set; }
+        /// <summary>The newest format this version writes and reads; Import refuses a file above it.</summary>
+        public const int NewestSchema = 2;
         public string Id { get; set; }
         public string Name { get; set; }
         public string Created { get; set; }      // ISO 8601, local time with offset

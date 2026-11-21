@@ -1592,6 +1592,27 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void ARecordingThatKnowsItsWindowsCanBeExportedAndImported()
+        {
+            // 1.12.2: since 1.11 a recording with clicks in a window is saved in the newer format, and Import refused it.
+            Run((storage, dir) =>
+            {
+                Recording r = Sample("Follows Excel");
+                r.Schema = Recording.NewestSchema;
+                r.Windows.Add(new RecWindow { Program = "EXCEL.EXE", Title = "Book1 - Excel", Left = 100, Top = 50, Width = 800, Height = 600 });
+                r.Events.Insert(0, new RecEvent(0, RecKind.Window, 0, 0));
+                storage.SaveRecording(r);
+                string file = dir.File("export\\excel.json");
+                storage.ExportRecording(r.Id, file);
+
+                Recording imported = storage.ImportRecording(file);
+                Assert.Equal(Recording.NewestSchema, imported.Schema);
+                Assert.True(imported.KnowsWindows, "the window comes along");
+                Assert.Equal("Book1 - Excel", storage.LoadRecording(imported.Id).Windows[0].Title);
+            });
+        }
+
+        [Test]
         public static void ImportRejectsOtherFiles()
         {
             Run((storage, dir) =>

@@ -225,7 +225,7 @@ namespace MacroKit.Recording
             if (result.Any(ev => ev.Kind == RecKind.Window && ev.A >= 0))
             {
                 rec.Windows = clickedIn;
-                rec.Schema = 2;
+                rec.Schema = MacroKit.Core.Recording.NewestSchema;
             }
             else rec.Events.RemoveAll(ev => ev.Kind == RecKind.Window);   // only screen markers: nothing to follow
             return rec;
