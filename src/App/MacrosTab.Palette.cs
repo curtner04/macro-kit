@@ -262,6 +262,12 @@ namespace MacroKit.App
         {
             bool switchable;
             WindowInfo window = c.WindowProbe.WindowAt(p.X, p.Y, out switchable);
+            // A menu or tooltip under the pointer: measure from the window in front instead, as the macro will when it runs.
+            if (window != null && !switchable)
+            {
+                WindowInfo front = c.Windows.Describe(c.Windows.Foreground);
+                if (front != null) { window = front; switchable = true; }
+            }
             if (window == null || c.Windows.IsOwnWindow(window.Handle))
             {
                 c.SetStatus("Point at the other program's window, not at Macro Kit, then press Pick again.", true);

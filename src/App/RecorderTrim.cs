@@ -150,24 +150,14 @@ namespace MacroKit.App
         {
             List<Rec> stack;
             if (current == null || !undo.TryGetValue(current.Id, out stack) || stack.Count == 0) return;
-            Rec previous = stack[stack.Count - 1];
+            Rec previous = RecordingEdit.WithContentOf(c.LoadRecording(current.Id) ?? current, stack[stack.Count - 1]);   // keeps a rename made since
             if (!c.ReplaceRecording(previous, "Put the recording back as it was (" + Seconds(RecordingEdit.Length(previous)) + ").")) return;
             stack.RemoveAt(stack.Count - 1);
             Load();
         }
 
         /// <summary>"0.5 s", "12.4 s", "1:05.3".</summary>
-        public static string Seconds(int ms)
-        {
-            ms = Math.Max(0, ms);
-            if (ms < 60000)
-            {
-                double s = ms / 1000.0;
-                return (s == Math.Floor(s) ? s.ToString("0", CultureInfo.CurrentCulture) : s.ToString("0.0", CultureInfo.CurrentCulture)) + " s";
-            }
-            int minutes = ms / 60000;
-            return minutes + ":" + ((ms % 60000) / 1000.0).ToString("00.0", CultureInfo.CurrentCulture);
-        }
+        public static string Seconds(int ms) { return RecordingEdit.FormatLength(ms); }
 
         // ---- for the self test
         public bool Shown { get { return Card.Visibility == Visibility.Visible; } }

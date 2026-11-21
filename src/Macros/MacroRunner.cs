@@ -602,17 +602,24 @@ namespace MacroKit.Macros
                 }
             }
 
-            // {{INPUT}}: keys the macro is holding are let go first, so the answer isn't typed with Ctrl or Shift down.
+            // {{INPUT}}: keys and buttons the macro is holding are let go first, so the answer isn't typed with Ctrl or Shift down,
+            // and pressed again after it (a held button back where the pointer was), so a {{KEYDOWN}} or drag carries on.
             void Ask(MacroStep step)
             {
                 var ask = owner.AskForInput;
                 if (ask == null) throw new RunStopped("Line " + step.Line + ": {{INPUT}} can't ask a question here.");
+                var keys = new List<ushort>(heldKeys);
+                var buttons = new List<MouseButton>(heldButtons);
+                ScreenPoint pointer = buttons.Count > 0 ? Input.CursorPosition : default(ScreenPoint);
                 ReleaseHeldInput();
                 string question = Substitute(step.Value).Trim();
                 string answer = ask(macro == null ? "" : macro.Name ?? "", step.Var, question.Length > 0 ? question : null, token);
                 token.ThrowIfCancellationRequested();
                 if (answer == null) throw new OperationCanceledException();
                 variables[step.Var] = answer;
+                foreach (ushort key in keys) { Input.KeyDown(key); Remember(heldKeys, key); }
+                if (buttons.Count > 0) Input.MouseMoveTo(pointer.X, pointer.Y);
+                foreach (MouseButton button in buttons) { Remember(heldButtons, button); Input.MouseButton(button, true); }
                 passBusy = true;
             }
 

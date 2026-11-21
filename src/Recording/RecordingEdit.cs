@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using MacroKit.Core;
 using Rec = MacroKit.Core.Recording;
@@ -113,15 +114,26 @@ namespace MacroKit.Recording
             shortened = 0;
             var output = new List<RecEvent>(rec.Events.Count);
             var held = new HashSet<long>();
-            int previous = 0, shift = 0;
-            foreach (RecEvent e in rec.Events)
+            // A press whose release never comes (lost by the recorder, or still down when it stopped) doesn't count as held:
+            // otherwise it would keep every later pause.
+            var releasedLater = new bool[rec.Events.Count];
+            var upAfter = new HashSet<long>();
+            for (int i = rec.Events.Count - 1; i >= 0; i--)
             {
+                RecEvent e = rec.Events[i];
+                if (e.Kind == RecKind.KeyUp || e.Kind == RecKind.ButtonUp) upAfter.Add(Key(e));
+                else if (e.Kind == RecKind.KeyDown || e.Kind == RecKind.ButtonDown) releasedLater[i] = upAfter.Contains(Key(e));
+            }
+            int previous = 0, shift = 0;
+            for (int i = 0; i < rec.Events.Count; i++)
+            {
+                RecEvent e = rec.Events[i];
                 int gap = e.T - previous;
                 if (gap > overMs && held.Count == 0) { shift += gap - toMs; shortened++; }
                 previous = e.T;
                 switch (e.Kind)
                 {
-                    case RecKind.KeyDown: case RecKind.ButtonDown: held.Add(Key(e)); break;
+                    case RecKind.KeyDown: case RecKind.ButtonDown: if (releasedLater[i]) held.Add(Key(e)); break;
                     case RecKind.KeyUp: case RecKind.ButtonUp: held.Remove(Key(e)); break;
                 }
                 output.Add(new RecEvent(e.T - shift, e.Kind, e.A, e.B));
@@ -139,6 +151,33 @@ namespace MacroKit.Recording
             if (rec == null) return 0;
             ShortenPauses(rec, overMs, overMs, out shortened);
             return shortened;
+        }
+
+        /// <summary>A length as the Trim card shows it: "0.5 s", "12.4 s", "1:05.3".</summary>
+        public static string FormatLength(int ms)
+        {
+            long tenths = ((long)Math.Max(0, ms) + 50) / 100;   // rounded first, so 59.96 s shows as 1:00.0, not 60 s or 0:60.0
+            if (tenths < 600)
+            {
+                double s = tenths / 10.0;
+                return (tenths % 10 == 0 ? s.ToString("0", CultureInfo.CurrentCulture) : s.ToString("0.0", CultureInfo.CurrentCulture)) + " s";
+            }
+            return (tenths / 600) + ":" + ((tenths % 600) / 10.0).ToString("00.0", CultureInfo.CurrentCulture);
+        }
+
+        /// <summary>
+        /// <paramref name="current"/> (its id, name and date) with the events, length and windows of <paramref name="content"/>:
+        /// what Undo saves, so a rename made after the edit stays.
+        /// </summary>
+        public static Rec WithContentOf(Rec current, Rec content)
+        {
+            if (current == null) throw new ArgumentNullException("current");
+            if (content == null) throw new ArgumentNullException("content");
+            Rec result = Copy(content, content.Events.Select(e => new RecEvent(e.T, e.Kind, e.A, e.B)).ToList(), content.DurationMs);
+            result.Id = current.Id;
+            result.Name = current.Name;
+            result.Created = current.Created;
+            return result;
         }
 
         static Rec Copy(Rec rec, List<RecEvent> events, int durationMs)

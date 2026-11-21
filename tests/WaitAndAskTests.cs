@@ -260,5 +260,48 @@ namespace MacroKit.Tests
             Assert.False(result.Completed);
             Assert.Contains(result.Error, "can't ask a question here");
         }
+
+        // ---------- 1.12.1 ----------
+
+        [Test]
+        public static void HeldKeysAndButtonsArePressedAgainAfterTheAnswer()
+        {
+            var input = new FakeInputSink();
+            var windows = new FakeWindowSystem();
+            Excel(windows);
+            MacroRunner runner = Runner(input, windows, new FakeClock());
+            int heldWhenAsked = -1;
+            runner.AskForInput = (macro, name, question, token) =>
+            {
+                heldWhenAsked = input.HeldButtons.Count + input.HeldKeys.Count;
+                input.MouseMoveTo(5, 5);   // the person moves the pointer to answer
+                return "x";
+            };
+            RunResult result = Run(runner, "{{MOUSEXY:400,300}}{{KEYDOWN:SHIFT}}{{MLEFTDOWN}}{{INPUT:a}}{{MOUSEXY:450,300}}{{MLEFTUP}}{{KEYUP:SHIFT}}");
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal(0, heldWhenAsked, "let go first");
+            int asked = input.Log.IndexOf("moveto 5,5"), next = input.Log.IndexOf("moveto 450,300");
+            Assert.True(asked >= 0 && next > asked, string.Join("|", input.Log));
+            List<string> between = input.Log.Skip(asked + 1).Take(next - asked - 1).ToList();
+            Assert.True(between.Any(l => l.StartsWith("down ", StringComparison.Ordinal)), "Shift is down again: " + string.Join("|", between));
+            Assert.SequenceEqual(new[] { "moveto 400,300", "button Left down" }, between.Where(l => !l.StartsWith("down ", StringComparison.Ordinal)),
+                "the button goes down again where the pointer was, so the drag carries on");
+            Assert.Equal(0, input.HeldKeys.Count + input.HeldButtons.Count, "nothing left held at the end");
+        }
+
+        [Test]
+        public static void WaitPixelColourCanBeAVariable()
+        {
+            var input = new FakeInputSink();
+            var windows = new FakeWindowSystem();
+            var clock = new FakeClock();
+            Excel(windows);
+            var screen = new FakeScreen { PixelAt = (x, y) => clock.NowMs >= 500 ? Blue : 0xFFFFFF };
+            MacroRunner runner = Runner(input, windows, clock);
+            runner.Screen = screen;
+            RunResult result = Run(runner, "{{VARSET:c:#1E90FF}}{{WAITPIXEL:120,40:$c:2000}}{{ENTER}}");
+            Assert.True(result.Completed, result.Error);
+            Assert.True(clock.NowMs >= 500, "it waited for the colour in $c: " + clock.NowMs);
+        }
     }
 }

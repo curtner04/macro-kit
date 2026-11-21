@@ -1,5 +1,16 @@
 # Macro Kit changelog
 
+## 1.12.1 - 2026-11-21
+
+Fixes from a review of 1.11 and 1.12.
+
+- **Undo after a trim keeps a new name**: renaming a recording after trimming it, then pressing Undo, used to bring the old name back. Undo now puts back only what was cut.
+- **Clicks follow the right window when several match**: with two Explorer or browser windows showing the same title, playback now picks the one nearest where the recorded window was, instead of whichever Windows listed first. When the title has changed (a browser tab) and the program has several windows, it uses the one still exactly where the recorded window was, instead of stopping.
+- **Ask while running keeps what the macro was holding**: keys and mouse buttons the macro held are let go while you answer and pressed again afterwards, a button back where the pointer was, so a held Shift or a drag carries on.
+- **Stop closes the question every time**: pressing Stop just as the question was opening could leave it open.
+- **Pick measures from the window**: picking a spot in a menu or tooltip now measures from the window in front, as the macro does when it runs.
+- Smaller fixes: a key whose release the recording never got no longer stops *Shorten pauses* from cutting the pauses after it; a second taskbar click after a click on Macro Kit's tray icon is no longer measured from the previous window; lengths just under a minute show as *1:00.0* instead of *60 s* or *1:60.0*; the colour in a wait for colour can be a variable (`{{WAITPIXEL:120,40:$colour}}`).
+
 ## 1.12.0 - 2026-11-20
 
 Macros that wait for the screen and ask you for what they need.

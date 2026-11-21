@@ -399,5 +399,39 @@ namespace MacroKit.Tests
             Assert.True(Json.Deserialize<PlaybackSettings>("{\"Speed\":2}").FollowWindows, "on for settings saved before 1.11");
             Assert.False(new PlaybackSettings { FollowWindows = false }.Copy().FollowWindows, "Copy keeps it");
         }
+
+        // ---------- 1.12.1 ----------
+
+        [Test]
+        public static void OfSeveralMatchingWindowsTheNearestIsChosen()
+        {
+            var windows = new FakeWindowSystem();
+            var want = new RecWindow { Program = "explorer.exe", Title = "Downloads", Left = 900, Top = 100, Width = 800, Height = 600 };
+            WindowInfo far = windows.AddWindow(1, "Downloads", "explorer.exe"); far.Left = 0; far.Top = 0;
+            WindowInfo near = windows.AddWindow(2, "Downloads", "explorer.exe"); near.Left = 880; near.Top = 120;
+            Assert.Equal(near.Handle, Player.FindRecordedWindow(windows, want).Handle, "two the same: the one nearest where it was");
+
+            var chrome = new FakeWindowSystem();
+            var tab = new RecWindow { Program = "chrome.exe", Title = "Inbox - Mail", Left = 50, Top = 40, Width = 1200, Height = 900 };
+            WindowInfo a = chrome.AddWindow(3, "News", "chrome.exe"); a.Left = 50; a.Top = 40; a.Width = 1200; a.Height = 900;
+            WindowInfo b = chrome.AddWindow(4, "Weather", "chrome.exe"); b.Left = 300; b.Top = 40; b.Width = 1200; b.Height = 900;
+            Assert.Equal(a.Handle, Player.FindRecordedWindow(chrome, tab).Handle, "the tab changed: the one still exactly where it was");
+            a.Left = 60;
+            Assert.Null(Player.FindRecordedWindow(chrome, tab), "and when none is, no guessing");
+        }
+
+        [Test]
+        public static void ADroppedTrayClickTakesItsScreenMarkWithIt()
+        {
+            var rig = new RecordRig();
+            WindowInfo taskbar = FakeWindowProbe.Window(60, "", "explorer.exe", 0, 1040, 1920, 40);
+            rig.Probe.Add(100, 50, 900, 650, Excel).Add(0, 1040, 1920, 1080, taskbar, false);
+            rig.Click(0, 150, 600).Click(100, 1800, 1060);
+            Assert.True(rig.Recorder.DropTrailingClick(MouseButton.Left), "the tray icon click");
+            rig.Click(200, 500, 1060);
+            Rec rec = rig.Recorder.Stop(null);
+            Assert.SequenceEqual(new[] { "0 Window 0,0", "200 Window -1,0" }, rec.Events.Where(e => e.Kind == RecKind.Window).Select(Fmt),
+                "the next taskbar click is marked as the screen again, not left in Excel");
+        }
     }
 }

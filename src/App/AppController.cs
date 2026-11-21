@@ -1031,14 +1031,22 @@ namespace MacroKit.App
                 }));
             }
             catch (Exception) { return null; }   // the dispatcher is shutting down
-            bool closing = false;
+            // Stop closes the question. Tried again every 100 ms until it is gone: a Stop just as the window opens finds it not
+            // shown yet (shownWindow is set when it has loaded), and one try would leave it open.
+            int closePosted = 0;
             while (!done.Wait(100))
             {
                 if (disposed) return null;
-                if (token.IsCancellationRequested && !closing)
+                if (token.IsCancellationRequested && Interlocked.CompareExchange(ref closePosted, 1, 0) == 0)
                 {
-                    closing = true;
-                    try { dispatcher.BeginInvoke(new Action(() => { if (shownWindow != null && shownWindow.IsVisible) shownWindow.Close(); })); }
+                    try
+                    {
+                        dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            try { if (shownWindow != null && shownWindow.IsVisible) shownWindow.Close(); }
+                            finally { Interlocked.Exchange(ref closePosted, 0); }
+                        }));
+                    }
                     catch (Exception) { return null; }
                 }
             }

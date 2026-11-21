@@ -150,5 +150,47 @@ namespace MacroKit.Tests
             Assert.Equal(0, sink.HeldButtons.Count, "no button left down");
             Assert.True(sink.Log.Contains("moveto 10,10"), string.Join("|", sink.Log));
         }
+
+        // ---------- 1.12.1 ----------
+
+        [Test]
+        public static void ShortenPausesIgnoresAKeyThatIsNeverLetGo()
+        {
+            // Ctrl went down and its release never came (lost, or still held when the recording stopped): later pauses are still cut.
+            Rec rec = Make(9000, E(0, RecKind.KeyDown, 0xA2), E(100, RecKind.KeyDown, 'A'), E(110, RecKind.KeyUp, 'A'),
+                E(4110, RecKind.KeyDown, 'B'), E(4120, RecKind.KeyUp, 'B'));
+            int n;
+            Rec shorter = RecordingEdit.ShortenPauses(rec, 2000, 500, out n);
+            Assert.Equal(2, n, "the 4-second gap and the long end");
+            Assert.Equal(610, shorter.Events[3].T);
+            Assert.Equal(2, RecordingEdit.CountLongPauses(rec, 2000), "the hint counts the same");
+        }
+
+        [Test]
+        public static void UndoPutsBackTheContentButKeepsTheNewName()
+        {
+            Rec before = Make(3000, E(0, RecKind.KeyDown, 'A'), E(10, RecKind.KeyUp, 'A'), E(2500, RecKind.KeyDown, 'B'), E(2510, RecKind.KeyUp, 'B'));
+            before.Windows.Add(new RecWindow { Program = "notepad.exe", Title = "notes.txt - Notepad" });
+            Rec trimmed = RecordingEdit.Trim(before, 0, 1000);
+            trimmed.Name = "Renamed";
+            Rec restored = RecordingEdit.WithContentOf(trimmed, before);
+            Assert.Equal("Renamed", restored.Name, "a rename made after the trim stays");
+            Assert.Equal(before.Id, restored.Id);
+            Assert.Equal(3000, restored.DurationMs);
+            Assert.SequenceEqual(before.Events.Select(Fmt), restored.Events.Select(Fmt));
+            Assert.Equal(1, restored.Windows.Count);
+            Assert.False(ReferenceEquals(before.Events, restored.Events), "a copy, so the snapshot on the undo stack stays as it was");
+        }
+
+        [Test]
+        public static void LengthsAreRoundedBeforeTheyAreShown()
+        {
+            Assert.Equal("0.5 s", RecordingEdit.FormatLength(500));
+            Assert.Equal("12 s", RecordingEdit.FormatLength(12000));
+            Assert.Equal("59.9 s", RecordingEdit.FormatLength(59940));
+            Assert.Equal("1:00.0", RecordingEdit.FormatLength(59960), "not 60 s");
+            Assert.Equal("1:05.3", RecordingEdit.FormatLength(65300));
+            Assert.Equal("2:00.0", RecordingEdit.FormatLength(119960), "not 1:60.0");
+        }
     }
 }

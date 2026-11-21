@@ -260,8 +260,11 @@ namespace MacroKit.Recording
                 else return false;
                 // The moves that took the pointer to the click go as well.
                 while (down > 0 && Passive(events[down - 1].Kind)) down--;
+                bool droppedWindow = false;
+                for (int k = down; k < events.Count; k++) if (events[k].Kind == RecKind.Window) droppedWindow = true;
                 events.RemoveRange(down, events.Count - down);
                 haveWritten = false;   // the next action writes its own position again
+                if (droppedWindow) { wroteWindow = false; windowHandle = IntPtr.Zero; }   // and its own window marker, as that one went too
                 return true;
             }
         }

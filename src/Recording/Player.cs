@@ -238,26 +238,43 @@ namespace MacroKit.Recording
 
         /// <summary>
         /// The open window that is the recorded one: the same program with the same title; else a title that holds the other
-        /// (Notepad's "*" for unsaved changes); else the program's only window. Null when none, or when that is ambiguous.
+        /// (Notepad's "*" for unsaved changes); else the program's only window. When several windows match equally (two
+        /// Explorer windows on the same folder), the one nearest where the recorded window was. When the title matches none of
+        /// the program's windows and it has several, only one still exactly where the recorded window was; else null.
         /// </summary>
         public static WindowInfo FindRecordedWindow(IWindowSystem windows, RecWindow want)
         {
             if (windows == null || want == null) return null;
-            IList<WindowInfo> open = windows.ListSwitchableWindows();
+            IList<WindowInfo> open = windows.ListSwitchableWindows() ?? new List<WindowInfo>();
             string program = (want.Program ?? "").Trim(), title = (want.Title ?? "").Trim();
             Func<WindowInfo, bool> sameProgram = w => program.Length == 0 || string.Equals((w.ProcessName ?? "").Trim(), program, StringComparison.OrdinalIgnoreCase);
             Func<WindowInfo, string> titleOf = w => (w.Title ?? "").Trim();
-            WindowInfo exact = open.FirstOrDefault(w => sameProgram(w) && titleOf(w) == title);
+            WindowInfo exact = Nearest(open.Where(w => sameProgram(w) && titleOf(w) == title), want);
             if (exact != null) return exact;
             if (title.Length >= 3)
             {
-                WindowInfo close = open.FirstOrDefault(w => sameProgram(w) && titleOf(w).Length >= 3
-                    && (titleOf(w).IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0 || title.IndexOf(titleOf(w), StringComparison.OrdinalIgnoreCase) >= 0));
+                WindowInfo close = Nearest(open.Where(w => sameProgram(w) && titleOf(w).Length >= 3
+                    && (titleOf(w).IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0 || title.IndexOf(titleOf(w), StringComparison.OrdinalIgnoreCase) >= 0)), want);
                 if (close != null) return close;
             }
             if (program.Length == 0) return null;
             List<WindowInfo> ofProgram = open.Where(sameProgram).ToList();
-            return ofProgram.Count == 1 ? ofProgram[0] : null;
+            if (ofProgram.Count == 1) return ofProgram[0];
+            List<WindowInfo> inPlace = ofProgram.Where(w => w.Left == want.Left && w.Top == want.Top && w.Width == want.Width && w.Height == want.Height).ToList();
+            return inPlace.Count == 1 ? inPlace[0] : null;
+        }
+
+        // The candidate whose top-left is nearest the recorded window's (the first of those as near); null when there is none.
+        static WindowInfo Nearest(IEnumerable<WindowInfo> candidates, RecWindow want)
+        {
+            WindowInfo best = null;
+            long bestDistance = long.MaxValue;
+            foreach (WindowInfo w in candidates)
+            {
+                long dx = (long)w.Left - want.Left, dy = (long)w.Top - want.Top, distance = dx * dx + dy * dy;
+                if (distance < bestDistance) { best = w; bestDistance = distance; }
+            }
+            return best;
         }
 
         void Apply(RecEvent e, HeldInput held, int dx, int dy)

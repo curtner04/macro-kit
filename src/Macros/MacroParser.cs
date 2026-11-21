@@ -244,6 +244,18 @@ namespace MacroKit.Macros
                 return null;
             }
 
+            // Reads a colour (#RRGGBB). One with a $variable is deferred (black) without a resolver, like Number.
+            bool Color(string raw, out int rgb)
+            {
+                rgb = 0;
+                if (raw.IndexOf('$') >= 0)
+                {
+                    if (Resolve == null) { Dynamic = true; return true; }
+                    raw = Resolve(raw);
+                }
+                return TryColor(raw, out rgb);
+            }
+
             // Reads "x,y" (also given as two arguments). Returns false when it is not two whole numbers in range.
             bool Pair(string[] args, int min, int max, out int x, out int y)
             {
@@ -360,7 +372,7 @@ namespace MacroKit.Macros
                     case "WAITPIXEL":
                         // {{WAITPIXEL:x,y:#RRGGBB}} or {{WAITPIXEL:x,y:#RRGGBB:5000}}, x and y measured from the window in front
                         int rgb;
-                        if (args.Length < 2 || args.Length > 3 || !Pair(new[] { args[0] }, -100000, 100000, out x, out y) || !TryColor(args[1], out rgb))
+                        if (args.Length < 2 || args.Length > 3 || !Pair(new[] { args[0] }, -100000, 100000, out x, out y) || !Color(args[1], out rgb))
                             return tag + " needs a spot in the window and a colour, like {{WAITPIXEL:120,40:#1E90FF}}, and optionally a time limit in ms, like {{WAITPIXEL:120,40:#1E90FF:5000}}.";
                         n = DefaultWaitPixelMs;
                         if (args.Length == 3 && !Number(args[2], 100, MaxPauseMs, out n)) return "The time limit in " + tag + " must be a whole number of milliseconds from 100 to 3,600,000.";
