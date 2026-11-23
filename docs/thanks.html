@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Thank you - Macro Kit Pro</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fe4'/%3E%3Cpath d='M8 22V10l8 7 8-7v12' fill='none' stroke='white' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#f7f8fb;--panel:#ffffff;--ink:#16181d;--muted:#5b6170;--line:#dfe3ea;--accent:#2f6fe4;--pro:#7a4ad8;--pro-bg:#efe8fc}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--panel:#1a1d24;--ink:#eceef3;--muted:#a3a9b7;--line:#2c313c;--accent:#5b8ff0;--pro:#b393f5;--pro-bg:#2a2140}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+a{color:var(--accent)}
+.wrap{max-width:680px;margin:0 auto;padding:0 16px}
+header{padding:18px 0}
+.brand{display:inline-flex;align-items:center;gap:10px;font-weight:700;font-size:18px;color:var(--ink);text-decoration:none}
+.brand svg{width:28px;height:28px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;margin:24px 0 48px}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.03em;background:var(--pro-bg);color:var(--pro)}
+h1{font-size:clamp(26px,5vw,34px);line-height:1.15;margin:12px 0 10px;letter-spacing:-.02em}
+p,li{color:var(--muted)}
+ol{padding-left:22px}
+li{margin:6px 0}
+b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="./">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#2f6fe4"/><path d="M8 22V10l8 7 8-7v12" fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>
+      Macro Kit
+    </a>
+  </header>
+  <div class="card">
+    <span class="pill">PRO</span>
+    <h1>Thank you for buying Macro Kit Pro!</h1>
+    <p>Your payment went through, and your receipt is on its way from Link, the Stripe checkout.</p>
+    <p><b>Your license key arrives by email within 24 hours</b>, sent to the address you paid with. Then:</p>
+    <ol>
+      <li>Open Macro Kit. If you don't have it yet, <a href="https://github.com/curtner04/macro-kit-downloads/releases/latest/download/MK-Setup.exe">download it here</a>.</li>
+      <li>Go to <b>Settings → About → Enter license key</b>.</li>
+      <li>Paste the key, which starts with <b>MK1-</b>. Conditions, schedules and picture steps switch on straight away.</li>
+    </ol>
+    <p>No key after 24 hours? Check your spam folder, then email <a data-support href="./#faq">Macro Kit support</a> from the address you paid with.</p>
+    <p><a href="./">Back to the Macro Kit website</a></p>
+  </div>
+</div>
+<script>
+var SUPPORT_EMAIL = "";
+document.querySelectorAll("[data-support]").forEach(function (el) {
+  if (SUPPORT_EMAIL) { el.href = "mailto:" + SUPPORT_EMAIL; el.textContent = SUPPORT_EMAIL; }
+});
+</script>
+</body>
+</html>

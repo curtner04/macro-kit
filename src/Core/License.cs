@@ -33,7 +33,7 @@ namespace MacroKit.Core
         /// False until Pro can be bought. Meanwhile no "Get Pro" button leads to the website's disabled checkout;
         /// Pro features say Pro goes on sale soon instead. Set it to true when checkout opens.
         /// </summary>
-        public static readonly bool CheckoutOpen = false;
+        public static readonly bool CheckoutOpen = true;   // 1.13.4: Pro is on sale through Stripe
 
         static volatile LicenseInfo license;
 

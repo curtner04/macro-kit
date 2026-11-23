@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Macro Kit</title>
-<meta name="description" content="Free Windows app to record and replay mouse and keyboard, expand typed phrases and run macro scripts with Stream Deck-style multi actions. Macro Kit Pro adds conditions and schedules.">
+<meta name="description" content="Free Windows app to record and replay mouse and keyboard, expand typed phrases and run macro scripts with Stream Deck-style multi actions. Macro Kit Pro adds conditions, schedules and picture steps.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6fe4'/%3E%3Cpath d='M8 22V10l8 7 8-7v12' fill='none' stroke='white' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 :root{
@@ -131,6 +131,7 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
           <tr><td>Macro library: every pack</td><td class="c yes">✓</td><td class="c yes">✓</td></tr>
           <tr><td>Conditions: <code>{{IF:$clip~http}}</code> … <code>{{ELSE}}</code> … <code>{{ENDIF}}</code>, and <code>{{IFWINDOW:Excel}}</code></td><td class="c no">–</td><td class="c yes">✓</td></tr>
           <tr><td>Scheduled macros: daily at a time, every few minutes, or once at a date and time</td><td class="c no">–</td><td class="c yes">✓</td></tr>
+          <tr><td>Picture steps: wait for a button or icon to appear on screen, wherever it is, and click it</td><td class="c no">–</td><td class="c yes">✓</td></tr>
           <tr><td>Pro badge in About, and a thank-you</td><td class="c no">–</td><td class="c yes">✓</td></tr>
         </tbody>
       </table>
@@ -155,7 +156,7 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
         <a class="btn pro" id="buy" href="#pro" aria-disabled="true">Checkout opens soon</a>
       </div>
     </div>
-    <p class="fine">After you pay, your license key arrives by email. Open Macro Kit, go to <b>Settings → About → Enter license key</b>, and paste it.</p>
+    <p class="fine">Checkout is by Stripe, which adds and pays any sales tax. After you pay, your license key arrives by email within 24 hours. Open Macro Kit, go to <b>Settings → About → Enter license key</b>, and paste it.</p>
   </section>
 
   <section id="faq">
@@ -175,7 +176,7 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
     </details>
     <details>
       <summary>What if I change my mind?</summary>
-      <p>Ask for a refund within 30 days of buying, for any reason, by replying to your receipt email. You get your money back.</p>
+      <p>Ask for a refund within 30 days of buying, for any reason, and you get your money back. Your receipt comes from Link, the Stripe checkout Macro Kit uses: ask Link for the refund from that receipt, or email <a data-support href="#faq">Macro Kit support</a>.</p>
     </details>
     <details>
       <summary>Do scheduled macros run when Macro Kit is closed?</summary>
@@ -187,7 +188,7 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
     </details>
     <details>
       <summary>I lost my key.</summary>
-      <p>Reply to your receipt email and you will get it again.</p>
+      <p>Email <a data-support href="#faq">Macro Kit support</a> from the address you bought with, and you will get it again.</p>
     </details>
   </section>
 
@@ -198,9 +199,14 @@ footer{padding:30px 0 50px;color:var(--muted);font-size:14px;border-top:1px soli
 <script>
 // Set CHECKOUT_URL to the store's checkout link to switch the Buy button on.
 // Change the prices here; the page shows the founder price while FOUNDER is true.
-var CHECKOUT_URL = "";
+var CHECKOUT_URL = "https://buy.stripe.com/cNidR90ro5Zj8p6dPS9sk00";
 var FOUNDER = true, FOUNDER_PRICE = "$9", REGULAR_PRICE = "$15";
+// The address buyers write to for a missing or lost key. It fills every [data-support] link.
+var SUPPORT_EMAIL = "";
 (function () {
+  document.querySelectorAll("[data-support]").forEach(function (el) {
+    if (SUPPORT_EMAIL) { el.href = "mailto:" + SUPPORT_EMAIL; el.textContent = SUPPORT_EMAIL; }
+  });
   document.querySelectorAll("[data-regular-price]").forEach(function (el) { el.textContent = REGULAR_PRICE; });
   var founder = document.querySelector("[data-founder-price]");
   if (founder) founder.textContent = FOUNDER ? FOUNDER_PRICE : REGULAR_PRICE;

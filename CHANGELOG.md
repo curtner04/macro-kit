@@ -1,5 +1,11 @@
 # Macro Kit changelog
 
+## 1.13.4 - 2026-11-23
+
+Macro Kit Pro is on sale.
+
+- **Get Pro**: where Macro Kit said *Pro goes on sale soon*, a **Get Pro** button now opens the Pro section of the Macro Kit website, where Pro costs $9 (the founder price for the first 100 supporters, then $15). Checkout is by Stripe, which adds and pays any sales tax, and your license key arrives by email within 24 hours. Paste it in **Settings → About → Enter license key**.
+
 ## 1.13.3 - 2026-11-23
 
 Suggestions that narrow as you type, how-to guides with pictures and a Show me button, and plain words for which window a macro types into.
