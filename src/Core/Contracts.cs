@@ -204,11 +204,17 @@ namespace MacroKit.Core
         WindowInfo WindowAt(int x, int y, out bool switchable);
     }
 
-    /// <summary>Reads colours off the screen for {{WAITPIXEL}}. Real: Win32.ScreenPixels. Tests: Fakes.FakeScreen.</summary>
+    /// <summary>Reads colours off the screen for {{WAITPIXEL}}, {{WAITIMAGE}} and {{CLICKIMAGE}}. Real: Win32.ScreenPixels. Tests: FakeScreen.</summary>
     public interface IScreen
     {
         /// <summary>The colour at screen point (x, y) as 0xRRGGBB; false when it can't be read (off every monitor, a locked screen).</summary>
         bool TryGetPixel(int x, int y, out int rgb);
+
+        /// <summary>
+        /// 1.13.0: copies a rectangle of the screen (physical pixels) as 0xRRGGBB values, row by row. Parts off every monitor come back
+        /// black. Null when the screen can't be read at all (a locked screen) or the size is not positive.
+        /// </summary>
+        PixelImage Capture(int left, int top, int width, int height);
     }
 
     public interface IWindowSystem

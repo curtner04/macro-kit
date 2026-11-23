@@ -21,6 +21,20 @@ namespace MacroKit.Tests
             rgb = value ?? 0;
             return value.HasValue;
         }
+
+        /// <summary>1.13.0: a rectangle read from PixelAt (unreadable points come back black). Null when Unreadable is set.</summary>
+        public bool Unreadable;
+        public readonly List<string> Captures = new List<string>();
+
+        public PixelImage Capture(int left, int top, int width, int height)
+        {
+            Captures.Add(left + "," + top + " " + width + "x" + height);
+            if (Unreadable || width <= 0 || height <= 0) return null;
+            var pixels = new int[width * height];
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++) pixels[y * width + x] = PixelAt(left + x, top + y) ?? 0;
+            return new PixelImage(width, height, pixels);
+        }
     }
 
     /// <summary>1.12.0: {{WAITPIXEL}} (wait until a spot in the window turns a colour) and {{INPUT}} (ask for a value while running).</summary>

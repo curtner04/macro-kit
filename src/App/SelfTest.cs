@@ -1352,7 +1352,7 @@ namespace MacroKit.App
                 main.Macros.SearchCommands("zzzz");
                 if (main.Macros.VisibleCommandGroups != 0) throw new Exception("nonsense matched " + main.Macros.VisibleCommandGroups);
                 main.Macros.SearchCommands("");
-                if (main.Macros.VisibleCommandGroups != 10) throw new Exception(main.Macros.VisibleCommandGroups + " groups after clearing the search");
+                if (main.Macros.VisibleCommandGroups != 11) throw new Exception(main.Macros.VisibleCommandGroups + " groups after clearing the search");
                 if (string.Join(",", main.Macros.OpenCommandGroups) != string.Join(",", saved) || !c.Settings.OpenCommandGroups.SequenceEqual(saved)) throw new Exception("the saved open groups changed");
             });
             Step("the colour row adds {{WAITPIXEL}}, and copying it says only Macro Kit runs it", () =>
@@ -1361,6 +1361,8 @@ namespace MacroKit.App
                 if (string.Join(",", main.Macros.OpenCommandGroups) != "windows") throw new Exception("colour showed " + string.Join(",", main.Macros.OpenCommandGroups));
                 main.Macros.SearchCommands("ask");
                 if (!main.Macros.OpenCommandGroups.Contains("vars")) throw new Exception("ask showed " + string.Join(",", main.Macros.OpenCommandGroups));
+                main.Macros.SearchCommands("picture");
+                if (!main.Macros.OpenCommandGroups.Contains("pictures")) throw new Exception("picture showed " + string.Join(",", main.Macros.OpenCommandGroups));
                 main.Macros.SearchCommands("");
                 string token = main.Macros.ColourCommand(120, 40, "1e90ff", 5);
                 if (token != "{{WAITPIXEL:120,40:#1E90FF:5000}}") throw new Exception("Add gave " + token);

@@ -931,6 +931,14 @@ namespace MacroKit.App
             List<MacroDef> others = Macros.Select(m => Json.Deserialize<MacroDef>(Json.Serialize(m))).ToList();
             runner.FindMacro = wanted => others.FirstOrDefault(m => string.Equals((m.Name ?? "").Trim(), wanted, StringComparison.OrdinalIgnoreCase));
             runner.Screen = screen;
+            // Pictures are read from disk once per run, the first time a step asks for each one.
+            var pictures = new Dictionary<string, PixelImage>(StringComparer.OrdinalIgnoreCase);
+            runner.FindImage = wanted =>
+            {
+                PixelImage found;
+                if (!pictures.TryGetValue(wanted, out found)) pictures[wanted] = found = Storage.LoadImage(wanted);
+                return found;
+            };
             runner.AskForInput = AskMacroInput;
             runner.Progress += p => OnMacroProgress(activity, p);
             // The runner calls this once the window it runs in is in front and before its first step.

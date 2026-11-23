@@ -23,11 +23,18 @@ namespace MacroKit.Macros
             "PAUSE", "KEYPRESS", "KEYDOWN", "KEYUP", "MOUSEXY", "MOUSEMOVE", "MOUSEPOS", "WINDOWXY",
             "MLEFTDOWN", "MLEFTUP", "MLEFTDBLCLICK", "MRIGHTDOWN", "MRIGHTUP", "MRIGHTDBLCLICK", "MMIDDLEDOWN", "MMIDDLEUP",
             "MSCROLLUP", "MSCROLLDOWN", "MSCROLLLEFT", "MSCROLLRIGHT", "MSAVEPOS", "MLOADPOS",
-            "VARSET", "OUTPUT", "VARUNSET", "VARUNSETALL", "SETCLIPBOARD", "VARSETFROMCLIPBOARD", "WAITPIXEL", "INPUT"
+            "VARSET", "OUTPUT", "VARUNSET", "VARUNSETALL", "SETCLIPBOARD", "VARSETFROMCLIPBOARD", "WAITPIXEL", "INPUT",
+            "WAITIMAGE", "CLICKIMAGE"
         };
 
         /// <summary>Commands only Macro Kit runs: a Stream Deck Super Macro action doesn't know them.</summary>
-        public static readonly string[] MacroKitOnly = { "WINDOWXY", "WAITPIXEL" };
+        public static readonly string[] MacroKitOnly = { "WINDOWXY", "WAITPIXEL", "WAITIMAGE", "CLICKIMAGE" };
+
+        // 1.13.0: commands (not blocks) that need Macro Kit Pro.
+        static readonly HashSet<string> ProCommands = new HashSet<string> { "WAITIMAGE", "CLICKIMAGE" };
+
+        /// <summary>How long {{WAITIMAGE}} and {{CLICKIMAGE}} wait when the script doesn't say.</summary>
+        public const int DefaultWaitImageMs = 10000;
 
         // Super Macro commands that need files, prompts or program flow. Macro Kit leaves them out on purpose.
         static readonly HashSet<string> Unsupported = new HashSet<string>
@@ -378,6 +385,18 @@ namespace MacroKit.Macros
                         if (args.Length == 3 && !Number(args[2], 100, MaxPauseMs, out n)) return "The time limit in " + tag + " must be a whole number of milliseconds from 100 to 3,600,000.";
                         step.Kind = StepKind.WaitPixel; step.X = x; step.Y = y; step.Color = rgb; step.Ms = n;
                         return null;
+
+                    case "WAITIMAGE":
+                    case "CLICKIMAGE":
+                        // 1.13.0, Pro: {{WAITIMAGE:name}} or {{CLICKIMAGE:name:5000}}, a picture saved in the palette's Pictures group
+                        if (args.Length < 1 || args.Length > 2 || args[0].Trim().Length == 0)
+                            return tag + " needs the name of a saved picture, like {{" + name + ":Save button}}, and optionally a time limit in ms, like {{" + name + ":Save button:5000}}.";
+                        string picture = args[0].Trim();
+                        if (!PixelImage.IsValidName(picture)) return PixelImage.NameRule + " Check the name in " + tag + ".";
+                        n = DefaultWaitImageMs;
+                        if (args.Length == 2 && !Number(args[1], 100, MaxPauseMs, out n)) return "The time limit in " + tag + " must be a whole number of milliseconds from 100 to 3,600,000.";
+                        step.Kind = name == "WAITIMAGE" ? StepKind.WaitImage : StepKind.ClickImage; step.Value = picture; step.Ms = n;
+                        return null;
                 }
                 return "Unknown key or command “" + name + "”.";
             }
@@ -615,6 +634,11 @@ namespace MacroKit.Macros
 
             void BuildCommand(string name, string[] args, int index, int length)
             {
+                if (ProCommands.Contains(name) && !Edition.IsPro)
+                {
+                    AddError(index, length, "{{" + name + "}}: picture steps come with Macro Kit Pro. Enter your license key in Settings.");
+                    return;
+                }
                 MacroStep step;
                 string error = Build(name, args, null, out step);
                 if (error != null) AddError(index, length, error);

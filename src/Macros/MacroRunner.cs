@@ -58,8 +58,11 @@ namespace MacroKit.Macros
         /// <summary>Finds another saved macro by name for {{MACRO:name}} (null = none). Called on the worker thread.</summary>
         public Func<string, MacroDef> FindMacro { get; set; }
 
-        /// <summary>Reads the screen for {{WAITPIXEL}} (null = it stops the run with a message).</summary>
+        /// <summary>Reads the screen for {{WAITPIXEL}}, {{WAITIMAGE}} and {{CLICKIMAGE}} (null = it stops the run with a message).</summary>
         public IScreen Screen { get; set; }
+
+        /// <summary>1.13.0: finds a saved picture by name for {{WAITIMAGE}} and {{CLICKIMAGE}} (null = none). Called on the worker thread.</summary>
+        public Func<string, PixelImage> FindImage { get; set; }
 
         /// <summary>
         /// Asks the person for {{INPUT}}: (macro name, variable name, question, the run's token) gives the answer, or null when they
@@ -602,6 +605,54 @@ namespace MacroKit.Macros
                 }
             }
 
+            const int WaitImagePollMs = 250;
+
+            // 1.13.0, {{WAITIMAGE}} and {{CLICKIMAGE}}: the window in front is read each time it looks (so a window that moves or
+            // comes to the front while the macro waits is still searched), and the picture's middle is kept in $IMAGE_X and
+            // $IMAGE_Y (screen pixels) for the steps after it. {{CLICKIMAGE}} then left-clicks there.
+            void WaitForImage(MacroStep step)
+            {
+                string name = step.Kind == StepKind.ClickImage ? "{{CLICKIMAGE}}" : "{{WAITIMAGE}}";
+                IScreen screen = owner.Screen;
+                if (screen == null) throw new RunStopped("Line " + step.Line + ": " + name + " can't read the screen here.");
+                PixelImage picture = owner.FindImage == null ? null : owner.FindImage(step.Value);
+                if (picture == null)
+                    throw new RunStopped("Line " + step.Line + ": there is no saved picture called “" + step.Value + "”. Capture it under Pictures in Show all commands.");
+                long deadline = Clock.NowMs + step.Ms;
+                WindowInfo seen = null;
+                passBusy = true;
+                while (true)
+                {
+                    IntPtr front = Windows.Foreground;
+                    WindowInfo window = front == IntPtr.Zero || Windows.IsOwnWindow(front) ? null : Windows.Describe(front);
+                    if (window != null && window.Width > 0 && window.Height > 0)
+                    {
+                        seen = window;
+                        PixelImage shot = screen.Capture(window.Left, window.Top, window.Width, window.Height);
+                        int x, y;
+                        if (shot != null && shot.Find(picture, out x, out y))
+                        {
+                            int cx = window.Left + x + picture.Width / 2, cy = window.Top + y + picture.Height / 2;
+                            variables["IMAGE_X"] = cx.ToString(CultureInfo.InvariantCulture);
+                            variables["IMAGE_Y"] = cy.ToString(CultureInfo.InvariantCulture);
+                            if (step.Kind == StepKind.ClickImage)
+                            {
+                                Input.MouseMoveTo(cx, cy);
+                                Click(MouseButton.Left);
+                            }
+                            return;
+                        }
+                    }
+                    if (Clock.NowMs >= deadline)
+                    {
+                        string seconds = (step.Ms / 1000.0).ToString("0.#", CultureInfo.InvariantCulture);
+                        if (seen == null) throw new RunStopped("Line " + step.Line + ": " + name + " needs a window in front to look in. Put {{FOCUS:...}} before it.");
+                        throw new RunStopped("Line " + step.Line + ": the picture “" + step.Value + "” didn't show in " + NameOf(seen) + " within " + seconds + " seconds.");
+                    }
+                    Clock.Sleep(WaitImagePollMs, token);
+                }
+            }
+
             // {{INPUT}}: keys and buttons the macro is holding are let go first, so the answer isn't typed with Ctrl or Shift down,
             // and pressed again after it (a held button back where the pointer was), so a {{KEYDOWN}} or drag carries on.
             void Ask(MacroStep step)
@@ -807,6 +858,10 @@ namespace MacroKit.Macros
                         break;
                     case StepKind.AskInput:
                         Ask(step);
+                        break;
+                    case StepKind.WaitImage:
+                    case StepKind.ClickImage:
+                        WaitForImage(step);
                         break;
                 }
                 if (step.SendsInput)

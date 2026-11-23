@@ -96,6 +96,14 @@ namespace MacroKit.App
         readonly Border pixelSwatch = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center };
         readonly NumberBox waitPixelSeconds = new NumberBox(10, 1, 3600, 56);
         Button pickPixel;
+        // 1.13.0, Pro: saved pictures ({{WAITIMAGE}}, {{CLICKIMAGE}})
+        readonly ComboBox pictureName = new ComboBox { IsEditable = true, Width = 170 };
+        readonly NumberBox pictureSize = new NumberBox(48, PixelImage.MinSide * 2, PixelImage.MaxSide, 56);
+        readonly NumberBox waitPictureSeconds = new NumberBox(10, 1, 3600, 56);
+        readonly Image picturePreview = new Image { Width = 40, Height = 40, Stretch = System.Windows.Media.Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center };
+        Button capturePicture;
+        FrameworkElement pictureCommands;
+        Border pictureNote;
         readonly NumberBox volumePercent = new NumberBox(50, 0, 100, 50);
         readonly TextBox soundFile = new TextBox();
         readonly TextBox varName = new TextBox();

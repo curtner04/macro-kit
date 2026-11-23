@@ -1,5 +1,13 @@
 # Macro Kit changelog
 
+## 1.13.0 - 2026-11-23
+
+Macros that find a button or icon by how it looks.
+
+- **Wait for a picture, or click it** (Macro Kit Pro): save a small picture of a button or icon, then a macro can wait until it shows anywhere in the window in front, or click its middle, wherever it is. Small differences in shade still count. It waits 10 seconds unless you say; if the picture never shows, the macro stops and says so. Plain lines: *wait for picture Save button 5s* and *click picture Save button*; code: `{{WAITIMAGE:Save button:5000}}` and `{{CLICKIMAGE:Save button}}`. Where it was found is kept in `$IMAGE_X` and `$IMAGE_Y`.
+- **Pictures in the commands panel**: press **Capture…**, point at the button, and after 3 seconds Macro Kit saves the square around the pointer under the name you give (48 pixels unless you change the size). **Open folder** shows the saved pictures, which are PNG files in the data folder's `images` folder and move with Export / import.
+- **Copy says what a Stream Deck can't run** now also covers the picture steps.
+
 ## 1.12.2 - 2026-11-21
 
 - **Import takes new recordings again**: a recording made since 1.11 that clicks in a window could be exported, but importing it, or restoring it on another PC, failed with "made by a newer version of Macro Kit". Those recordings now import with their windows.

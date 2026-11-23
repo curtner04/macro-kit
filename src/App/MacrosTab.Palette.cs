@@ -49,6 +49,7 @@ namespace MacroKit.App
             list.Children.Add(Group("mouse", "Mouse", "Click, move, scroll", "mouse click left right middle double move position scroll wheel pointer cursor", BuildMouseGroup()));
             list.Children.Add(Group("apps", "Apps and websites", "Open a program, file or web page, close a program, lock the PC", "open run launch start program app exe file folder website url browser link close quit exit kill lock", BuildAppsGroup()));
             list.Children.Add(Group("windows", "Windows", "Switch to a window, wait for one to open or for a colour", "window focus activate switch bring front wait title colour color pixel appear screen until", BuildWindowsGroup()));
+            list.Children.Add(Group("pictures", "Pictures", "Wait for a button or icon to show, or click it", "picture image icon button find see screen appear show click wait capture screenshot", BuildPicturesGroup(), Ui.Pill("PRO", "Good", "GoodBg", 10)));
             list.Children.Add(Group("media", "Media and sound", "Play, pause, skip, volume, play a sound file", "media play pause next previous track stop mute volume louder quieter sound audio wav mp3 music", BuildMediaGroup()));
             list.Children.Add(Group("vars", "Variables and clipboard", "Remember a value, ask for one, use the clipboard", "variable var value set output clipboard copy remember input ask prompt question", BuildVariablesGroup()));
             list.Children.Add(Group("conditions", "Conditions", "Do steps only if a value or window matches", "if else condition compare window when check", BuildConditionsGroup(), Ui.Pill("PRO", "Good", "GoodBg", 10)));
@@ -347,10 +348,134 @@ namespace MacroKit.App
 
         void RefreshProCommands()
         {
-            if (proCommands == null) return;
             bool pro = Edition.IsPro;
-            proCommands.IsEnabled = pro;
-            proNote.Visibility = pro ? Visibility.Collapsed : Visibility.Visible;
+            if (proCommands != null)
+            {
+                proCommands.IsEnabled = pro;
+                proNote.Visibility = pro ? Visibility.Collapsed : Visibility.Visible;
+            }
+            if (pictureCommands != null)
+            {
+                pictureCommands.IsEnabled = pro;
+                pictureNote.Visibility = pro ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+
+        // ---- 1.13.0, Pro: pictures ----------------------------------------------------------------------------------------
+
+        FrameworkElement BuildPicturesGroup()
+        {
+            AutomationProperties.SetName(pictureName, "Picture name");
+            AutomationProperties.SetName(pictureSize, "Picture size in pixels");
+            AutomationProperties.SetName(waitPictureSeconds, "Seconds to wait for the picture");
+            pictureName.ToolTip = "A name for the picture, such as Save button. Pick a saved one or type a new name before Capture.";
+            pictureName.DropDownOpened += (s, e) => FillCombo(pictureName, c.Storage.ListImages());
+            pictureName.LostKeyboardFocus += (s, e) => ShowPicturePreview();
+            pictureName.SelectionChanged += (s, e) => pictureName.Dispatcher.BeginInvoke(new Action(ShowPicturePreview));
+            pictureSize.ToolTip = "How big a square to capture around the pointer, in pixels. Keep it small: just the button or icon, not the space around it.";
+            AutomationProperties.SetName(picturePreview, "The saved picture");
+            capturePicture = Ui.Button("Capture…", CapturePicture, "Small", "Point at the button or icon in the other window. After 3 seconds a square around the pointer is saved under this name.");
+            var captureRow = Ui.WrapRow(6, Ui.Text("Name", "Muted", false, 12), pictureName, pictureSize, Ui.Text("px", "Muted", false, 12), capturePicture,
+                Ui.Button("Open folder", OpenPicturesFolder, "Small", "Show the saved pictures in File Explorer, to rename or delete them."));
+            var useRow = Ui.WrapRow(6, picturePreview, Ui.Text("up to", "Muted", false, 12), waitPictureSeconds, Ui.Text("s", "Muted", false, 12),
+                ActionButton("Wait for it", () => PictureToken(false), "Wait until this picture shows in the window in front, then carry on. Its middle is kept in $IMAGE_X and $IMAGE_Y. The macro stops if it doesn't show in time. Only Macro Kit runs this; a Stream Deck doesn't."),
+                ActionButton("Click it", () => PictureToken(true), "Wait until this picture shows in the window in front, then click its middle. The macro stops if it doesn't show in time. Only Macro Kit runs this; a Stream Deck doesn't."));
+            var hint = Ui.Para("Capture works best on something that looks the same every time, such as an icon or a button's label. Keep the window's size and zoom the same as when you captured it.", "Muted", 12);
+            pictureCommands = Ui.Stack(6,
+                Ui.Stack(4, Ui.Caption("Save a picture"), captureRow),
+                Ui.Stack(4, Ui.Caption("Use it"), useRow),
+                hint);
+            pictureNote = Ui.Note("Picture steps come with Macro Kit Pro; enter your license key in Settings.", "Info");
+            return Ui.Stack(0, pictureNote, pictureCommands);
+        }
+
+        string PictureToken(bool click)
+        {
+            string name = pictureName.Text.Trim();
+            if (name.Length == 0) return null;
+            if (!PixelImage.IsValidName(name)) { c.SetStatus(PixelImage.NameRule, true); return ""; }
+            if (c.Storage.LoadImage(name) == null) { c.SetStatus("There is no saved picture called “" + name + "” yet. Press Capture first.", true); return ""; }
+            int ms = waitPictureSeconds.Value * 1000;
+            return click ? MacroScript.ClickImage(name, ms) : MacroScript.WaitImage(name, ms);
+        }
+
+        void ShowPicturePreview()
+        {
+            string name = pictureName.Text.Trim();
+            PixelImage image = PixelImage.IsValidName(name) ? c.Storage.LoadImage(name) : null;
+            picturePreview.Source = image == null ? null : image.ToBitmap();
+            picturePreview.ToolTip = image == null ? null : name + " (" + image.Width + " × " + image.Height + " px)";
+        }
+
+        void CapturePicture()
+        {
+            if (countdown != null) return;
+            string name = pictureName.Text.Trim();
+            if (name.Length > 0 && !PixelImage.IsValidName(name)) { c.SetStatus(PixelImage.NameRule, true); return; }
+            int left = 3;
+            capturePicture.Content = left + "…";
+            countdown = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            countdown.Tick += (s, e) =>
+            {
+                left--;
+                if (left > 0) { capturePicture.Content = left + "…"; return; }
+                countdown.Stop();
+                countdown = null;
+                capturePicture.Content = "Capture…";
+                FillPictureFrom(c.Input.CursorPosition);
+            };
+            countdown.Start();
+        }
+
+        /// <summary>Saves a square around a screen point as the named picture (Capture, after its countdown; the self test calls it directly).</summary>
+        internal bool FillPictureFrom(ScreenPoint p)
+        {
+            bool switchable;
+            WindowInfo window = c.WindowProbe.WindowAt(p.X, p.Y, out switchable);
+            if (window == null || c.Windows.IsOwnWindow(window.Handle))
+            {
+                c.SetStatus("Point at the other program's window, not at Macro Kit, then press Capture again.", true);
+                return false;
+            }
+            int side = pictureSize.Value;
+            PixelImage shot = c.Screen.Capture(p.X - side / 2, p.Y - side / 2, side, side);
+            if (shot == null)
+            {
+                c.SetStatus("Macro Kit couldn't read the screen there. Try again.", true);
+                return false;
+            }
+            string name = pictureName.Text.Trim();
+            if (name.Length == 0) name = NextPictureName();
+            bool replaced = c.Storage.LoadImage(name) != null;
+            try { c.Storage.SaveImage(name, shot); }
+            catch (Exception e) when (e is System.IO.IOException || e is UnauthorizedAccessException)
+            {
+                c.SetStatus("Couldn't save the picture: " + e.Message, true);
+                return false;
+            }
+            pictureName.Text = name;
+            ShowPicturePreview();
+            string title = (window.Title ?? "").Trim();
+            c.SetStatus((replaced ? "Replaced" : "Saved") + " the picture “" + name + "” from " + (title.Length > 0 ? "“" + title + "”" : "that window")
+                + ". Press Wait for it or Click it to use it.", false);
+            return true;
+        }
+
+        string NextPictureName()
+        {
+            var taken = new HashSet<string>(c.Storage.ListImages(), StringComparer.OrdinalIgnoreCase);
+            for (int n = 1; ; n++) if (!taken.Contains("Picture " + n)) return "Picture " + n;
+        }
+
+        void OpenPicturesFolder()
+        {
+            string folder = System.IO.Path.Combine(c.Storage.DataRoot, "images");
+            try
+            {
+                System.IO.Directory.CreateDirectory(folder);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "\"" + folder + "\"") { UseShellExecute = true });
+            }
+            catch (Exception e) { c.SetStatus("Couldn't open the pictures folder: " + e.Message, true); }
         }
 
         FrameworkElement Group(string id, string title, string hint, string words, FrameworkElement body, FrameworkElement badge = null)
@@ -388,7 +513,8 @@ namespace MacroKit.App
                 if (opening && commandSearch.Text.Trim().Length == 0)
                     foreach (CommandGroup other in groups) if (!ReferenceEquals(other, g) && other.Open) SetOpen(other, false, false);
                 SetOpen(g, opening, true);
-                if (g.Open && id == "conditions") RefreshProCommands();
+                if (g.Open && (id == "conditions" || id == "pictures")) RefreshProCommands();
+                if (g.Open && id == "pictures") ShowPicturePreview();
                 if (g.Open) header.BringIntoView();
             };
             body.Margin = new Thickness(28, 4, 6, 10);

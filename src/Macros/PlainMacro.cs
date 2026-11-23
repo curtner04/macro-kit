@@ -151,6 +151,22 @@ namespace MacroKit.Macros
             if (LeadingComment.IsMatch(s)) { kind = PlainKind.Note; return s + "\n"; }
             if (s.StartsWith("{{", StringComparison.Ordinal)) { kind = PlainKind.Code; return s; }
 
+            // 1.13.0, Pro: "wait for picture Save button 5s", "click picture Save button".
+            string pictureRest;
+            bool clickPicture = Word(s, out pictureRest, "click picture", "click the picture", "click image", "click the image");
+            if (clickPicture || Word(s, out pictureRest, "wait for picture", "wait for the picture", "wait for image", "wait for the image"))
+            {
+                kind = clickPicture ? PlainKind.Mouse : PlainKind.Wait;
+                int ms = MacroParser.DefaultWaitImageMs;
+                Match d = TrailingDuration.Match(pictureRest);
+                if (d.Success && TryDuration(d.Groups["d"].Value, out ms)) pictureRest = d.Groups["rest"].Value.Trim();
+                string picture = Unquote(pictureRest).Trim();
+                if (picture.Length == 0) { error = "Say which saved picture, like: " + (clickPicture ? "click" : "wait for") + " picture Save button."; return null; }
+                if (!PixelImage.IsValidName(picture)) { error = PixelImage.NameRule; return null; }
+                if (ms < 100) { error = "Wait at least 100 ms for a picture."; return null; }
+                return clickPicture ? MacroScript.ClickImage(picture, ms) : MacroScript.WaitImage(picture, ms);
+            }
+
             // Keys first: "ctrl+c", "enter", "space 10 times every 100ms".
             string keys = TryKeyLine(s);
             if (keys != null) return keys;
@@ -686,6 +702,11 @@ namespace MacroKit.Macros
                 case StepKind.VarFromClipboard: return "set $" + s.Var + " = clipboard";
                 case StepKind.WaitPixel:
                     return "wait for colour " + MacroParser.FormatColor(s.Color) + " at " + s.X + ", " + s.Y + " in the window" + (s.Ms == MacroParser.DefaultWaitPixelMs ? "" : " " + Ms(s.Ms));
+                case StepKind.WaitImage:
+                case StepKind.ClickImage:
+                    // A name ending in something that reads as a time ("Step 5s") would lose it on the way back; leave those as code.
+                    if (TrailingDuration.IsMatch("x " + s.Value)) return null;
+                    return (s.Kind == StepKind.ClickImage ? "click picture " : "wait for picture ") + s.Value + (s.Ms == MacroParser.DefaultWaitImageMs ? "" : " " + Ms(s.Ms));
                 case StepKind.AskInput:
                     {
                         if (string.IsNullOrEmpty(s.Value)) return "ask for $" + s.Var;

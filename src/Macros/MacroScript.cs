@@ -176,6 +176,18 @@ namespace MacroKit.Macros
                 + (timeoutMs != MacroParser.DefaultWaitPixelMs ? ":" + timeoutMs.ToString(CultureInfo.InvariantCulture) : "") + "}}";
         }
 
+        /// <summary>1.13.0, Pro: {{WAITIMAGE:name}}, wait until a saved picture shows in the window in front (Macro Kit only).</summary>
+        public static string WaitImage(string name, int timeoutMs)
+        {
+            return "{{WAITIMAGE:" + name.Trim() + (timeoutMs != MacroParser.DefaultWaitImageMs ? ":" + timeoutMs.ToString(CultureInfo.InvariantCulture) : "") + "}}";
+        }
+
+        /// <summary>1.13.0, Pro: {{CLICKIMAGE:name}}, wait for a saved picture in the window in front, then click its middle (Macro Kit only).</summary>
+        public static string ClickImage(string name, int timeoutMs)
+        {
+            return "{{CLICKIMAGE:" + name.Trim() + (timeoutMs != MacroParser.DefaultWaitImageMs ? ":" + timeoutMs.ToString(CultureInfo.InvariantCulture) : "") + "}}";
+        }
+
         /// <summary>
         /// A value written inside a command. A } would end the command, so it is written as $SMRCB, which the run fills back in.
         /// For a literal value (a path, a web address, a name) a $ is written as $SMDOLLAR so it isn't read as a variable;

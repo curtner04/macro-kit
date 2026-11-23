@@ -20,7 +20,10 @@ namespace MacroKit.Macros
         MouseMoveInWindow,
         // 1.12.0. WaitPixel (Macro Kit only): wait until a spot in the window in front turns a colour ({{WAITPIXEL}}).
         // AskInput: ask the person for a value while the macro runs and keep it in a variable ({{INPUT}}).
-        WaitPixel, AskInput
+        WaitPixel, AskInput,
+        // 1.13.0, Pro (Macro Kit only): wait until a saved picture shows in the window in front ({{WAITIMAGE}}), or wait and click
+        // its middle ({{CLICKIMAGE}}). Value holds the picture's name.
+        WaitImage, ClickImage
     }
 
     /// <summary>One parsed command (or run of literal text) of a Super Macro script.</summary>
@@ -91,6 +94,7 @@ namespace MacroKit.Macros
                     case StepKind.WaitWindow:
                     case StepKind.WaitPixel:
                     case StepKind.AskInput:
+                    case StepKind.WaitImage:
                         return false;
                     default:
                         return true;
@@ -157,6 +161,8 @@ namespace MacroKit.Macros
                 case StepKind.WaitWindow: return "Wait for the window “" + Shorten(Value) + "” (up to " + Seconds(Ms) + ")";
                 case StepKind.WaitPixel: return "Wait until " + X + ", " + Y + " in the window is " + MacroParser.FormatColor(Color) + " (up to " + Seconds(Ms) + ")";
                 case StepKind.AskInput: return "Ask for $" + Var + (string.IsNullOrEmpty(Value) ? "" : ": “" + Shorten(Value) + "”");
+                case StepKind.WaitImage: return "Wait for the picture “" + Shorten(Value) + "” in the window (up to " + Seconds(Ms) + ")";
+                case StepKind.ClickImage: return "Click the picture “" + Shorten(Value) + "” in the window (waits up to " + Seconds(Ms) + ")";
             }
             return Kind.ToString();
         }

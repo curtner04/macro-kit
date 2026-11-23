@@ -451,6 +451,82 @@ namespace MacroKit.Core
             return true;
         }
 
+        // ---- pictures (1.13.0) ---------------------------------------------------------------------
+
+        string ImagesDir { get { return Path.Combine(root, "images"); } }
+
+        /// <summary>The PNG file a saved picture lives in (whether or not it exists yet). The name must pass PixelImage.IsValidName.</summary>
+        public string ImagePath(string name)
+        {
+            if (!PixelImage.IsValidName(name)) throw new ArgumentException(PixelImage.NameRule, "name");
+            return Path.Combine(ImagesDir, name + ".png");
+        }
+
+        /// <summary>The saved pictures' names, A to Z (files in the images folder whose names are valid picture names).</summary>
+        public List<string> ListImages()
+        {
+            var names = new List<string>();
+            try
+            {
+                if (Directory.Exists(ImagesDir))
+                    foreach (string file in Directory.GetFiles(ImagesDir, "*.png"))
+                    {
+                        string name = Path.GetFileNameWithoutExtension(file);
+                        if (PixelImage.IsValidName(name)) names.Add(name);
+                    }
+            }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { Log.Warn("Could not list the saved pictures", e); }
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names;
+        }
+
+        /// <summary>The saved picture with this name (any case), or null when there is none or it can't be read (logged).</summary>
+        public PixelImage LoadImage(string name)
+        {
+            if (!PixelImage.IsValidName(name)) return null;
+            string path = ImagePath(name);
+            try
+            {
+                if (!File.Exists(path)) return null;
+                return PixelImage.FromPng(File.ReadAllBytes(path));
+            }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException || e is InvalidDataException)
+            {
+                Log.Warn("Could not read the picture " + name, e);
+                return null;
+            }
+        }
+
+        /// <summary>Saves (or replaces) a picture as images\name.png. The replaced one is not kept.</summary>
+        public void SaveImage(string name, PixelImage image)
+        {
+            if (image == null) throw new ArgumentNullException("image");
+            string path = ImagePath(name);
+            byte[] bytes = image.ToPng();
+            lock (gate)
+            {
+                Directory.CreateDirectory(ImagesDir);
+                string temp = path + ".tmp";
+                try
+                {
+                    File.WriteAllBytes(temp, bytes);
+                    if (File.Exists(path)) File.Replace(temp, path, null);
+                    else File.Move(temp, path);
+                }
+                catch
+                {
+                    try { if (File.Exists(temp)) File.Delete(temp); } catch (Exception) { /* the next save overwrites it */ }
+                    throw;
+                }
+            }
+        }
+
+        public void DeleteImage(string name)
+        {
+            string path = ImagePath(name);
+            lock (gate) { if (File.Exists(path)) File.Delete(path); }
+        }
+
         // ---- license -----------------------------------------------------------------------------
 
         string LicensePath { get { return Path.Combine(root, "license.key"); } }
