@@ -32,6 +32,7 @@ namespace MacroKit.App
         public const string GlyphTarget = "";
         public const string GlyphWarn = "";
         public const string GlyphHelp = "\uE897";
+        public const string GlyphStar = "\uE734";
         public const string GlyphInfo = "";
 
         public static void Ref(FrameworkElement element, DependencyProperty property, string key) { element.SetResourceReference(property, key); }

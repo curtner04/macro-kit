@@ -1,5 +1,12 @@
 # Macro Kit changelog
 
+## 1.13.5 - 2026-11-23
+
+An Upgrade to Pro button that shows what Pro adds.
+
+- **Upgrade to Pro**: on the free edition, a new **Upgrade to Pro** button in the header opens a short window with the three things Pro adds (conditions, scheduled macros and picture steps), an example of each, and **Get Pro** and **Enter license key** buttons. The button disappears once a license key is entered, and the window closes by itself.
+- **Settings → About** has a **What Pro adds** button that opens the same window, and its description of Pro now mentions picture steps too.
+
 ## 1.13.4 - 2026-11-23
 
 Macro Kit Pro is on sale.

@@ -1429,6 +1429,34 @@ namespace MacroKit.App
                 try { if (guide.TopicId != "pictures") throw new Exception("it opened at " + guide.TopicId); }
                 finally { guide.Close(); }
             });
+            Step("Upgrade to Pro shows for a free user, lists the Pro features, and hides once a key is entered", () =>
+            {
+                LicenseInfo licenseWas = Edition.License;
+                try
+                {
+                    Edition.Set(null);
+                    System.Windows.Controls.Button up = main.UpgradeButton;
+                    if (up == null || up.Visibility != Visibility.Visible || !up.IsDescendantOf(main)) throw new Exception("a free user has no visible Upgrade to Pro button in the header");
+                    up.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ProUpgradeWindow w = ProUpgradeWindow.Current;
+                    if (w == null) throw new Exception("the button opened nothing");
+                    try
+                    {
+                        string got = string.Join("|", w.Features);
+                        if (got != "Conditions|Scheduled macros|Picture steps") throw new Exception("it lists " + got);
+                        up.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                        if (!ReferenceEquals(ProUpgradeWindow.Current, w)) throw new Exception("a second press opened another window");
+                        Edition.Set(new LicenseInfo { Serial = 1, Issued = new DateTime(2026, 11, 23), Name = "Test" });
+                        if (up.Visibility != Visibility.Collapsed) throw new Exception("the button still shows with Pro");
+                        Pump();
+                        if (ProUpgradeWindow.Current != null) throw new Exception("the window stayed open once Pro was on");
+                    }
+                    finally { if (ProUpgradeWindow.Current != null) ProUpgradeWindow.Current.Close(); }
+                    Edition.Set(null);
+                    if (up.Visibility != Visibility.Visible) throw new Exception("removing the key left the button hidden");
+                }
+                finally { Edition.Set(licenseWas); }
+            });
             Step("every picture in the how-to guides is built in", () =>
             {
                 HowToWindow guide = HowToWindow.Show(main, "start");
@@ -1774,6 +1802,14 @@ namespace MacroKit.App
                 HowToWindow guide = HowToWindow.Show(shell.Main, "pictures");
                 try { RenderFloating(guide, Path.Combine(folder, "8-how-to-pictures-" + suffix + ".png")); }
                 finally { guide.Close(); }
+            });
+            Step("render Upgrade to Pro (" + suffix + ")", () =>
+            {
+                LicenseInfo licenseWas = Edition.License;
+                Edition.Set(null);
+                ProUpgradeWindow w = ProUpgradeWindow.Show(shell.Main, c);
+                try { RenderFloating(w, Path.Combine(folder, "8-upgrade-to-pro-" + suffix + ".png")); }
+                finally { w.Close(); Edition.Set(licenseWas); }
             });
             Step("render recorder bar (" + suffix + ")", () =>
             {

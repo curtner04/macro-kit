@@ -33,6 +33,10 @@ namespace MacroKit.App
         readonly Button moreButton;
         // 1.13.2: the how-to guides in the header, one menu item per guide.
         readonly Button howToButton;
+        // 1.13.5: Upgrade to Pro, for free users only; hidden while a license key is entered.
+        readonly Button upgradeButton;
+        /// <summary>For the self test: the header Upgrade to Pro button.</summary>
+        public Button UpgradeButton { get { return upgradeButton; } }
         readonly System.Windows.Controls.Primitives.Popup howToMenu;
         /// <summary>For the self test: the header How-to button and the items of its menu (one per guide).</summary>
         public Button HowToButton { get { return howToButton; } }
@@ -89,6 +93,13 @@ namespace MacroKit.App
             howToButton = Ui.IconButton(Ui.GlyphHelp, "How-to", null, "Ghost", "How-to guides: how the steps that do more than one thing work, with examples to copy.");
             howToMenu = Ui.Menu(howToButton, guides.ToArray());
             howToButton.Click += (s, e) => { if (guides.Count > 0) howToMenu.IsOpen = true; else HowToWindow.Show(this, null); };
+            upgradeButton = Ui.IconButton(Ui.GlyphStar, "Upgrade to Pro", () => ProUpgradeWindow.Show(this, c), "Ghost", "See what Macro Kit Pro adds: conditions, scheduled macros and picture steps.");
+            foreach (object part in ((Panel)upgradeButton.Content).Children)
+                if (part is TextBlock && ReferenceEquals(((TextBlock)part).FontFamily, Ui.IconFont)) Ui.Ref((TextBlock)part, TextBlock.ForegroundProperty, "Accent");
+            upgradeButton.Margin = new Thickness(0, 0, 8, 0);
+            Action showUpgrade = () => upgradeButton.Visibility = Edition.IsPro ? Visibility.Collapsed : Visibility.Visible;
+            showUpgrade();
+            Edition.Changed += () => { if (Dispatcher.CheckAccess()) showUpgrade(); else Dispatcher.BeginInvoke(showUpgrade); };
             moreButton = Ui.GlyphButton(Ui.GlyphMore, "More: export or import settings, how-to guides, changelog, data folder", null);
             moreMenu = Ui.Menu(moreButton,
                 new System.Collections.Generic.KeyValuePair<string, Action>("Export / import configuration…", shell.ExportImport),
@@ -101,6 +112,7 @@ namespace MacroKit.App
             var headerRight = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             headerRight.Children.Add(readOnlyBadge);
             headerRight.Children.Add(unsavedBadge);
+            headerRight.Children.Add(upgradeButton);
             howToButton.Margin = new Thickness(0, 0, 8, 0);
             headerRight.Children.Add(howToButton);
             headerRight.Children.Add(deckButton);

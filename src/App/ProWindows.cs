@@ -149,6 +149,105 @@ namespace MacroKit.App
         }
     }
 
+    /// <summary>
+    /// 1.13.5: what Macro Kit Pro adds, for a free user who presses Upgrade to Pro in the header. It names the three Pro
+    /// features with a short example each, then Get Pro and Enter license key. No price: the founder price ends after
+    /// 100 buyers, and an installed copy would go on showing it, so the website states today's price.
+    /// </summary>
+    public sealed class ProUpgradeWindow : Window
+    {
+        /// <summary>The window that is open now, if any, so a second press brings it forward instead of opening another.</summary>
+        public static ProUpgradeWindow Current { get; private set; }
+
+        /// <summary>For the self test: the feature titles shown, in order.</summary>
+        public readonly List<string> Features = new List<string>();
+        public readonly Button LicenseButton;
+
+        public static ProUpgradeWindow Show(Window owner, AppController controller)
+        {
+            if (Current != null) { Current.Activate(); return Current; }
+            var w = new ProUpgradeWindow(owner, controller);
+            Current = w;
+            w.Closed += (s, e) => { if (ReferenceEquals(Current, w)) Current = null; };
+            w.Show();
+            return w;
+        }
+
+        ProUpgradeWindow(Window owner, AppController controller)
+        {
+            Title = "Upgrade to Macro Kit Pro";
+            Width = 600;
+            SizeToContent = SizeToContent.Height;
+            ResizeMode = ResizeMode.NoResize;
+            ShowInTaskbar = false;
+            if (owner != null && owner.IsVisible) { Owner = owner; WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+            else WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Theme.Style(this);
+
+            var badge = Ui.Pill("PRO", "Good", "GoodBg");
+            badge.Margin = new Thickness(10, 0, 0, 0);
+            var heading = Ui.Row(0, Ui.Heading("Macro Kit Pro", "H1"), badge);
+            var intro = Ui.Para("Everything you use today stays free, forever. Pro is a one-time purchase that adds three power features to the same app, and supports the work on Macro Kit.");
+            intro.Margin = new Thickness(0, 2, 0, 4);
+
+            var stack = Ui.Stack(10, heading, intro,
+                Feature("Conditions", "Run steps only when something is true, such as when the clipboard holds a link or a certain window is in front. For example, press Ctrl+S only when Excel is in front:",
+                    "{{IFWINDOW:Excel}}{{CTRL}{S}}{{ENDIF}}"),
+                Feature("Scheduled macros", "A macro runs by itself every day at a time, every few minutes, or once at a date and time. Set it in the macro's options.", null),
+                Feature("Picture steps", "Wait for a button or icon to appear on screen, wherever it is, and click it. Good for programs whose buttons move around.",
+                    "{{WAITIMAGE}} and {{CLICKIMAGE}}"));
+
+            var how = Ui.Para("Pay once, keep it: no subscription, on all your own PCs. After you buy on the Macro Kit website, your license key arrives by email within 24 hours. Paste it here or in Settings, About.", "Muted", 12);
+            how.Margin = new Thickness(0, 4, 0, 0);
+            stack.Children.Add(how);
+
+            LicenseButton = Ui.Button("Enter license key", () =>
+            {
+                if (new LicenseWindow(this, controller).ShowDialog() == true) Close();
+            }, "Small", "Paste the key from your purchase email.");
+            var close = Ui.Button("Close", Close, "Small");
+            close.IsCancel = true;
+            FrameworkElement get = ProPage.GetProButton("Opens the Macro Kit website, where you can buy Pro.");
+            var getButton = get as Button;
+            if (getButton != null) getButton.SetResourceReference(FrameworkElement.StyleProperty, "Primary");
+            var buttons = Ui.Row(8, get, LicenseButton, close);
+            buttons.HorizontalAlignment = HorizontalAlignment.Right;
+            buttons.Margin = new Thickness(0, 8, 0, 0);
+            stack.Children.Add(buttons);
+
+            stack.Margin = new Thickness(26, 20, 26, 22);
+            Content = stack;
+            KeyDown += (s, e) => { if (e.Key == Key.Escape) Close(); };
+            // Entering a key anywhere else (Settings) while this is open: nothing is left to sell.
+            Action proNow = () => Dispatcher.BeginInvoke(new Action(() => { if (Edition.IsPro && IsVisible) Close(); }));
+            Edition.Changed += proNow;
+            Closed += (s, e) => Edition.Changed -= proNow;
+        }
+
+        FrameworkElement Feature(string title, string text, string example)
+        {
+            Features.Add(title);
+            var star = Ui.Glyph(Ui.GlyphStar, 14);
+            Ui.Ref(star, TextBlock.ForegroundProperty, "Accent");
+            star.VerticalAlignment = VerticalAlignment.Top;
+            star.Margin = new Thickness(0, 2, 10, 0);
+            var body = Ui.Stack(3, Ui.Text(title, "Text", true, 13.5), Ui.Para(text, "Muted", 12.5));
+            if (example != null)
+            {
+                var code = Ui.Text(example, "Muted", false, 12, true);
+                code.FontFamily = Ui.MonoFont;
+                body.Children.Add(code);
+            }
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.Children.Add(star);
+            Grid.SetColumn(body, 1);
+            row.Children.Add(body);
+            return Ui.Card(row, new Thickness(14, 12, 14, 12));
+        }
+    }
+
     /// <summary>Opens the Macro Kit website's Pro section in the default browser.</summary>
     public static class ProPage
     {
