@@ -33,6 +33,21 @@ namespace MacroKit.Tests
         }
 
         [Test]
+        public static void PictureLinesNameABuiltInPicture()
+        {
+            string caption, name;
+            Assert.True(HowToGuide.TryPicture("![The Keys group.](keys.png)", out caption, out name));
+            Assert.Equal("The Keys group.", caption);
+            Assert.Equal("keys", name);
+            Assert.False(HowToGuide.TryPicture("Press **Show me** (keys.png)", out caption, out name));
+            Assert.False(HowToGuide.TryPicture("![x](../secret.png)", out caption, out name), "only plain names");
+            var topics = HowToGuide.Load();
+            Assert.True(topics.Sum(t => t.Pictures().Count) >= 10, "the guides show pictures");
+            foreach (HowToTopic t in topics)
+                if (t.Pictures().Count > 0) Assert.True(HowToGuide.ShowMeTopics.Contains(t.Id), t.Id + " has pictures and a Show me button");
+        }
+
+        [Test]
         public static void EveryCommandGroupLinkHasAGuide()
         {
             var ids = new HashSet<string>(HowToGuide.Load().Select(t => t.Id));

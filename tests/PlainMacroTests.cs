@@ -339,13 +339,26 @@ namespace MacroKit.Tests
         public static void EnterTakesTheHighlightedSuggestion()
         {
             // 1.13.2: "ctrl" works as a step (press Ctrl alone), but Enter should still take the highlighted ctrl+c.
-            Assert.True(PlainMacro.EnterTakesSuggestion("ctrl"), "ctrl");
-            Assert.True(PlainMacro.EnterTakesSuggestion("ctrl+shift"), "ctrl+shift");
-            Assert.True(PlainMacro.EnterTakesSuggestion("wai"), "wai");
-            // A line that is itself a suggested step keeps Enter as a new line.
-            Assert.True(!PlainMacro.EnterTakesSuggestion("click"), "click");
-            Assert.True(!PlainMacro.EnterTakesSuggestion(" Tab "), "tab");
-            Assert.True(!PlainMacro.EnterTakesSuggestion("end"), "end");
+            Assert.False(PlainMacro.EnterStartsNewLine("ctrl", "ctrl+c"), "ctrl");
+            // 1.13.3: ctrl+s with ctrl+shift+esc highlighted takes it; with the exact step highlighted, Enter starts a new line.
+            Assert.False(PlainMacro.EnterStartsNewLine("ctrl+s", "ctrl+shift+esc"), "ctrl+s");
+            Assert.True(PlainMacro.EnterStartsNewLine(" Ctrl+S ", "ctrl+s"), "exact");
+            Assert.True(PlainMacro.EnterStartsNewLine("click", null), "no list");
+        }
+
+        [Test]
+        public static void SuggestionsPutTheExactStepFirstAndNarrowAsYouType()
+        {
+            Func<string, string> list = typed => string.Join(",", PlainMacro.SuggestionsFor(typed).Select(s => s[0]));
+            Assert.Equal("ctrl+s", PlainMacro.SuggestionsFor("ctrl+s")[0][0]);
+            Assert.Equal("Save", PlainMacro.SuggestionsFor("ctrl+s")[0][1]);
+            Assert.Equal("ctrl+s,ctrl+shift+esc", list("ctrl+s"));
+            Assert.Equal("ctrl+shift+esc", list("ctrl+sh"));
+            Assert.Equal("ctrl+c", PlainMacro.SuggestionsFor("ctrl")[0][0]);
+            Assert.True(PlainMacro.SuggestionsFor("ctrl").Count > PlainMacro.SuggestionsFor("ctrl+s").Count, "typing more narrows the list");
+            Assert.True(list("save").Contains("ctrl+s"), "save finds ctrl+s: " + list("save"));
+            Assert.Equal("click", PlainMacro.SuggestionsFor("click")[0][0]);
+            Assert.Equal("", list("   "));
         }
     }
 }

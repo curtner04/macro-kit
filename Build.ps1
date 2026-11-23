@@ -70,6 +70,9 @@ $sources = @(Get-ChildItem -LiteralPath $src -Filter '*.cs' -File -Recurse | For
 $sources += @(Get-SharedSource @('AppRestart.cs', 'SingleInstance.cs', 'ConfigurationTransfer.cs', 'ReleaseNotes.cs', 'ReleaseAttributes.cs', 'LauncherHandoff.cs'))
 $howTo = '/resource:' + (Join-Path $src 'App\HowTo.md') + ',App.HowTo.md'
 $resources = @(('/resource:' + (Join-Path $PSScriptRoot 'CHANGELOG.md') + ',App.Changelog.md'), ('/resource:' + (Join-Path $src 'App\Styles.xaml') + ',App.Styles.xaml'), $howTo)
+# 1.13.3: the how-to guides' pictures (made by the self test), as App.HowTo.<name>-light.png and -dark.png.
+$howToImages = Join-Path $src 'App\HowToImages'
+if (Test-Path -LiteralPath $howToImages) { Get-ChildItem -LiteralPath $howToImages -Filter '*.png' -File | Sort-Object Name | ForEach-Object { $resources += ('/resource:' + $_.FullName + ',App.HowTo.' + $_.Name) } }
 $png = Join-Path $PSScriptRoot 'assets\MK.png'
 if (Test-Path -LiteralPath $png) { $resources += ('/resource:' + $png + ',App.Icon.png') }
 $icon = Join-Path $PSScriptRoot 'assets\MK.ico'

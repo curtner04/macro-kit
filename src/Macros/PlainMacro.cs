@@ -853,14 +853,28 @@ namespace MacroKit.Macros
         }
 
         /// <summary>
-        /// 1.13.2: whether Enter takes the highlighted suggestion while the list is open. It does, unless the line is already one of
-        /// the suggested steps itself ("click", "tab", "end"), where Enter keeps it and starts a new line. Before, any line that
-        /// worked as a step kept Enter, so "ctrl" (press Ctrl alone) never became the highlighted "ctrl+c".
+        /// 1.13.3: the suggestions for a typed line, best first: the step that is exactly what was typed ("ctrl+s", Save), then the
+        /// steps that start with it, then (from three letters) the ones that contain it or whose meaning does ("save" finds ctrl+s).
+        /// Every letter typed narrows the list.
         /// </summary>
-        public static bool EnterTakesSuggestion(string line)
+        public static List<string[]> SuggestionsFor(string line, int max = 8)
         {
             string typed = (line ?? "").Trim();
-            return !Suggestions.Any(s => s[0].Equals(typed, StringComparison.OrdinalIgnoreCase));
+            if (typed.Length == 0) return new List<string[]>();
+            var exact = Suggestions.Where(s => s[0].Equals(typed, StringComparison.OrdinalIgnoreCase));
+            var starts = Suggestions.Where(s => s[0].StartsWith(typed, StringComparison.OrdinalIgnoreCase) && !s[0].Equals(typed, StringComparison.OrdinalIgnoreCase));
+            var contains = Suggestions.Where(s => typed.Length >= 3 && !s[0].StartsWith(typed, StringComparison.OrdinalIgnoreCase)
+                && (s[0].IndexOf(typed, StringComparison.OrdinalIgnoreCase) >= 0 || s[1].IndexOf(typed, StringComparison.OrdinalIgnoreCase) >= 0));
+            return exact.Concat(starts).Concat(contains).Take(max).ToList();
+        }
+
+        /// <summary>
+        /// 1.13.3: Enter always takes the highlighted suggestion. When that is exactly what is typed already ("ctrl+s" with ctrl+s
+        /// highlighted), there is nothing to take, so Enter starts a new line as usual.
+        /// </summary>
+        public static bool EnterStartsNewLine(string line, string highlighted)
+        {
+            return highlighted == null || (line ?? "").Trim().Equals(highlighted.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>Lines the editor suggests as you type: the text and what it does.</summary>

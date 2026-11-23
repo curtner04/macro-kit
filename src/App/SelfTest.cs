@@ -242,6 +242,7 @@ namespace MacroKit.App
                     main.Height = 720;
                     Settle(main);
                 });
+                Step("render the how-to pictures (" + suffix + ")", () => RenderHowToPictures(main, Path.Combine(folder, "how-to"), suffix));
                 Step("render macros at the minimum size (" + suffix + ")", () =>
                 {
                     main.Width = MainWindow.MinimumWidth;
@@ -1180,7 +1181,7 @@ namespace MacroKit.App
                     main.Macros.ClickOptionChip("schedule");
                     bool closed = main.Macros.OpenOptionSection == "" && !main.Macros.OptionsVisible;
                     string[] chips = main.Macros.OptionChipValues;
-                    bool values = chips.Length == 4 && chips[0] == "Once" && chips[1] == "Previous window" && chips[2] == (m.ShowOnDeck ? "Deck" : "Run button") && chips[3].StartsWith("Every day", StringComparison.Ordinal);
+                    bool values = chips.Length == 4 && chips[0] == "Once" && chips[1] == "Active window" && chips[2] == (m.ShowOnDeck ? "Deck" : "Run button") && chips[3].StartsWith("Every day", StringComparison.Ordinal);
                     if (!(onNext && offNext && dim && back && opened && switched && closed && values))
                         throw new Exception(string.Join(",", onNext, offNext, dim, back, opened, switched, closed, values) + " " + line + " | " + string.Join(" / ", chips));
                     return true;
@@ -1427,6 +1428,52 @@ namespace MacroKit.App
                 if (guide == null) throw new Exception("the guide did not open");
                 try { if (guide.TopicId != "pictures") throw new Exception("it opened at " + guide.TopicId); }
                 finally { guide.Close(); }
+            });
+            Step("every picture in the how-to guides is built in", () =>
+            {
+                HowToWindow guide = HowToWindow.Show(main, "start");
+                try
+                {
+                    int pictures = 0;
+                    foreach (HowToTopic t in HowToGuide.Load())
+                    {
+                        guide.ShowTopic(t.Id);
+                        if (guide.MissingPictures.Count > 0) throw new Exception("the " + t.Id + " guide is missing " + string.Join(", ", guide.MissingPictures));
+                        if (guide.PictureCount != t.Pictures().Count) throw new Exception("the " + t.Id + " guide shows " + guide.PictureCount + " of " + t.Pictures().Count + " pictures");
+                        pictures += guide.PictureCount;
+                        if ((guide.ShowMeButton != null) != HowToGuide.ShowMeTopics.Contains(t.Id)) throw new Exception("the " + t.Id + " guide's Show me button is wrong");
+                    }
+                    if (pictures < 10) throw new Exception("only " + pictures + " pictures in all");
+                }
+                finally { guide.Close(); }
+            });
+            Step("Show me opens the guide's command group or option card", () =>
+            {
+                bool all = main.Macros.AllCommandsShown;
+                var groups = new List<string>(c.Settings.OpenCommandGroups ?? new List<string>());
+                string section = c.Settings.MacroOptionsSection;
+                HowToWindow guide = HowToWindow.Show(main, "pictures");
+                try
+                {
+                    guide.ShowMeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    Settle(main);
+                    if (!main.Macros.AllCommandsShown || string.Join(",", main.Macros.OpenCommandGroups) != "pictures")
+                        throw new Exception("Show me left the commands at " + main.Macros.AllCommandsShown + " " + string.Join(",", main.Macros.OpenCommandGroups));
+                    guide.ShowTopic("where");
+                    guide.ShowMeButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    Settle(main);
+                    if (main.Macros.OpenOptionSection != "window") throw new Exception("Show me for where it runs opened " + main.Macros.OpenOptionSection);
+                }
+                finally
+                {
+                    guide.Close();
+                    Highlight.ClearFlashes();
+                    c.Settings.OpenCommandGroups = groups;
+                    main.Macros.SearchCommands("");
+                    main.Macros.ToggleAllCommands(all);
+                    main.Macros.ToggleOptions(!string.IsNullOrEmpty(section), string.IsNullOrEmpty(section) ? "repeat" : section);
+                    Settle(main);
+                }
             });
             Step("the colour row adds {{WAITPIXEL}}, and copying it says only Macro Kit runs it", () =>
             {
@@ -1854,10 +1901,77 @@ namespace MacroKit.App
             for (DependencyObject p = VisualTreeHelper.GetParent(d); p != null; p = VisualTreeHelper.GetParent(p)) yield return p;
         }
 
-        static void Capture(Window w, string file)
+        /// <summary>
+        /// 1.13.3: the pictures in the how-to guides, the place each guide is about outlined in red. They are made from the self
+        /// test's own made-up macros. When the screens they show change, copy them from the "how-to" folder into
+        /// src\App\HowToImages; the build puts them in the app.
+        /// </summary>
+        static void RenderHowToPictures(MainWindow main, string folder, string suffix)
+        {
+            Directory.CreateDirectory(folder);
+            MacrosTab macros = main.Macros;
+            bool all = macros.AllCommandsShown;
+            LicenseInfo license = Edition.License;
+            Edition.Set(new LicenseInfo { Serial = 1, Issued = new DateTime(2026, 11, 17), Name = "Sample" });   // the Pro groups as they look in use
+            double height = main.Height;
+            try
+            {
+                main.SelectTab(2);
+                macros.SelectMacro(0);
+                macros.ToggleStreamDeck(false);
+                macros.ToggleOptions(false);
+                macros.ToggleAllCommands(false);
+                Settle(main);
+                macros.ScrollEditorToTop();
+                Shot(main, Path.Combine(folder, "commands-" + suffix + ".png"), new[] { macros.StepsCard }, macros.AllCommandsLink);
+                main.Height = 1500;
+                foreach (string topic in HowToGuide.GroupTopics.Values.Concat(new[] { "where", "schedule" }))
+                {
+                    FrameworkElement[] marks = macros.Reveal(topic, false);
+                    Settle(main);
+                    macros.ScrollEditorToTop();
+                    Shot(main, Path.Combine(folder, topic + "-" + suffix + ".png"), macros.RevealFrame(topic), marks);
+                    macros.ToggleOptions(false);
+                    macros.ToggleAllCommands(false);   // so the options under the steps are in view for the next one
+                }
+            }
+            finally
+            {
+                Edition.Set(license);
+                main.Height = height;
+                macros.SearchCommands("");
+                macros.ToggleAllCommands(all);
+                macros.ToggleOptions(false);
+                Settle(main);
+            }
+        }
+
+        /// <summary>A picture of part of a window: <paramref name="frame"/> and what is outlined, with a little room around them.</summary>
+        static void Shot(Window w, string file, FrameworkElement[] frame, params FrameworkElement[] marks)
         {
             var content = (FrameworkElement)VisualTreeHelper.GetChild(w, 0);
-            int width = (int)Math.Ceiling(content.ActualWidth), height = (int)Math.Ceiling(content.ActualHeight);
+            var shown = new List<Highlight>();
+            foreach (FrameworkElement m in marks) { Highlight h = Highlight.Add(m); if (h != null) shown.Add(h); }
+            try
+            {
+                Settle(w);
+                Rect area = Rect.Empty;
+                foreach (FrameworkElement f in frame.Concat(marks))
+                    if (f != null && f.IsVisible) area.Union(f.TransformToAncestor(content).TransformBounds(new Rect(f.RenderSize)));
+                if (area.IsEmpty) throw new InvalidOperationException("Nothing to take a picture of for " + Path.GetFileName(file));
+                area.Inflate(10, 10);
+                area.Intersect(new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+                Capture(w, file, area);
+            }
+            finally { foreach (Highlight h in shown) h.Remove(); }
+        }
+
+        static void Capture(Window w, string file, Rect? part = null)
+        {
+            var content = (FrameworkElement)VisualTreeHelper.GetChild(w, 0);
+            Rect area = part ?? new Rect(0, 0, content.ActualWidth, content.ActualHeight);
+            area = new Rect(Math.Floor(area.X), Math.Floor(area.Y), Math.Ceiling(area.Width), Math.Ceiling(area.Height));
+            int width = (int)area.Width, height = (int)area.Height;
             if (width <= 0 || height <= 0) throw new InvalidOperationException("The window has no size yet.");
             var visual = new DrawingVisual();
             using (DrawingContext dc = visual.RenderOpen())
@@ -1867,7 +1981,7 @@ namespace MacroKit.App
                 dc.DrawRectangle(new VisualBrush(content)
                 {
                     Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top,
-                    ViewboxUnits = BrushMappingMode.Absolute, Viewbox = rect, ViewportUnits = BrushMappingMode.Absolute, Viewport = rect
+                    ViewboxUnits = BrushMappingMode.Absolute, Viewbox = area, ViewportUnits = BrushMappingMode.Absolute, Viewport = rect
                 }, null, rect);
             }
             var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);

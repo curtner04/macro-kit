@@ -55,7 +55,7 @@ namespace MacroKit.App
         readonly ListBox suggestList = new ListBox { MaxHeight = 260, MinWidth = 300 };
         readonly Func<Window> owner;
         PlainResult shown;
-        bool setting, inserting, picked;
+        bool setting, inserting;
 
         public event Action Changed = () => { };
         public FrameworkElement Root { get { return root; } }
@@ -140,7 +140,7 @@ namespace MacroKit.App
             Grid.SetRow(chips, 2);
             root.Children.Add(chips);
 
-            // Suggestions: a list under the line being typed. Tab (or Enter once you've picked with the arrows) takes one.
+            // Suggestions: a list under the line being typed, the exact step first. Tab or Enter takes the highlighted one.
             suggestList.Focusable = false;
             suggestList.BorderThickness = new Thickness(0);
             suggestList.Background = Brushes.Transparent;
@@ -317,10 +317,7 @@ namespace MacroKit.App
             LineAround(box.CaretIndex, out start, out end);
             string typed = box.Text.Substring(start, end - start).Trim();
             if (typed.Length == 0) { CloseSuggestions(); return; }
-            var matches = PlainMacro.Suggestions.Where(s => s[0].StartsWith(typed, StringComparison.OrdinalIgnoreCase) && !s[0].Equals(typed, StringComparison.OrdinalIgnoreCase))
-                .Concat(PlainMacro.Suggestions.Where(s => typed.Length >= 3 && !s[0].StartsWith(typed, StringComparison.OrdinalIgnoreCase)
-                    && (s[0].IndexOf(typed, StringComparison.OrdinalIgnoreCase) >= 0 || s[1].IndexOf(typed, StringComparison.OrdinalIgnoreCase) >= 0)))
-                .Take(8).ToList();
+            List<string[]> matches = PlainMacro.SuggestionsFor(typed);
             if (matches.Count == 0) { CloseSuggestions(); return; }
             suggestList.Items.Clear();
             foreach (string[] m in matches)
@@ -340,7 +337,6 @@ namespace MacroKit.App
                 suggestList.Items.Add(item);
             }
             suggestList.SelectedIndex = 0;
-            picked = false;
             PlaceSuggestions();
             suggest.IsOpen = true;
         }
@@ -370,11 +366,12 @@ namespace MacroKit.App
             Put(start, end, text, caret);
         }
 
-        bool EnterTakesSuggestion()
+        bool EnterStartsNewLine()
         {
             int start, end;
             LineAround(box.CaretIndex, out start, out end);
-            return PlainMacro.EnterTakesSuggestion(box.Text.Substring(start, end - start));
+            var item = suggestList.SelectedItem as ListBoxItem;
+            return PlainMacro.EnterStartsNewLine(box.Text.Substring(start, end - start), item == null ? null : (string)item.Tag);
         }
         void BoxKeyDown(object sender, KeyEventArgs e)
         {
@@ -388,18 +385,17 @@ namespace MacroKit.App
                 case Key.Down:
                     suggestList.SelectedIndex = Math.Min(suggestList.Items.Count - 1, suggestList.SelectedIndex + 1);
                     suggestList.ScrollIntoView(suggestList.SelectedItem);
-                    picked = true; e.Handled = true; break;
+                    e.Handled = true; break;
                 case Key.Up:
                     suggestList.SelectedIndex = Math.Max(0, suggestList.SelectedIndex - 1);
                     suggestList.ScrollIntoView(suggestList.SelectedItem);
-                    picked = true; e.Handled = true; break;
+                    e.Handled = true; break;
                 case Key.Tab:
                     e.Handled = true; Accept(); break;
                 case Key.Enter:
-                    // Enter takes the highlighted suggestion. Only a line that is itself one of the suggested steps ("click", "tab")
-                    // keeps Enter as a new line, unless an arrow key moved to a suggestion.
-                    if (picked || EnterTakesSuggestion()) { e.Handled = true; Accept(); }
-                    else CloseSuggestions();
+                    // Enter takes the highlighted suggestion; when that is what is typed already, it starts a new line instead.
+                    if (EnterStartsNewLine()) CloseSuggestions();
+                    else { e.Handled = true; Accept(); }
                     break;
                 case Key.Escape:
                     e.Handled = true; CloseSuggestions(); break;

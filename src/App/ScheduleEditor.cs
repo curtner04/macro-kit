@@ -128,8 +128,8 @@ namespace MacroKit.App
                 }
             }
             string where = macro.Target == TargetKind.SpecificWindow
-                ? "It runs in the window chosen under Where it runs."
-                : "It types into whatever window is in front at that moment. To be safe, choose a specific window under Where it runs.";
+                ? "It runs in the target window chosen in Options, Window."
+                : "It types into whatever window is in front at that moment. To be safe, choose a target window in Options, Window.";
             return macro.Schedule.Describe() + ". Next run " + next.Value.ToString("ddd d MMM 'at' HH:mm", CultureInfo.InvariantCulture)
                 + ". Scheduled runs happen only while Macro Kit is running (it can wait in the tray). " + where;
         }

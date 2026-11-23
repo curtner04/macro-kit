@@ -67,6 +67,7 @@ namespace MacroKit.App
         readonly Button viewLines, viewTiles, viewCode, allCommands;
         Border problemsBox;
         FrameworkElement palette, codePanel;
+        FrameworkElement stepsCard, optionsStrip;   // 1.13.3: for the how-to pictures
         bool syncing, codeDirty;
 
         // palette inputs
@@ -245,6 +246,7 @@ namespace MacroKit.App
             summaryRow.Children.Add(allCommands);
             summaryRow.Children.Add(plainSummary);
             var scriptCard = Ui.Card(Ui.Stack(10, stepsTitle, editorHost, summaryRow, palette));
+            stepsCard = scriptCard;
 
             // ---- the Code view: the same steps as Super Macro text
             var copyCode = Ui.Button("Copy", CopyCode, "Small", "Copy the Super Macro text, ready to paste into a Super Macro action on your Stream Deck.");
@@ -297,25 +299,28 @@ namespace MacroKit.App
             // ---- where it runs
             targetEditor = new WindowMatchEditor(c);
             partnerEditor = new WindowMatchEditor(c);
-            runPrevious = new RadioButton { Content = "Whichever window I was using before Macro Kit", GroupName = "macroTarget" };
-            runSpecific = new RadioButton { Content = "Always the same window", GroupName = "macroTarget" };
+            // 1.13.3: plain words, with the usual names (active window, target window) up front.
+            runPrevious = new RadioButton { Content = "Active window: the one I was using last", GroupName = "macroTarget",
+                ToolTip = "The window you were in before you came to Macro Kit. From the Deck or a hotkey, the window in front right now." };
+            runSpecific = new RadioButton { Content = "Target window: one window I pick", GroupName = "macroTarget",
+                ToolTip = "Always the same program's window, even when another one is in front. If it isn't open, the macro stops instead of typing somewhere else." };
             runPrevious.Checked += (s, e) => TargetKindChanged(TargetKind.PreviousWindow);
             runSpecific.Checked += (s, e) => TargetKindChanged(TargetKind.SpecificWindow);
-            stopIfFocusLeaves = new CheckBox { Content = "Stop if another window takes focus", ToolTip = "Protects you from typing into the wrong window." };
+            stopIfFocusLeaves = new CheckBox { Content = "Stop if a different window comes to the front", ToolTip = "Protects you from typing into the wrong window." };
             stopIfFocusLeaves.Click += (s, e) => Edit(m => m.StopIfFocusLeaves = stopIfFocusLeaves.IsChecked == true, false);
-            altWindows = new RadioButton { Content = "The window Windows would switch to (never Macro Kit)", GroupName = "macroAlt" };
-            altSpecific = new RadioButton { Content = "Always the same window", GroupName = "macroAlt" };
+            altWindows = new RadioButton { Content = "The next window, as Alt+Tab normally goes (never Macro Kit)", GroupName = "macroAlt" };
+            altSpecific = new RadioButton { Content = "A second target window I pick", GroupName = "macroAlt" };
             altWindows.Checked += (s, e) => AltKindChanged(false);
             altSpecific.Checked += (s, e) => AltKindChanged(true);
-            // Each window chooser shows only under its own "Always the same window", so the card stays short.
+            // Each window chooser shows only under its own target window choice, so the card stays short.
             targetBlock = Indent(Ui.Stack(8, targetEditor.Root, stopIfFocusLeaves));
             partnerBlock = Indent(partnerEditor.Root);
             var altCaption = Ui.Caption("When the macro presses Alt+Tab, go to");
             var altNote = Ui.Help("Choose one and Alt+Tab always jumps between the same two windows.",
                 "That keeps a copy-and-paste macro on track even when other windows open in between.");
             var whereCard = Ui.Card(Ui.Stack(8,
-                Ui.Heading("Where it runs"),
-                Ui.Caption("Type into"), runPrevious, runSpecific, targetBlock,
+                Ui.Heading("Which window it types into"),
+                runPrevious, runSpecific, targetBlock,
                 altCaption, altNote, altWindows, altSpecific, partnerBlock));
             altCaption.Margin = new Thickness(0, 16, 0, 0);
             altNote.Margin = new Thickness(0, 0, 0, 2);
@@ -767,6 +772,11 @@ namespace MacroKit.App
         /// <summary>Self test: opens one option card (on, or the given section) or closes it.</summary>
         public void ToggleOptions(bool on, string section = "repeat") { c.Settings.MacroOptionsSection = on ? section : ""; c.MarkDirty(SaveParts.Settings); ShowOptionCard(); }
         public void ToggleAllCommands(bool on) { c.Settings.ShowAllCommands = on; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }
+        /// <summary>Self test: the Show all commands link and the card it is on, for the how-to pictures.</summary>
+        public Button AllCommandsLink { get { return allCommands; } }
+        public FrameworkElement StepsCard { get { return stepsCard; } }
+        public bool AllCommandsShown { get { return c.Settings.ShowAllCommands; } }
+        public void ScrollEditorToTop() { var s = editorPanel as ScrollViewer; if (s != null) s.ScrollToTop(); }
         public int VisibleCommandGroups { get { return groups.Count(g => g.Root.Visibility == Visibility.Visible); } }
         /// <summary>The "How it works" link of the group whose guide is <paramref name="topic"/>, or null.</summary>
         public Button HowToLink(string topic) { Button b; return howToLinks.TryGetValue(topic, out b) ? b : null; }

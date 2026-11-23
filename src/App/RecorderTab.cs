@@ -634,6 +634,9 @@ namespace MacroKit.App
             if (macro != null && main != null) main.SelectTab(2);
         }
 
+        /// <summary>The Convert to macro button, for the how-to guides' Show me.</summary>
+        public Button ConvertButton { get { return convertButton; } }
+
         /// <summary>Self-test: presses Convert to macro without switching tabs; returns the new macro.</summary>
         public MacroDef ConvertSelected() { return SelectedId == null ? null : c.ConvertRecordingToMacro(SelectedId); }
 

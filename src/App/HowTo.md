@@ -6,9 +6,16 @@ Simple steps do what they say: a shortcut such as `ctrl+c`, a pause such as `wai
 
 **Where the commands are**
 
-- Open a macro on the Macros tab and press **Show all commands** under its steps. The commands sit in groups such as **Keys**, **Windows** and **Pictures**. Click a group's name to open it.
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. The commands sit in groups under the steps, such as **Keys**, **Windows** and **Pictures**. Click a group's name to open it.
+
 - Each group has a **How it works** link at the bottom that opens its guide here.
 - Type a word in **Find a command** (for example *loop* or *picture*) to show only the groups that match.
+- Most guides have a **Show me** button at the top. It switches Macro Kit to the place the guide is about and outlines it in red.
 
 **Reading the examples**
 
@@ -21,9 +28,22 @@ Simple steps do what they say: a shortcut such as `ctrl+c`, a pause such as `wai
 
 Use this to keep a key pressed while other steps run: Alt held while Tab is pressed several times, Shift held while you click to select a range, or Ctrl held while you click several files.
 
+**Where to find it**
+
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. In the list of groups that opens under the steps, click **Keys**.
+
+![The Keys group. Hold or release a key is near its bottom.](keys.png)
+
+**Show me**, at the top of this guide, does all of that for you and outlines the place in red.
+
 **How to add it**
 
-1. Open the **Keys** group and find **Hold or release a key**.
+1. In the **Keys** group, find **Hold or release a key**.
 2. Choose the key, then press **Hold down**.
 3. Add the steps that should happen while it is held.
 4. Choose the same key again and press **Release**.
@@ -57,12 +77,25 @@ release shift
 
 **Tips**
 
-- With **Where it runs** set to *Always the same window* and *Stop if another window takes focus* on, a macro can only go between two windows. Landing on a third one stops it. Use *Whichever window I was using* for macros that move through several windows.
+- With **Window** (in the macro's **Options**) set to *Target window* and *Stop if a different window comes to the front* on, a macro can only go between two windows. Landing on a third one stops it. Use *Active window* for macros that move through several windows.
 - `shift+tab` while Alt is held goes back one window, as it does when you press the keys yourself.
 
 ## Repeat, take turns and run other macros {#multi}
 
 The **Multi action** group puts steps inside blocks. Select the lines first and the block goes around them. With nothing selected, an empty block goes in at the cursor.
+
+**Where to find it**
+
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. In the list of groups that opens under the steps, click **Multi action**.
+
+![The Multi action group: Repeat, run another macro, take turns.](multi.png)
+
+**Show me**, at the top of this guide, does all of that for you and outlines the place in red.
 
 **Repeat some steps**
 
@@ -117,6 +150,19 @@ Code: `{{MACRO:Copy row}}`
 
 ## Open a program and wait for it {#apps}
 
+**Where to find it**
+
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. In the list of groups that opens under the steps, click **Apps and websites**.
+
+![The Apps and websites group.](apps.png)
+
+**Show me**, at the top of this guide, does all of that for you and outlines the place in red.
+
 **Open something**
 
 - `open notepad` opens a program, file, folder or web address, as if you had double-clicked it. Press **Browse…** in **Apps and websites** to pick a file.
@@ -142,6 +188,19 @@ Code: `{{RUN:notepad}}{{WAITWINDOW:Notepad}}Hello from Macro Kit`
 
 ## Switch windows, click in a window, wait for a colour {#windows}
 
+**Where to find it**
+
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. In the list of groups that opens under the steps, click **Windows**.
+
+![The Windows group. Wait until a spot turns a colour is at its bottom.](windows.png)
+
+**Show me**, at the top of this guide, does all of that for you and outlines the place in red.
+
 **Switch to a window**
 
 - `switch to Excel` brings the window whose title or program name contains *Excel* to the front and carries on in it.
@@ -163,7 +222,7 @@ Code: `{{WINDOWXY:120,40}}{{LBUTTON}}`
 
 Use this when something on screen changes colour once it is ready: a Save button that lights up, a progress bar that turns green, a status light.
 
-1. Open the **Windows** group and find **Wait until a spot turns a colour**.
+1. In the **Windows** group, find **Wait until a spot turns a colour**.
 2. Press **Pick…**, then switch to the other window and point at the spot within 3 seconds, while it shows the colour to wait for.
 3. Macro Kit fills in the spot (measured from the window in front) and its colour, and puts the window's name in the box above, ready for **Switch to it**.
 4. Change **up to** to how many seconds it may wait, then press **Add**.
@@ -193,9 +252,22 @@ Tips:
 
 *Pro, Macro Kit only.* Use this when a button or icon shows up in different places, or only once something is ready. Macro Kit looks for it by how it looks, not where it is.
 
+**Where to find it**
+
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. In the list of groups that opens under the steps, click **Pictures**.
+
+![The Pictures group: the name and size of the picture, Capture, then Wait for it or Click it.](pictures.png)
+
+**Show me**, at the top of this guide, does all of that for you and outlines the place in red.
+
 **Save a picture**
 
-1. Open the **Pictures** group.
+1. Open the **Pictures** group, as above.
 2. Type a name for the picture, such as *Save button*. Leave it empty and it is called *Picture 1*, *Picture 2* and so on.
 3. The box beside the name is the picture's size: a square 48 pixels across unless you change it (8 to 256).
 4. Press **Capture…**, switch to the other window, and point at the middle of the button within 3 seconds.
@@ -238,6 +310,19 @@ Code: `{{FOCUS:Excel}}{{CLICKIMAGE:Save button}}{{PAUSE:500}}Saved`
 
 A variable is a named value that a macro remembers while it runs. It lives for one run, through all of its repeats.
 
+**Where to find it**
+
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. In the list of groups that opens under the steps, click **Variables and clipboard**.
+
+![The Variables and clipboard group.](vars.png)
+
+**Show me**, at the top of this guide, does all of that for you and outlines the place in red.
+
 **Set and use a value**
 
 - `set $row = 5` remembers 5 as `$row`. The **Variables and clipboard** group has **Set**.
@@ -275,9 +360,22 @@ Code: `{{INPUT:name:Who is this for?}}Dear {{OUTPUT:name}}`
 
 *Pro.* A condition runs some steps only when a value or the window in front matches.
 
+**Where to find it**
+
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left (or press **New macro** under the list).
+2. Press **Show all commands**, at the bottom right of the box with the macro's steps.
+
+![Show all commands is at the bottom right of the steps box.](commands.png)
+
+3. In the list of groups that opens under the steps, click **Conditions**.
+
+![The Conditions group: If a value matches, If the window is, Otherwise.](conditions.png)
+
+**Show me**, at the top of this guide, does all of that for you and outlines the place in red.
+
 **How to add it**
 
-1. Open the **Conditions** group.
+1. Open the **Conditions** group, as above.
 2. In **If a value matches**, fill in the two sides and how to compare them, then press **Add**. Or name a window in **If the window is** and press **Add**.
 3. Add the steps for when it matches. Add **Otherwise** and the steps for when it doesn't, if you want them.
 
@@ -300,18 +398,27 @@ Code: `{{IFWINDOW:Excel}}{{CTRL}{S}}{{ELSE}}This only saves in Excel{{ENDIF}}`
 
 ## Choose where a macro types {#where}
 
-**Options → Where it runs** decides which window gets the macro's keys and clicks.
+The **Window** option decides which window gets the macro's keys and clicks.
 
-**Type into**
+**Where to find it**
 
-- *Whichever window I was using before Macro Kit*: the window you were in before you opened Macro Kit. From the Deck or a hotkey, the window in front right now.
-- *Always the same window*: one program's window, found by its program name (and part of its title, if you add **Title contains**). Choose it from the list, or press **Pick** and switch to it. If it isn't open, the macro stops instead of typing somewhere else.
-- *Stop if another window takes focus* ends the run when something else pops up in front.
+1. Click the **Macros** tab at the top of Macro Kit, then click a macro in the list on the left.
+2. Under the macro's steps, in the **Options** row, click **Window**. The card **Which window it types into** opens under it.
 
-**When the script presses Alt+Tab, go to**
+![Options, Window: which window the macro types into.](where.png)
 
-- *The window Windows would switch to* uses the real Alt+Tab.
-- *Always the same window* is for copy-and-paste macros between two programs, such as Excel and a browser. Every `alt+tab` goes straight between those two, however many other windows are open.
+**Show me**, at the top of this guide, opens it for you.
+
+**Which window it types into**
+
+- *Active window: the one I was using last*. The window you were in before you came to Macro Kit. From the Deck or a hotkey, the window in front right now. Most macros want this.
+- *Target window: one window I pick*. Always one program's window, found by its program name (and part of its title, if you add **Title contains**). Choose it from the list, or press **Pick** and switch to it. If it isn't open, the macro stops instead of typing somewhere else.
+- *Stop if a different window comes to the front* ends the run when something else pops up in front.
+
+**When the macro presses Alt+Tab, go to**
+
+- *The next window, as Alt+Tab normally goes* uses the real Alt+Tab.
+- *A second target window I pick* is for copy-and-paste macros between two programs, such as Excel and a browser. Every `alt+tab` goes straight between those two, however many other windows are open.
 
 ## Run a macro on a schedule {#schedule}
 
@@ -319,9 +426,13 @@ Code: `{{IFWINDOW:Excel}}{{CTRL}{S}}{{ELSE}}This only saves in Excel{{ENDIF}}`
 
 **How to set it up**
 
-1. Open the macro's options (**Change options**) and find **Run on a schedule**.
-2. Choose how often and when.
-3. Set **Where it runs** to the window it should type into. Otherwise it types into whatever window is in front at that moment.
+1. Click the **Macros** tab, then the macro in the list on the left.
+2. Under the macro's steps, in the **Options** row, click **Schedule**.
+
+![Options, Schedule: how often and when.](schedule.png)
+
+3. Choose how often and when.
+4. Click **Window** in the same row and choose *Target window*, so it types into the right window. Otherwise it types into whatever window is in front at that moment.
 
 **How it works**
 
@@ -332,7 +443,7 @@ Code: `{{IFWINDOW:Excel}}{{CTRL}{S}}{{ELSE}}This only saves in Excel{{ENDIF}}`
 
 ## Turn a recording into a macro {#recording}
 
-**Convert to macro** on the Recorder tab turns the selected recording into a macro you can read and change.
+**Convert to macro** on the **Recorder** tab turns the selected recording into a macro you can read and change. Click the recording in the list first; the button is with the recording's other buttons. **Show me** points at it.
 
 **What it keeps**
 

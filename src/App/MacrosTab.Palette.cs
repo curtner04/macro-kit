@@ -24,6 +24,7 @@ namespace MacroKit.App
         {
             public string Id, Words;
             public FrameworkElement Root, Body;
+            public Button Header;
             public TextBlock Chevron;
             public bool Open;
         }
@@ -529,9 +530,53 @@ namespace MacroKit.App
                 if (g.Open) header.BringIntoView();
             };
             body.Margin = new Thickness(28, 4, 6, 10);
+            g.Header = header;
             g.Root = Ui.Stack(0, header, body);
             groups.Add(g);
             return g.Root;
+        }
+
+        /// <summary>
+        /// 1.13.3: shows the place a how-to guide is about: its command group, opened alone in the commands panel, or its
+        /// option card. Returns what to outline (nothing for a guide about another tab). <paramref name="save"/> keeps the
+        /// commands panel and the group open next time, as a click would.
+        /// </summary>
+        public FrameworkElement[] Reveal(string topic, bool save)
+        {
+            if (current == null && list.Items.Count > 0) list.SelectedIndex = 0;
+            int option = topic == "where" ? 1 : topic == "schedule" ? 3 : -1;
+            if (option >= 0)
+            {
+                c.Settings.MacroOptionsSection = OptionSections[option];
+                if (save) c.MarkDirty(SaveParts.Settings);
+                ShowOptionCard();
+                return new FrameworkElement[] { optionChips[option] };
+            }
+            string groupId = HowToGuide.GroupTopics.Where(p => p.Value == topic).Select(p => p.Key).FirstOrDefault();
+            if (groupId == null && topic != "start") return new FrameworkElement[0];
+            if (commandSearch.Text.Length > 0) commandSearch.Text = "";
+            if (save && !c.Settings.ShowAllCommands) { c.Settings.ShowAllCommands = true; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }
+            palette.Visibility = Visibility.Visible;
+            CommandGroup shown = null;
+            foreach (CommandGroup g in groups)
+            {
+                g.Root.Visibility = Visibility.Visible;
+                SetOpen(g, g.Id == groupId, false);
+                if (g.Id == groupId) shown = g;
+            }
+            if (save) SaveOpenGroups();
+            if (shown == null) return new FrameworkElement[] { palette };
+            if (groupId == "conditions" || groupId == "pictures") RefreshProCommands();
+            if (groupId == "pictures") ShowPicturePreview();
+            return new FrameworkElement[] { shown.Header };
+        }
+
+        /// <summary>Self test: what a guide's picture shows around what <see cref="Reveal"/> outlines.</summary>
+        public FrameworkElement[] RevealFrame(string topic)
+        {
+            if (topic == "where") return new[] { optionsStrip, optionCards[1] };
+            if (topic == "schedule") return new[] { optionsStrip, optionCards[3] };
+            return new[] { palette };
         }
 
         void SetOpen(CommandGroup g, bool open, bool save)

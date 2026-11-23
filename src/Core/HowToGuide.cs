@@ -29,6 +29,16 @@ namespace MacroKit.Core
             }
             return examples;
         }
+
+        /// <summary>1.13.3: the pictures the guide shows (the names in its "![caption](name.png)" lines).</summary>
+        public List<string> Pictures()
+        {
+            var names = new List<string>();
+            string caption, name;
+            foreach (string line in Lines)
+                if (HowToGuide.TryPicture(line, out caption, out name)) names.Add(name);
+            return names;
+        }
     }
 
     /// <summary>
@@ -46,7 +56,26 @@ namespace MacroKit.Core
             { "pictures", "pictures" }, { "vars", "vars" }, { "conditions", "conditions" },
         };
 
+        /// <summary>1.13.3: the guides whose Show me button takes you to the place in Macro Kit they are about.</summary>
+        public static readonly ICollection<string> ShowMeTopics = new HashSet<string>
+        {
+            "start", "keys", "multi", "apps", "windows", "pictures", "vars", "conditions", "where", "schedule", "recording",
+        };
+
         static readonly Regex Heading = new Regex(@"^##\s+(.+?)\s*\{#([a-z0-9-]+)\}\s*$");
+        static readonly Regex PictureLine = new Regex(@"^!\[(.*)\]\(([a-z0-9-]+)\.png\)$");
+
+        /// <summary>
+        /// 1.13.3: a picture line, "![caption](name.png)". The app shows the built-in name-light.png or name-dark.png to suit
+        /// the theme (src\App\HowToImages, made by the self test).
+        /// </summary>
+        public static bool TryPicture(string line, out string caption, out string name)
+        {
+            Match m = PictureLine.Match((line ?? "").Trim());
+            caption = m.Success ? m.Groups[1].Value.Trim() : "";
+            name = m.Success ? m.Groups[2].Value : "";
+            return m.Success;
+        }
 
         public static List<HowToTopic> Parse(string text)
         {

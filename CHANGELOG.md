@@ -1,5 +1,14 @@
 # Macro Kit changelog
 
+## 1.13.3 - 2026-11-23
+
+Suggestions that narrow as you type, how-to guides with pictures and a Show me button, and plain words for which window a macro types into.
+
+- **Suggestions put the exact step first**: typing `ctrl+s` now shows *ctrl+s · Save* at the top, and every letter you type narrows the list (`ctrl+sh` leaves only *ctrl+shift+esc · Task Manager*). Before, a step you had typed in full was left out of the list, so Enter kept `ctrl+s` even with Task Manager highlighted. Enter and Tab now always take the highlighted suggestion; when it is exactly what you typed, Enter starts a new line.
+- **How-to guides say exactly where to click, with pictures**: each guide for a command group starts with **Where to find it**: the Macros tab, a macro, **Show all commands** at the bottom right of the steps, then the group by name. Pictures of the screen show each place outlined in red, in your light or dark theme; click one to see it full size.
+- **Show me**: a button at the top of most guides switches Macro Kit to the place the guide is about, opens the command group or option card, and outlines it in red for a few seconds.
+- **Which window it types into**, in plain words: **Options › Window** now offers *Active window: the one I was using last* and *Target window: one window I pick* (they were *Whichever window I was using before Macro Kit* and *Always the same window*). The Window chip says *Active window* instead of *Previous window*, *Stop if another window takes focus* is now *Stop if a different window comes to the front*, and the Alt+Tab choices are *The next window, as Alt+Tab normally goes* and *A second target window I pick*. Nothing about how macros run has changed.
+
 ## 1.13.2 - 2026-11-23
 
 A How-to button in the header, a status popup that stays on its screen, marked samples and three Pro samples.

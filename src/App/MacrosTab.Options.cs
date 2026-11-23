@@ -51,6 +51,7 @@ namespace MacroKit.App
             }
             var card = Ui.Card(strip);
             card.Padding = new Thickness(14, 10, 14, 5);
+            optionsStrip = card;
             return card;
         }
 
@@ -77,7 +78,7 @@ namespace MacroKit.App
             }
         }
 
-        /// <summary>Each chip's value: "Once", "Previous window", "Ctrl+Alt+1 · Deck", "Off".</summary>
+        /// <summary>Each chip's value: "Once", "Active window", "Ctrl+Alt+1 · Deck", "Off".</summary>
         void UpdateOptionsSummary()
         {
             MacroDef m = current;
@@ -96,7 +97,7 @@ namespace MacroKit.App
             if (m.PasteText) repeat += " · pastes";
 
             string window;
-            if (m.Target == TargetKind.PreviousWindow) window = "Previous window";
+            if (m.Target == TargetKind.PreviousWindow) window = "Active window";
             else
             {
                 WindowMatch w = m.TargetWindow ?? new WindowMatch();

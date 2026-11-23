@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using MacroKit.Core;
 
 namespace MacroKit.App
@@ -32,6 +34,11 @@ namespace MacroKit.App
         public int TopicCount { get { return topics.Count; } }
         /// <summary>The example macros on the page on show.</summary>
         public int ExampleCount { get; private set; }
+        /// <summary>1.13.3: the pictures on the page on show, and the ones this build is missing.</summary>
+        public int PictureCount { get; private set; }
+        public readonly List<string> MissingPictures = new List<string>();
+        /// <summary>1.13.3: the page's Show me button, or null when the guide has none.</summary>
+        public Button ShowMeButton { get; private set; }
 
         /// <summary>Opens the guides at <paramref name="topicId"/> (the first guide when it is null or unknown), reusing an open window.</summary>
         public static HowToWindow Show(Window owner, string topicId)
@@ -102,6 +109,9 @@ namespace MacroKit.App
             HowToTopic topic = topics.FirstOrDefault(t => t.Id == id) ?? topics.FirstOrDefault();
             page.Children.Clear();
             ExampleCount = 0;
+            PictureCount = 0;
+            MissingPictures.Clear();
+            ShowMeButton = null;
             if (topic == null)
             {
                 TopicId = null;
@@ -114,11 +124,31 @@ namespace MacroKit.App
                 if (pair.Key == topic.Id) Ui.Ref(pair.Value, Control.BackgroundProperty, "Selected");
                 else pair.Value.ClearValue(Control.BackgroundProperty);
             }
-            page.Children.Add(Ui.Heading(topic.Title, "H1"));
+            var title = Ui.Heading(topic.Title, "H1");
+            if (HowToGuide.ShowMeTopics.Contains(topic.Id))
+            {
+                // 1.13.3: takes you to the place the guide is about and outlines it, for when the words aren't enough.
+                string guideId = topic.Id;
+                ShowMeButton = Ui.Button("Show me", () => ShowMe(guideId), "Small", "Switches Macro Kit to the place this guide is about, opens it and outlines it in red.");
+                ShowMeButton.VerticalAlignment = VerticalAlignment.Top;
+                ShowMeButton.Margin = new Thickness(12, 2, 0, 0);
+                var row = new DockPanel();
+                DockPanel.SetDock(ShowMeButton, Dock.Right);
+                row.Children.Add(ShowMeButton);
+                row.Children.Add(title);
+                page.Children.Add(row);
+            }
+            else page.Children.Add(title);
             Render(topic.Lines);
             pageScroll.ScrollToTop();
             Button selected;
             if (topicButtons.TryGetValue(topic.Id, out selected)) selected.BringIntoView();
+        }
+
+        void ShowMe(string id)
+        {
+            var main = Owner as MainWindow ?? Application.Current.Windows.OfType<MainWindow>().FirstOrDefault();
+            if (main != null) main.ShowMe(id);
         }
 
         static readonly Regex Numbered = new Regex(@"^(\d+)\.\s+(.*)$");
@@ -139,6 +169,14 @@ namespace MacroKit.App
                 }
                 if (example != null) { example.Add(line); continue; }
                 if (line.Length == 0) continue;
+                string caption, name;
+                if (HowToGuide.TryPicture(line, out caption, out name))
+                {
+                    FrameworkElement picture = Picture(name, caption);
+                    if (picture == null) MissingPictures.Add(name);
+                    else { page.Children.Add(picture); PictureCount++; }
+                    continue;
+                }
                 Match n = Numbered.Match(line);
                 if (line.StartsWith("- ", StringComparison.Ordinal)) page.Children.Add(ListRow("•", line.Substring(2)));
                 else if (n.Success) page.Children.Add(ListRow(n.Groups[1].Value + ".", n.Groups[2].Value));
@@ -171,6 +209,70 @@ namespace MacroKit.App
             Grid.SetColumn(t, 1);
             row.Children.Add(t);
             return row;
+        }
+
+        /// <summary>A built-in picture, in the theme's colours when there is one in them; null when the build has none.</summary>
+        static BitmapSource LoadPicture(string name)
+        {
+            foreach (string theme in Theme.IsDark ? new[] { "dark", "light" } : new[] { "light", "dark" })
+                using (Stream s = typeof(HowToWindow).Assembly.GetManifestResourceStream("App.HowTo." + name + "-" + theme + ".png"))
+                {
+                    if (s == null) continue;
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.StreamSource = s;
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+                    return bitmap;
+                }
+            return null;
+        }
+
+        // 1.13.3: a picture of the place a guide is about, outlined in red, with its caption under it. A click shows it full size.
+        FrameworkElement Picture(string name, string caption)
+        {
+            BitmapSource bitmap;
+            try { bitmap = LoadPicture(name); }
+            catch (Exception ex) { Log.Warn("A how-to picture could not be read: " + name, ex); return null; }
+            if (bitmap == null) return null;
+            var image = new Image
+            {
+                Source = bitmap, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxWidth = bitmap.PixelWidth,
+                HorizontalAlignment = HorizontalAlignment.Left, Cursor = Cursors.Hand, ToolTip = "Click to see it full size.",
+            };
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+            System.Windows.Automation.AutomationProperties.SetName(image, caption);
+            image.MouseLeftButtonUp += (s, e) => Enlarge(bitmap, caption);
+            var frame = new Border { Child = image, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left };
+            Ui.Ref(frame, Border.BorderBrushProperty, "Border");
+            var stack = new StackPanel { Margin = new Thickness(0, 8, 0, 10) };
+            stack.Children.Add(frame);
+            if (caption.Length > 0)
+            {
+                var text = Ui.Para(caption, "Muted", 12);
+                text.Margin = new Thickness(0, 4, 0, 0);
+                stack.Children.Add(text);
+            }
+            return stack;
+        }
+
+        void Enlarge(BitmapSource bitmap, string caption)
+        {
+            var w = new Window
+            {
+                Title = caption.Length > 0 ? caption : "Picture", Owner = this, ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner, SizeToContent = SizeToContent.WidthAndHeight,
+                MaxWidth = SystemParameters.WorkArea.Width * 0.95, MaxHeight = SystemParameters.WorkArea.Height * 0.95,
+            };
+            Theme.Style(w);
+            w.Content = new ScrollViewer
+            {
+                Content = new Image { Source = bitmap, Stretch = Stretch.None },
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            };
+            w.PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) { e.Handled = true; w.Close(); } };
+            w.Show();
         }
 
         // An example macro in a box, with a button that copies its steps (to paste into a macro's Lines).

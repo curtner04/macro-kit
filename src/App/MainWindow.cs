@@ -321,6 +321,32 @@ namespace MacroKit.App
             if (c.Settings.SelectedTab != index) { c.Settings.SelectedTab = index; c.MarkDirty(SaveParts.Settings); }
         }
 
+        /// <summary>
+        /// 1.13.3: the how-to guides' Show me: brings Macro Kit forward on the tab a guide is about, opens the place (a command
+        /// group, an option card) and outlines it in red for a few seconds.
+        /// </summary>
+        public void ShowMe(string topic)
+        {
+            Reveal(true);
+            FrameworkElement[] marks;
+            if (topic == "recording")
+            {
+                tabButtons[0].IsChecked = true;
+                marks = new FrameworkElement[] { Recorder.ConvertButton };
+            }
+            else
+            {
+                tabButtons[2].IsChecked = true;
+                marks = Macros.Reveal(topic, true);
+            }
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                UpdateLayout();
+                if (marks.Length > 0) marks[0].BringIntoView();
+                foreach (FrameworkElement m in marks) Highlight.Flash(m);
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
         /// <summary>Selects a tab without saving it as the remembered one (self test).</summary>
         public void SelectTab(int index)
         {
