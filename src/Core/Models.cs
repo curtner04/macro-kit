@@ -291,11 +291,15 @@ namespace MacroKit.Core
         public int DeckColumns { get; set; }
         public bool DeckCompact { get; set; }              // the Deck shows smaller buttons in one row
         public bool ExamplesAdded { get; set; }            // the example phrases and macros were added once (new installs start with them)
+        public bool ProSamplesAdded { get; set; }          // 1.13.2: the Pro samples were added once (to a setup that already had the others)
         // Where the status popup was dragged to (its outer edges, physical pixels); NaN = bottom-right of the screen being worked on.
         public double PillLeft { get; set; }
         public double PillTop { get; set; }
         public double PillRight { get; set; }
         public double PillBottom { get; set; }
+        // 1.13.2: the corner of the dragged place that stays put as the popup's size changes ("TopLeft", "TopRight", "BottomLeft",
+        // "BottomRight"); "" = the corner nearest the screen's edges where it was dropped.
+        public string PillAnchor { get; set; }
         // Where the recorder bar was dragged to (top-left, physical pixels); NaN = the top middle of the main window or screen.
         public double RecorderBarLeft { get; set; }
         public double RecorderBarTop { get; set; }
@@ -343,6 +347,7 @@ namespace MacroKit.Core
             PillTop = double.NaN;
             PillRight = double.NaN;
             PillBottom = double.NaN;
+            PillAnchor = "";
             RecorderBarLeft = double.NaN;
             RecorderBarTop = double.NaN;
             WindowLeft = double.NaN;

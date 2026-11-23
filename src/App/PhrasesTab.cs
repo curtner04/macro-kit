@@ -318,6 +318,7 @@ namespace MacroKit.App
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.6, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             string name = p.Trigger.Length == 0 ? "(no trigger yet)" : p.Trigger;
+            if (Examples.IsSample(p)) name = Examples.SamplePrefix + name;   // only shown: the trigger you type stays as it is
             var t = Ui.Text(name, p.Enabled && p.Trigger.Length > 0 ? "AccentText" : "Muted", true);
             t.FontFamily = Ui.MonoFont;
             t.Margin = new Thickness(0, 0, 10, 0);

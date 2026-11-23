@@ -196,6 +196,7 @@ namespace MacroKit.App
             {
                 Examples.AddMissing(Phrases, Macros);
                 Settings.ExamplesAdded = true;
+                Settings.ProSamplesAdded = true;
                 engine.SetPhrases(Phrases);
                 MarkDirty(SaveParts.Settings | SaveParts.Phrases | SaveParts.Macros);
             }
@@ -204,7 +205,31 @@ namespace MacroKit.App
                 // settings.json was missing, set aside or locked: only the flag is set (and saved when the file can be),
                 // so examples the person deleted do not come back.
                 Settings.ExamplesAdded = true;
+                Settings.ProSamplesAdded = true;
                 if (!readOnlyFiles.Contains("settings.json")) MarkDirty(SaveParts.Settings);
+            }
+            else if (Settings.ExamplesAdded && !Settings.ProSamplesAdded && storage.SettingsFromFile && !examplesBlocked && !readOnlyFiles.Contains("settings.json"))
+            {
+                // 1.13.2: a setup that already had the samples gets the Pro ones once (one deleted later does not come back).
+                Examples.AddMissing(Phrases, Macros, true);
+                Settings.ProSamplesAdded = true;
+                MarkDirty(SaveParts.Settings | SaveParts.Macros);
+            }
+            // 1.13.2: the example macros an older version added get [SAMPLE] in front of their names, and steps that call them follow.
+            if (!readOnlyFiles.Contains("macros.json"))
+            {
+                var renamed = Examples.MarkSamples(Macros);
+                foreach (var r in renamed)
+                {
+                    string from = MacroKit.Macros.MacroScript.Macro(r.Key), to = MacroKit.Macros.MacroScript.Macro(r.Value.Name);
+                    foreach (MacroDef m in Macros)
+                    {
+                        if (m.Script == null || !m.Script.Contains(from)) continue;
+                        m.Script = m.Script.Replace(from, to);
+                        m.Plain = "";   // the plain steps are shown from the new script again
+                    }
+                }
+                if (renamed.Count > 0) MarkDirty(SaveParts.Macros);
             }
             // A brand-new setup asks once which hotkeys to use (the Recorder's "Pick your hotkeys" card); an existing one never does.
             if (!storage.SettingsFromFile && !readOnlyFiles.Contains("settings.json")) Settings.HotkeysChosen = false;

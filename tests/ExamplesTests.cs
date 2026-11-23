@@ -15,20 +15,37 @@ namespace MacroKit.Tests
     public static class ExamplesTests
     {
         [Test]
-        public static void ThereAreTenExamplePhrasesAndTenExampleMacros()
+        public static void ThereAreTenExamplePhrasesAndThirteenExampleMacros()
         {
             List<PhraseDef> phrases = Examples.Phrases();
             List<MacroDef> macros = Examples.Macros();
             Assert.Equal(10, phrases.Count);
-            Assert.Equal(10, macros.Count);
+            Assert.Equal(13, macros.Count);
+            Assert.Equal(3, macros.Count(m => Examples.IsProSample(m.Name)));
             Assert.Equal(10, phrases.Select(p => p.Trigger).Distinct().Count());
-            Assert.Equal(10, macros.Select(m => m.Name).Distinct().Count());
+            Assert.Equal(13, macros.Select(m => m.Name).Distinct().Count());
             Assert.True(phrases.All(p => p.Enabled && p.Group == Examples.PhraseGroup));
-            foreach (MacroDef m in macros)
+            LicenseInfo before = Edition.License;
+            Edition.Set(new LicenseInfo { Serial = 1, Issued = new DateTime(2026, 11, 17), Name = "Test" });
+            try
             {
-                ParseResult r = MacroParser.Parse(m.Script, m.NewLineIsEnter);
-                Assert.True(r.Ok, m.Name + ": " + string.Join("; ", r.Errors.Select(e => e.Message)));
+                foreach (MacroDef m in macros)
+                {
+                    ParseResult r = MacroParser.Parse(m.Script, m.NewLineIsEnter);
+                    Assert.True(r.Ok, m.Name + ": " + string.Join("; ", r.Errors.Select(e => e.Message)));
+                }
             }
+            finally { Edition.Set(before); }
+            // Without Pro, only the two condition samples need fixing, and the scheduled one never runs by itself.
+            Edition.Set(null);
+            try
+            {
+                foreach (MacroDef m in macros)
+                    Assert.Equal(!Examples.IsProSample(m.Name) || m.Schedule.Kind != ScheduleKind.Off, MacroParser.Parse(m.Script, m.NewLineIsEnter).Ok);
+            }
+            finally { Edition.Set(before); }
+            MacroDef reminder = macros.Single(m => m.Schedule.Kind != ScheduleKind.Off);
+            Assert.False(reminder.Enabled, "the scheduled sample is switched off");
             Assert.Equal(1, macros.Count(m => m.ShowOnDeck));
         }
 
@@ -47,7 +64,7 @@ namespace MacroKit.Tests
         public static void NewInstallsStartWithTheExamples()
         {
             Assert.Equal(10, Storage.SeedPhrases().Count);
-            Assert.Equal("Copy, switch, paste, next row", Storage.SeedMacros()[0].Name);
+            Assert.Equal("[SAMPLE] Copy, switch, paste, next row", Storage.SeedMacros()[0].Name);
         }
 
         [Test]
@@ -55,12 +72,42 @@ namespace MacroKit.Tests
         {
             var phrases = new List<PhraseDef> { new PhraseDef { Trigger = ";sig", Replacement = "Mine" } };
             var macros = new List<MacroDef> { new MacroDef { Name = "Duplicate the line", Script = "{{F2}}", ShowOnDeck = true } };
-            Assert.Equal(18, Examples.AddMissing(phrases, macros));
+            Assert.Equal(21, Examples.AddMissing(phrases, macros));
             Assert.Equal(10, phrases.Count);
-            Assert.Equal(10, macros.Count);
+            Assert.Equal(13, macros.Count);
             Assert.Equal("Mine", phrases.First(p => p.Trigger == ";sig").Replacement);
             Assert.True(macros.Skip(1).All(m => !m.ShowOnDeck), "examples added to a setup never land on its Deck");
             Assert.Equal(0, Examples.AddMissing(phrases, macros));
+        }
+
+        [Test]
+        public static void SamplesAreMarkedAndOlderOnesRenamed()
+        {
+            Assert.True(Examples.Macros().All(m => m.Name.StartsWith("[SAMPLE] ")), "every example macro starts with [SAMPLE]");
+            Assert.True(Examples.Phrases().All(Examples.IsSample));
+            Assert.False(Examples.IsSample(new PhraseDef { Trigger = ";sig", Replacement = "Mine" }));
+            Assert.Equal(Examples.Describe("Paste down 10 rows"), Examples.Describe("[SAMPLE] Paste down 10 rows"));
+
+            // An older setup: one sample as shipped, one changed, one of the person's own with a sample's name.
+            MacroDef shipped = Examples.Macros()[6];
+            var macros = new List<MacroDef>
+            {
+                new MacroDef { Name = "Duplicate the line", Script = shipped.Script, Hotkey = "Ctrl+Alt+D" },
+                new MacroDef { Name = "Snip part of the screen", Script = "{{PRINTSCREEN}}" },
+                new MacroDef { Name = "Mine", Script = "{{F2}}" },
+            };
+            var renamed = Examples.MarkSamples(macros);
+            Assert.Equal(1, renamed.Count);
+            Assert.Equal("Duplicate the line", renamed[0].Key);
+            Assert.Equal("[SAMPLE] Duplicate the line", macros[0].Name);
+            Assert.Equal("Ctrl+Alt+D", macros[0].Hotkey);
+            Assert.Equal("Snip part of the screen", macros[1].Name);
+            Assert.Equal(0, Examples.MarkSamples(macros).Count);
+            // The old names count as there, so adding the missing ones adds no second copy.
+            int before = macros.Count;
+            Examples.AddMissing(new List<PhraseDef>(), macros);
+            Assert.Equal(before + 11, macros.Count);
+            Assert.False(macros.Any(m => m.Name == "[SAMPLE] Snip part of the screen"));
         }
 
         [Test]

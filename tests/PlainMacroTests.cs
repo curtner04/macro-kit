@@ -334,5 +334,18 @@ namespace MacroKit.Tests
             Assert.Equal("note", PlainMacro.TileLabel(PlainMacro.ToScript("{{//}} note").Lines[0]));
             Assert.Equal("note", PlainMacro.TileLabel(PlainMacro.ToScript("# note").Lines[0]));
         }
+
+        [Test]
+        public static void EnterTakesTheHighlightedSuggestion()
+        {
+            // 1.13.2: "ctrl" works as a step (press Ctrl alone), but Enter should still take the highlighted ctrl+c.
+            Assert.True(PlainMacro.EnterTakesSuggestion("ctrl"), "ctrl");
+            Assert.True(PlainMacro.EnterTakesSuggestion("ctrl+shift"), "ctrl+shift");
+            Assert.True(PlainMacro.EnterTakesSuggestion("wai"), "wai");
+            // A line that is itself a suggested step keeps Enter as a new line.
+            Assert.True(!PlainMacro.EnterTakesSuggestion("click"), "click");
+            Assert.True(!PlainMacro.EnterTakesSuggestion(" Tab "), "tab");
+            Assert.True(!PlainMacro.EnterTakesSuggestion("end"), "end");
+        }
     }
 }

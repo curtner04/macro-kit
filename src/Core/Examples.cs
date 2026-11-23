@@ -5,13 +5,26 @@ using System.Linq;
 namespace MacroKit.Core
 {
     /// <summary>
-    /// Ten example phrases and ten example macros, so the Phrases and Macros tabs show what they can do on first look. A new install
+    /// Ten example phrases and ten example macros (samples, marked [SAMPLE]), so the Phrases and Macros tabs show what they can do on first look. A new install
     /// starts with them; an existing one gets the missing ones once (AppSettings.ExamplesAdded). An example still exactly as shipped
     /// can be removed in one go; one you changed is yours and stays.
     /// </summary>
     public static class Examples
     {
         public const string PhraseGroup = "Examples";
+
+        /// <summary>
+        /// 1.13.2: in front of every example macro's name, and shown in front of every example phrase's trigger in the Phrases
+        /// list (the trigger itself stays as it is: it is what you type), so a sample is never mistaken for one of your own.
+        /// </summary>
+        public const string SamplePrefix = "[SAMPLE] ";
+
+        /// <summary>The example macros' names as 1.13.1 and earlier shipped them, without <see cref="SamplePrefix"/>.</summary>
+        public static string BaseName(string name)
+        {
+            string n = name ?? "";
+            return n.StartsWith(SamplePrefix, StringComparison.Ordinal) ? n.Substring(SamplePrefix.Length) : n;
+        }
 
         public static List<PhraseDef> Phrases()
         {
@@ -34,19 +47,36 @@ namespace MacroKit.Core
         {
             return new List<MacroDef>
             {
-                M("Copy, switch, paste, next row",
+                M(SamplePrefix + "Copy, switch, paste, next row",
                     "{{CTRL}{C}}{{PAUSE:50}}{{ALT}{TAB}}{{PAUSE:100}}{{CTRL}{V}}{{PAUSE:50}}{{ALT}{TAB}}{{PAUSE:100}}{{DOWN}}{{PAUSE:50}}",
                     RepeatMode.Times, 5, 0, true),
-                M("Type my email signature", "Best regards,\nAlex Morgan\nalex@example.com", paste: true),
-                M("Fill a contact form", "Alex Morgan{{TAB}}alex@example.com{{TAB}}555-0100{{TAB}}"),
-                M("Auto-clicker (Esc stops)", "{{LBUTTON}}{{PAUSE:100}}", RepeatMode.Continuous),
-                M("Refresh every 30 seconds", "{{F5}}", RepeatMode.Continuous, 5, 30000),
-                M("Paste down 10 rows", "{{CTRL}{C}}{{PAUSE:30}}{{LOOP:10}}{{DOWN}}{{CTRL}{V}}{{PAUSE:30}}{{ENDLOOP}}"),
-                M("Duplicate the line", "{{HOME}}{{SHIFT}{END}}{{CTRL}{C}}{{PAUSE:30}}{{END}}{{ENTER}}{{CTRL}{V}}"),
-                M("Snip part of the screen", "{{WIN}{SHIFT}{S}}"),
-                M("Start a note in Notepad", "{{RUN:notepad}}{{WAITWINDOW:Notepad}}{{PAUSE:300}}To do:\n- "),
-                M("Reopen the closed browser tab", "{{CTRL}{SHIFT}{T}}"),
+                M(SamplePrefix + "Type my email signature", "Best regards,\nAlex Morgan\nalex@example.com", paste: true),
+                M(SamplePrefix + "Fill a contact form", "Alex Morgan{{TAB}}alex@example.com{{TAB}}555-0100{{TAB}}"),
+                M(SamplePrefix + "Auto-clicker (Esc stops)", "{{LBUTTON}}{{PAUSE:100}}", RepeatMode.Continuous),
+                M(SamplePrefix + "Refresh every 30 seconds", "{{F5}}", RepeatMode.Continuous, 5, 30000),
+                M(SamplePrefix + "Paste down 10 rows", "{{CTRL}{C}}{{PAUSE:30}}{{LOOP:10}}{{DOWN}}{{CTRL}{V}}{{PAUSE:30}}{{ENDLOOP}}"),
+                M(SamplePrefix + "Duplicate the line", "{{HOME}}{{SHIFT}{END}}{{CTRL}{C}}{{PAUSE:30}}{{END}}{{ENTER}}{{CTRL}{V}}"),
+                M(SamplePrefix + "Snip part of the screen", "{{WIN}{SHIFT}{S}}"),
+                M(SamplePrefix + "Start a note in Notepad", "{{RUN:notepad}}{{WAITWINDOW:Notepad}}{{PAUSE:300}}To do:\n- "),
+                M(SamplePrefix + "Reopen the closed browser tab", "{{CTRL}{SHIFT}{T}}"),
+                // 1.13.2: three that show what Pro adds. Without Pro they show as needing Pro, and say so.
+                M(SamplePrefix + "Open the copied link (Pro)",
+                    "{{VARSETFROMCLIPBOARD:clip}}{{IF:$clip~http}}{{CTRL}{T}}{{PAUSE:150}}{{CTRL}{V}}{{ENTER}}{{ENDIF}}"),
+                M(SamplePrefix + "Paste only in Notepad (Pro)", "{{IFWINDOW:notepad}}{{CTRL}{V}}{{ENDIF}}"),
+                Scheduled(M(SamplePrefix + "Stretch reminder every hour (Pro)",
+                    "{{RUN:notepad}}{{WAITWINDOW:Notepad}}{{PAUSE:300}}Time to stand up and stretch for a minute."), 60),
             };
+        }
+
+        /// <summary>The samples that need Macro Kit Pro to run (conditions and a schedule).</summary>
+        public static bool IsProSample(string name) { return BaseName(name).EndsWith(" (Pro)", StringComparison.Ordinal); }
+
+        // Every so many minutes, but switched off: a sample never runs by itself until you switch it on.
+        static MacroDef Scheduled(MacroDef m, int everyMinutes)
+        {
+            m.Schedule = new MacroSchedule { Kind = ScheduleKind.Every, EveryMinutes = everyMinutes };
+            m.Enabled = false;
+            return m;
         }
 
         /// <summary>
@@ -79,15 +109,20 @@ namespace MacroKit.Core
         /// Adds the examples that are not there yet: a phrase with the same trigger or a macro with the same name counts as there.
         /// Returns how many were added.
         /// </summary>
-        public static int AddMissing(IList<PhraseDef> phrases, IList<MacroDef> macros)
+        public static int AddMissing(IList<PhraseDef> phrases, IList<MacroDef> macros) { return AddMissing(phrases, macros, false); }
+
+        /// <summary>The same, limited to the Pro samples when <paramref name="proOnly"/> (added once to a setup that had the others).</summary>
+        public static int AddMissing(IList<PhraseDef> phrases, IList<MacroDef> macros, bool proOnly)
         {
             int added = 0;
             var triggers = new HashSet<string>(phrases.Select(p => p.Trigger ?? ""), StringComparer.Ordinal);
-            foreach (PhraseDef p in Phrases())
-                if (triggers.Add(p.Trigger)) { phrases.Add(p); added++; }
-            var names = new HashSet<string>(macros.Select(m => m.Name ?? ""), StringComparer.OrdinalIgnoreCase);
-            foreach (MacroDef m in Macros())
-                if (names.Add(m.Name))
+            if (!proOnly)
+                foreach (PhraseDef p in Phrases())
+                    if (triggers.Add(p.Trigger)) { phrases.Add(p); added++; }
+            // A macro already there under the old name (no [SAMPLE] in front) counts too.
+            var names = new HashSet<string>(macros.Select(m => BaseName(m.Name)), StringComparer.OrdinalIgnoreCase);
+            foreach (MacroDef m in Macros().Where(x => !proOnly || IsProSample(x.Name)))
+                if (names.Add(BaseName(m.Name)))
                 {
                     // Added to an existing setup, an example never lands on the person's Deck.
                     m.ShowOnDeck = false;
@@ -95,6 +130,36 @@ namespace MacroKit.Core
                     added++;
                 }
             return added;
+        }
+
+        /// <summary>
+        /// 1.13.2: puts <see cref="SamplePrefix"/> in front of the example macros an older version added, when each still has its
+        /// shipped name and steps (one you changed is yours and keeps its name). Returns the renamed macros as (old name, macro),
+        /// so {{MACRO:...}} steps that call them can follow.
+        /// </summary>
+        public static List<KeyValuePair<string, MacroDef>> MarkSamples(IList<MacroDef> macros)
+        {
+            var renamed = new List<KeyValuePair<string, MacroDef>>();
+            var taken = new HashSet<string>(macros.Select(m => m.Name ?? ""), StringComparer.OrdinalIgnoreCase);
+            foreach (MacroDef shipped in Macros())
+            {
+                string old = BaseName(shipped.Name);
+                foreach (MacroDef m in macros)
+                {
+                    if (m.Name != old || m.Script != shipped.Script || taken.Contains(shipped.Name)) continue;
+                    m.Name = shipped.Name;
+                    taken.Add(shipped.Name);
+                    renamed.Add(new KeyValuePair<string, MacroDef>(old, m));
+                    break;
+                }
+            }
+            return renamed;
+        }
+
+        /// <summary>True when the phrase is one of the samples: its trigger and text are still as shipped (shown with [SAMPLE] in front).</summary>
+        public static bool IsSample(PhraseDef phrase)
+        {
+            return phrase != null && Phrases().Any(e => e.Trigger == phrase.Trigger && e.Replacement == phrase.Replacement);
         }
 
         /// <summary>True when the phrase is one of the examples, still exactly as shipped.</summary>
@@ -114,7 +179,7 @@ namespace MacroKit.Core
         /// <summary>One plain sentence on what an example macro does and what to do first, or "" for a macro that is not an example.</summary>
         public static string Describe(string name)
         {
-            switch (name ?? "")
+            switch (BaseName(name))
             {
                 case "Copy, switch, paste, next row": return "Copies, switches to the other window, pastes and moves down a row, 5 times. Click the cell to copy from first.";
                 case "Type my email signature": return "Types a short signature into the window you used before. Change the text to yours first.";
@@ -126,6 +191,9 @@ namespace MacroKit.Core
                 case "Snip part of the screen": return "Opens the Windows snipping tool.";
                 case "Start a note in Notepad": return "Opens Notepad and types the start of a to-do list.";
                 case "Reopen the closed browser tab": return "Brings back the browser tab you closed last.";
+                case "Open the copied link (Pro)": return "Pro, a condition: if the clipboard holds a link, opens it in a new browser tab; anything else, it does nothing.";
+                case "Paste only in Notepad (Pro)": return "Pro, a window condition: pastes when Notepad is in front and does nothing in any other window.";
+                case "Stretch reminder every hour (Pro)": return "Pro, a schedule: every hour it opens Notepad and types a reminder. It is switched off, so it never runs by itself until you switch it on.";
                 default: return "";
             }
         }

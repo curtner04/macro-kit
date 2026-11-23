@@ -23,6 +23,7 @@ namespace MacroKit.App
         readonly Func<RunPill> pill;
         readonly TextBlock pillPlace = Ui.Text("", "Muted", false, 12, true);
         readonly Button pillReset;
+        readonly ComboBox pillAnchor = new ComboBox { Width = 180 };
         readonly StackPanel edition = new StackPanel();
         bool loading;
 
@@ -78,10 +79,25 @@ namespace MacroKit.App
             // ---- status popup
             var pillShow = Ui.Button("Show popup", ShowPill, "Small", "Show the status popup now, so you can drag it where you want it. Press Done on it when it is in place.");
             pillReset = Ui.Button("Reset position", ResetPill, "Small", "Put the popup back in the bottom-right corner of the screen you are working on.");
+            // 1.13.2: which corner stays put when the text makes the popup wider or taller, so it never reaches past that spot.
+            foreach (string label in RunPill.AnchorLabels) pillAnchor.Items.Add(label);
+            pillAnchor.SelectedIndex = Math.Max(0, Array.IndexOf(RunPill.AnchorValues, c.Settings.PillAnchor ?? ""));
+            pillAnchor.ToolTip = "The corner of the popup that stays where you put it. The popup grows away from it, so it never reaches past that corner onto another screen.";
+            System.Windows.Automation.AutomationProperties.SetName(pillAnchor, "Keep this corner in place");
+            pillAnchor.SelectionChanged += (s, e) =>
+            {
+                if (loading || pillAnchor.SelectedIndex < 0) return;
+                c.Settings.PillAnchor = RunPill.AnchorValues[pillAnchor.SelectedIndex];
+                c.MarkDirty(SaveParts.Settings);
+                RunPill p = pill();
+                if (p != null) p.PlaceChanged();
+                ShowPillPlace();
+            };
             var popupCard = Ui.Card(Ui.Stack(8,
                 Ui.Heading("Status popup"),
                 Ui.Para("The popup shows what is running and has a Stop button. Drag it to move it; it stays where you leave it.", "Muted", 12),
                 pillPlace,
+                LabelRows(new KeyValuePair<string, UIElement>("Fixed corner", pillAnchor)),
                 Ui.Row(8, pillShow, pillReset)));
 
             // ---- excluded programs

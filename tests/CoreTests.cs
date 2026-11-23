@@ -1174,8 +1174,8 @@ namespace MacroKit.Tests
             Run((storage, dir) =>
             {
                 List<MacroDef> macros = storage.LoadMacros();
-                Assert.Equal(10, macros.Count);
-                Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
+                Assert.Equal(13, macros.Count);
+                Assert.Equal("[SAMPLE] Copy, switch, paste, next row", macros[0].Name);
                 Assert.Equal(Examples.Macros()[0].Script, macros[0].Script);
                 Assert.Equal(RepeatMode.Times, macros[0].Repeat);
                 Assert.Equal(5, macros[0].RepeatTimes);
@@ -1272,14 +1272,14 @@ namespace MacroKit.Tests
                 string file = dir.File("data\\macros.json");
                 File.WriteAllText(file, "{ this is not json");
                 List<MacroDef> macros = storage.LoadMacros();
-                Assert.Equal(10, macros.Count);
-                Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
+                Assert.Equal(13, macros.Count);
+                Assert.Equal("[SAMPLE] Copy, switch, paste, next row", macros[0].Name);
                 string[] aside = Directory.GetFiles(dir.File("data"), "macros.json.unreadable-*");
                 Assert.Equal(1, aside.Length);
                 Assert.Equal("{ this is not json", File.ReadAllText(aside[0]), "the user's file is kept untouched");
                 Assert.Equal(1, storage.Warnings.Count);
                 Assert.Contains(storage.Warnings[0], "macros.json");
-                Assert.Contains(File.ReadAllText(file), "Copy, switch, paste, next row");
+                Assert.Contains(File.ReadAllText(file), "[SAMPLE] Copy, switch, paste, next row");
             });
         }
 
@@ -1362,7 +1362,7 @@ namespace MacroKit.Tests
                     List<PhraseDef> phrases = fresh.LoadPhrases();
                     List<MacroDef> macros = fresh.LoadMacros();
                     Assert.Equal(";sig", phrases[0].Trigger, "the example phrases stand in, in memory only");
-                    Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
+                    Assert.Equal("[SAMPLE] Copy, switch, paste, next row", macros[0].Name);
                 }
                 Assert.SequenceEqual(new[] { "macros.json", "phrases.json" }, fresh.ReadOnlyFiles);
 
@@ -1864,7 +1864,7 @@ namespace MacroKit.Tests
                 File.WriteAllText(dir.File("data\\macros.json"), "{ broken");
                 File.WriteAllText(dir.File("data\\macros.json.previous"), "also broken");
                 List<MacroDef> macros = storage.LoadMacros();
-                Assert.Equal("Copy, switch, paste, next row", macros[0].Name);
+                Assert.Equal("[SAMPLE] Copy, switch, paste, next row", macros[0].Name);
                 Assert.Equal(1, storage.Warnings.Count);
                 Assert.Contains(storage.Warnings[0], "defaults are being used");
             });

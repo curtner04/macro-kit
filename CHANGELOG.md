@@ -1,5 +1,16 @@
 # Macro Kit changelog
 
+## 1.13.2 - 2026-11-23
+
+A How-to button in the header, a status popup that stays on its screen, marked samples and three Pro samples.
+
+- **How-to in the header**: a **How-to** button next to Deck lists every guide by name, so the guides are one click away from any tab. They are still under **⋯ › How-to guides** and behind each **How it works** link.
+- **Enter takes the highlighted suggestion**: typing `ctrl` showed *ctrl+c* highlighted, but Enter kept just `ctrl`. Enter now takes the highlighted suggestion. When what you typed is already a whole step in the list (such as `click` or `tab`), Enter keeps it and starts a new line.
+- **The status popup stays put**: when its text grew while a macro ran, the popup first grew from its left edge and only then moved back, so near the edge of a screen it reached onto the next one. It now gets its new size and place in one move, and never leaves the screen it is on. **Settings › Status popup › Fixed corner** chooses which corner stays in place as it grows (top left, top right, bottom left or bottom right); *Automatic* keeps the corner nearest the screen's edges, as before.
+- **Samples are marked [SAMPLE]**: the example macros' names start with *[SAMPLE]*, and the example phrases show *[SAMPLE]* in front of their trigger in the Phrases list (the trigger you type stays the same). Examples added by an earlier version are renamed too, unless you changed their steps; steps in other macros that run them by name follow.
+- **Three Pro samples**: *Open the copied link (Pro)* and *Paste only in Notepad (Pro)* show conditions, and *Stretch reminder every hour (Pro)* shows a schedule (it comes switched off, so it never runs by itself). An existing setup gets them once.
+- *Show this macro as a button on the Deck* now says what it does when you point at it: a button on Macro Kit's Deck panel that runs the macro in the window you were using. It does not change an Elgato Stream Deck.
+
 ## 1.13.1 - 2026-11-23
 
 How-to guides, and a fix for recordings that switch windows.

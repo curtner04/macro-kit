@@ -42,6 +42,13 @@ namespace MacroKit.App
             SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
+        /// <summary>Moves and sizes a window in one step (physical screen pixels), without activating it or changing its z-order.</summary>
+        public static void SetBounds(Window window, int x, int y, int width, int height)
+        {
+            IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
+            SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
         const uint SWP_NOMOVE = 0x2;
         const int SW_SHOWMINNOACTIVE = 7;
         static readonly IntPtr HWND_BOTTOM = new IntPtr(1);

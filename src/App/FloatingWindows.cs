@@ -32,7 +32,9 @@ namespace MacroKit.App
             Theme.Style(this);
             SourceInitialized += (s, e) =>
             {
-                WindowStyles.ApplyNoActivate((HwndSource)PresentationSource.FromVisual(this));
+                // From the handle: the status popup creates its handle before it shows (to size and place it first), and then
+                // PresentationSource.FromVisual is still null.
+                WindowStyles.ApplyNoActivate(HwndSource.FromHwnd(new WindowInteropHelper(this).Handle));
                 Theme.RoundCorners(this);
             };
         }
@@ -95,8 +97,21 @@ namespace MacroKit.App
             tick.Tick += (s, e) => { if (c.Activity.Kind != ActivityKind.None) Render(c.Activity, null, false); };
             hideTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(8) };
             hideTimer.Tick += (s, e) => { hideTimer.Stop(); Hide(); };
-            SizeChanged += (s, e) => Reposition();
+            // 1.13.2: the popup sizes itself (Fit), so a new size and its place arrive in one move. With SizeToContent, Windows first
+            // grew it from its left edge and only then was it moved back, so for a moment it reached past its corner, onto the
+            // next screen when it sat near one. A DPI change (moving to another screen) still resizes it, so it is fitted again.
+            SizeToContent = SizeToContent.Manual;
+            SizeChanged += (s, e) => { if (!fitting) Reposition(); };
         }
+
+        bool fitting;
+
+        /// <summary>The choices for Settings, Status popup, Fixed corner, and the values saved for them.</summary>
+        public static readonly string[] AnchorLabels = { "Automatic", "Top left", "Top right", "Bottom left", "Bottom right" };
+        public static readonly string[] AnchorValues = { "", "TopLeft", "TopRight", "BottomLeft", "BottomRight" };
+
+        /// <summary>Settings changed the fixed corner: place the popup again if it is showing.</summary>
+        public void PlaceChanged() { Reposition(); }
 
         /// <summary>Shows, updates or hides the pill to match the controller's current activity.</summary>
         public void Present()
@@ -186,6 +201,7 @@ namespace MacroKit.App
             title.Text = "Status popup";
             detail.Text = "Drag it to where it should show during runs";
             buttons.Children.Add(NoFocus(Ui.Button("Done", EndMoving, "Primary")));
+            Reposition();
         }
 
         void DragToNewPlace()
@@ -236,32 +252,60 @@ namespace MacroKit.App
 
         void Reveal()
         {
-            if (!IsVisible) Show();
-            UpdateLayout();
+            // Sized and placed before it shows, so it never flashes where it was last time or at its old size.
+            if (!IsVisible) { Fit(); Show(); }
             Reposition();
         }
 
-        void Reposition()
+        void Reposition() { if (IsVisible) Fit(); }
+
+        /// <summary>
+        /// Gives the popup the size its content needs and puts it in its place, in one move. While the user drags it only the size
+        /// follows the text (moving it then would fight the drag).
+        /// </summary>
+        void Fit()
         {
-            // While the user drags, the text still updates (and the size with it); moving the window then would fight the drag.
-            if (!IsVisible || dragging) return;
-            Rect self;
-            if (!NativeUi.TryGetRect(this, out self)) return;
-            Rect saved;
-            if (TrySavedPlace(out saved))
+            if (fitting) return;
+            var content = Content as UIElement;
+            if (content == null) return;
+            fitting = true;
+            try
             {
-                Point at = PlaceFromSaved(saved, self.Size);
-                NativeUi.MoveTo(this, (int)at.X, (int)at.Y);
-                return;
+                new WindowInteropHelper(this).EnsureHandle();
+                double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+                if (scale <= 0) scale = 1;
+                // Layout first: new text marks only its own TextBlock for measuring, so measuring the frame alone would give back
+                // the size it had before.
+                UpdateLayout();
+                content.InvalidateMeasure();
+                content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                var size = new Size(Math.Ceiling(content.DesiredSize.Width * scale), Math.Ceiling(content.DesiredSize.Height * scale));
+                if (size.Width < 1 || size.Height < 1) return;
+                Rect self;
+                bool known = NativeUi.TryGetRect(this, out self);
+                Point at;
+                if (dragging || !TargetPlace(size, out at)) at = known ? self.TopLeft : new Point(0, 0);
+                if (known && Math.Abs(self.X - at.X) < 1 && Math.Abs(self.Y - at.Y) < 1 && Math.Abs(self.Width - size.Width) < 1 && Math.Abs(self.Height - size.Height) < 1) return;
+                NativeUi.SetBounds(this, (int)Math.Round(at.X), (int)Math.Round(at.Y), (int)size.Width, (int)size.Height);
             }
+            finally { fitting = false; }
+        }
+
+        /// <summary>Where a popup of <paramref name="size"/> (physical pixels) goes: its dragged place, or the corner of the screen being worked on.</summary>
+        bool TargetPlace(Size size, out Point at)
+        {
+            at = new Point();
+            Rect saved;
+            if (TrySavedPlace(out saved)) { at = PlaceFromSaved(saved, size, c.Settings.PillAnchor); return true; }
             if (!anchored)
             {
                 anchorPixels = WorkAreaOfTarget();
                 anchored = true;
             }
-            if (anchorPixels.IsEmpty) return;
+            if (anchorPixels.IsEmpty) return false;
             const int margin = 18;
-            NativeUi.MoveTo(this, (int)(anchorPixels.Right - self.Width - margin), (int)(anchorPixels.Bottom - self.Height - margin));
+            at = new Point(anchorPixels.Right - size.Width - margin, anchorPixels.Bottom - size.Height - margin);
+            return true;
         }
 
         /// <summary>The dragged place, when there is one and it is still on a connected screen.</summary>
@@ -276,10 +320,11 @@ namespace MacroKit.App
         }
 
         /// <summary>
-        /// Where the popup goes for a dragged place. Its size changes with the text, so it keeps the edges nearest the screen's edges
-        /// where it was dropped (dropped on the right half: the right edge stays put and it grows to the left), and stays on that screen.
+        /// Where the popup goes for a dragged place. Its size changes with the text, so one corner stays put: the one chosen in
+        /// Settings (<paramref name="anchor"/>), or else the corner nearest the screen's edges where it was dropped (dropped on the
+        /// right half: the right edge stays put and it grows to the left). It always stays on that screen.
         /// </summary>
-        static Point PlaceFromSaved(Rect saved, Size size)
+        static Point PlaceFromSaved(Rect saved, Size size, string anchor)
         {
             Rect area;
             try
@@ -289,8 +334,21 @@ namespace MacroKit.App
                 area = new Rect(work.X, work.Y, work.Width, work.Height);
             }
             catch (Exception) { return new Point(saved.X, saved.Y); }
+            return PlaceIn(saved, size, area, anchor);
+        }
+
+        /// <summary>The top-left for a popup of <paramref name="size"/> dropped at <paramref name="saved"/> on a screen whose work area is <paramref name="area"/>.</summary>
+        public static Point PlaceIn(Rect saved, Size size, Rect area, string anchor)
+        {
             bool right = saved.X + saved.Width / 2 > area.X + area.Width / 2;
             bool bottom = saved.Y + saved.Height / 2 > area.Y + area.Height / 2;
+            switch (anchor ?? "")
+            {
+                case "TopLeft": right = false; bottom = false; break;
+                case "TopRight": right = true; bottom = false; break;
+                case "BottomLeft": right = false; bottom = true; break;
+                case "BottomRight": right = true; bottom = true; break;
+            }
             double x = right ? saved.Right - size.Width : saved.Left;
             double y = bottom ? saved.Bottom - size.Height : saved.Top;
             x = Math.Max(area.Left, Math.Min(x, area.Right - size.Width));
@@ -314,6 +372,12 @@ namespace MacroKit.App
 
         /// <summary>Fills the pill from explicit values (also used by the self test to show every state).</summary>
         public void Render(ActivityInfo a, string outcome, bool outcomeIsError, string heading = null, string dotKey = null)
+        {
+            RenderContent(a, outcome, outcomeIsError, heading, dotKey);
+            Reposition();
+        }
+
+        void RenderContent(ActivityInfo a, string outcome, bool outcomeIsError, string heading, string dotKey)
         {
             buttons.Children.Clear();
             // A Stop hotkey that could not be set up (another program has it) is not offered: pressing it would do nothing.

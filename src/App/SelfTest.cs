@@ -99,6 +99,7 @@ namespace MacroKit.App
             AppSettings settings = storage.LoadSettings();
             settings.SelectedRecordingId = login.Id;
             settings.ExamplesAdded = true;
+            settings.ProSamplesAdded = true;
             settings.DeckVisible = true;
             settings.ExcludedPrograms = new List<string> { "game.exe", "obs64.exe" };
             settings.Playback.Speed = 2;
@@ -642,6 +643,44 @@ namespace MacroKit.App
                 Settle(pill);
                 NativeUi.TryGetRect(pill, out r);
                 if (r.Right > work.Right + 1 || r.Left < work.Left - 1) throw new Exception("off-screen place gave " + r);
+                // 1.13.2: a chosen fixed corner wins over the nearest one, and the popup never leaves the screen.
+                var area = new Rect(0, 0, 1920, 1040);
+                Point p1 = RunPill.PlaceIn(new Rect(1500, 900, 300, 60), new Size(400, 80), area, "");
+                Point p2 = RunPill.PlaceIn(new Rect(1500, 900, 300, 60), new Size(400, 80), area, "TopLeft");
+                Point p3 = RunPill.PlaceIn(new Rect(100, 50, 300, 60), new Size(400, 80), area, "BottomRight");
+                Point p4 = RunPill.PlaceIn(new Rect(1700, 900, 200, 60), new Size(400, 80), area, "TopLeft");
+                if (p1 != new Point(1400, 880) || p2 != new Point(1500, 900) || p3 != new Point(0, 30) || p4 != new Point(1520, 900))
+                    throw new Exception("fixed corners gave " + p1 + " " + p2 + " " + p3 + " " + p4);
+                // A longer message keeps the bottom-right corner where it was dropped (it grows up and to the left), in one move.
+                controller.Settings.PillLeft = work.Right - 500; controller.Settings.PillTop = work.Bottom - 120; controller.Settings.PillRight = work.Right - 100; controller.Settings.PillBottom = work.Bottom - 60;
+                pill.ShowForMoving(main);
+                Settle(pill);
+                Rect narrow;
+                NativeUi.TryGetRect(pill, out narrow);
+                pill.Render(new ActivityInfo(), "Could not find the window “Order sheet - Excel”. The macro stopped at step 4 of 12, before it typed anything. "
+                    + "Open the order sheet, click the first row, and run it again.", true, "Stopped");
+                NativeUi.TryGetRect(pill, out r);
+                if (Math.Abs(r.Right - (work.Right - 100)) > 1 || Math.Abs(r.Bottom - (work.Bottom - 60)) > 1 || r.Height <= narrow.Height)
+                    throw new Exception("a longer message gave " + r + " (was " + narrow + ")");
+                Settle(pill);
+                NativeUi.TryGetRect(pill, out r);
+                if (Math.Abs(r.Right - (work.Right - 100)) > 1 || Math.Abs(r.Bottom - (work.Bottom - 60)) > 1) throw new Exception("after layout the longer message moved to " + r);
+                // Fixed corner top left: the same message now grows to the right from the left edge.
+                controller.Settings.PillAnchor = "TopLeft";
+                pill.PlaceChanged();
+                NativeUi.TryGetRect(pill, out r);
+                // (Where the bigger popup would reach past the screen's right or bottom edge, it is kept on the screen instead.)
+                double wantLeft = Math.Min(work.Right - 500, work.Right - r.Width), wantTop = Math.Min(work.Bottom - 120, work.Bottom - r.Height);
+                if (Math.Abs(r.Left - wantLeft) > 1 || Math.Abs(r.Top - wantTop) > 1 || r.Right > work.Right + 1 || r.Bottom > work.Bottom + 1) throw new Exception("fixed corner top left gave " + r + " in " + work);
+                // Fixed corner bottom right, dropped in the top-left of the screen: the bottom-right corner stays put there.
+                controller.Settings.PillLeft = work.Left + 500; controller.Settings.PillTop = work.Top + 240; controller.Settings.PillRight = work.Left + 1000; controller.Settings.PillBottom = work.Top + 300;
+                controller.Settings.PillAnchor = "BottomRight";
+                pill.PlaceChanged();
+                NativeUi.TryGetRect(pill, out r);
+                if (Math.Abs(r.Right - (work.Left + 1000)) > 1 || Math.Abs(r.Bottom - (work.Top + 300)) > 1) throw new Exception("fixed corner bottom right gave " + r + " in " + work);
+                controller.Settings.PillAnchor = "";
+                pill.ShowForMoving(main);
+                Settle(pill);
                 controller.MarkDirty(SaveParts.Settings);
                 if (!controller.Flush()) throw new Exception("saving failed: " + controller.LastStatus);
                 AppSettings saved = new Storage(data).LoadSettings();
@@ -1373,6 +1412,21 @@ namespace MacroKit.App
                 }
                 finally { guide.Close(); }
                 if (HowToWindow.Current != null) throw new Exception("closing left the window behind");
+            });
+            Step("the header How-to button lists every guide, and an item opens that guide", () =>
+            {
+                if (main.HowToButton == null || main.HowToButton.Visibility != Visibility.Visible || !main.HowToButton.IsDescendantOf(main)) throw new Exception("there is no visible How-to button in the header");
+                var topics = HowToGuide.Load();
+                var items = main.HowToMenuItems();
+                string want = string.Join("|", topics.Select(t => t.Title)), got = string.Join("|", items.Select(b => Convert.ToString(b.Content)));
+                if (want != got) throw new Exception("the menu lists " + got + ", the guides are " + want);
+                int pick = topics.FindIndex(t => t.Id == "pictures");
+                if (pick < 0) throw new Exception("no pictures guide");
+                items[pick].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                HowToWindow guide = HowToWindow.Current;
+                if (guide == null) throw new Exception("the guide did not open");
+                try { if (guide.TopicId != "pictures") throw new Exception("it opened at " + guide.TopicId); }
+                finally { guide.Close(); }
             });
             Step("the colour row adds {{WAITPIXEL}}, and copying it says only Macro Kit runs it", () =>
             {

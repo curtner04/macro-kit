@@ -31,6 +31,18 @@ namespace MacroKit.App
         readonly Button deckButton;
         readonly Button restartButton;
         readonly Button moreButton;
+        // 1.13.2: the how-to guides in the header, one menu item per guide.
+        readonly Button howToButton;
+        readonly System.Windows.Controls.Primitives.Popup howToMenu;
+        /// <summary>For the self test: the header How-to button and the items of its menu (one per guide).</summary>
+        public Button HowToButton { get { return howToButton; } }
+        public System.Collections.Generic.List<Button> HowToMenuItems()
+        {
+            var list = new System.Collections.Generic.List<Button>();
+            var panel = ((Border)howToMenu.Child).Child as Panel;
+            if (panel != null) foreach (object child in panel.Children) if (child is Button) list.Add((Button)child);
+            return list;
+        }
         readonly System.Windows.Controls.Primitives.Popup moreMenu;
 
         public readonly RecorderTab Recorder;
@@ -64,6 +76,19 @@ namespace MacroKit.App
             readOnlyBadge.Visibility = Visibility.Collapsed;
             deckButton = Ui.IconButton(Ui.GlyphDeck, "Deck", () => c.ToggleDeck(), "Ghost", "Show or hide the Deck: a small always-on-top panel of macro buttons that never takes focus.");
             restartButton = Ui.IconButton(Ui.GlyphRefresh, "Restart", () => shell.Restart(), "Ghost", "Save and reopen Macro Kit. It waits while something is running and never runs an installer.");
+            var guides = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Action>>();
+            try
+            {
+                foreach (HowToTopic topic in HowToGuide.Load())
+                {
+                    string id = topic.Id;
+                    guides.Add(new System.Collections.Generic.KeyValuePair<string, Action>(topic.Title, () => HowToWindow.Show(this, id)));
+                }
+            }
+            catch (Exception ex) { Log.Warn("The how-to guides could not be read", ex); }
+            howToButton = Ui.IconButton(Ui.GlyphHelp, "How-to", null, "Ghost", "How-to guides: how the steps that do more than one thing work, with examples to copy.");
+            howToMenu = Ui.Menu(howToButton, guides.ToArray());
+            howToButton.Click += (s, e) => { if (guides.Count > 0) howToMenu.IsOpen = true; else HowToWindow.Show(this, null); };
             moreButton = Ui.GlyphButton(Ui.GlyphMore, "More: export or import settings, how-to guides, changelog, data folder", null);
             moreMenu = Ui.Menu(moreButton,
                 new System.Collections.Generic.KeyValuePair<string, Action>("Export / import configuration…", shell.ExportImport),
@@ -76,6 +101,8 @@ namespace MacroKit.App
             var headerRight = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             headerRight.Children.Add(readOnlyBadge);
             headerRight.Children.Add(unsavedBadge);
+            howToButton.Margin = new Thickness(0, 0, 8, 0);
+            headerRight.Children.Add(howToButton);
             headerRight.Children.Add(deckButton);
             restartButton.Margin = new Thickness(8, 0, 0, 0);
             headerRight.Children.Add(restartButton);

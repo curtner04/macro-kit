@@ -325,7 +325,12 @@ namespace MacroKit.App
             AutomationProperties.SetName(hotkey, "Macro hotkey");
             hotkey.Changed += () => Edit(m => m.Hotkey = hotkey.Value.IsEmpty ? "" : hotkey.Value.ToString(), true);
             if (!c.InputEnabled) hotkey.ToolTip = "Hotkeys are off in this session (input is turned off).";
-            showOnDeck = new CheckBox { Content = "Show this macro as a button on the Deck" };
+            showOnDeck = new CheckBox
+            {
+                Content = "Show this macro as a button on the Deck",
+                ToolTip = "Adds a button for this macro to the Deck, Macro Kit's small always-on-top panel of buttons (Deck in the header, the tray menu or the Deck hotkey shows it). "
+                    + "Clicking the button runs the macro in the window you were using, without taking focus. It does not change an Elgato Stream Deck."
+            };
             showOnDeck.Click += (s, e) => { Edit(m => m.ShowOnDeck = showOnDeck.IsChecked == true, true); deckLook.IsEnabled = showOnDeck.IsChecked == true; };
             deckColor = new ComboBox { Width = 110, ToolTip = "A coloured stripe on the macro's Deck button, so it is quick to find." };
             AutomationProperties.SetName(deckColor, "Deck button colour");

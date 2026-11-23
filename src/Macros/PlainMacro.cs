@@ -852,6 +852,17 @@ namespace MacroKit.Macros
             return meaning.Length == 0 ? line.Source : meaning;
         }
 
+        /// <summary>
+        /// 1.13.2: whether Enter takes the highlighted suggestion while the list is open. It does, unless the line is already one of
+        /// the suggested steps itself ("click", "tab", "end"), where Enter keeps it and starts a new line. Before, any line that
+        /// worked as a step kept Enter, so "ctrl" (press Ctrl alone) never became the highlighted "ctrl+c".
+        /// </summary>
+        public static bool EnterTakesSuggestion(string line)
+        {
+            string typed = (line ?? "").Trim();
+            return !Suggestions.Any(s => s[0].Equals(typed, StringComparison.OrdinalIgnoreCase));
+        }
+
         /// <summary>Lines the editor suggests as you type: the text and what it does.</summary>
         public static readonly string[][] Suggestions =
         {
