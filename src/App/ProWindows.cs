@@ -12,6 +12,11 @@ namespace MacroKit.App
     /// <summary>Paste a Macro Kit Pro license key. The key is checked offline; nothing is sent anywhere.</summary>
     public sealed class LicenseWindow : Window
     {
+        /// <summary>For the self test: the key box, the Unlock Pro button and the problem line under the box.</summary>
+        public readonly TextBox KeyBox;
+        public readonly Button UnlockButton;
+        public readonly TextBlock Problem;
+
         public LicenseWindow(Window owner, AppController controller)
         {
             Title = "Enter your Macro Kit Pro license key";
@@ -23,17 +28,21 @@ namespace MacroKit.App
             else WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Theme.Style(this);
 
-            var box = Ui.Style(new TextBox
+            // 1.13.6: the box takes the app's implicit TextBox style. Until now it asked for the style "Input", which is a
+            // colour, so the window failed to open ("'#FF15181E' is not a valid value for property 'Style'").
+            var box = new TextBox
             {
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
                 Height = 92,
                 FontFamily = Ui.MonoFont,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            }, "Input");
+            };
+            KeyBox = box;
             AutomationName(box, "License key");
             var problem = Ui.Text("", "Bad", false, 12, true);
             problem.Visibility = Visibility.Collapsed;
+            Problem = problem;
 
             Action unlock = () =>
             {
@@ -44,6 +53,7 @@ namespace MacroKit.App
                 box.Focus();
             };
             var ok = Ui.Button("Unlock Pro", unlock, "Primary");
+            UnlockButton = ok;
             ok.IsDefault = false;   // the box takes Enter for pasted line breaks
             var cancel = Ui.Button("Cancel", () => { DialogResult = false; }, null);
             cancel.IsCancel = true;
@@ -52,7 +62,8 @@ namespace MacroKit.App
 
             Content = Ui.Stack(10,
                 Ui.Heading("Unlock Macro Kit Pro"),
-                Ui.Para("Paste the key from your purchase email. It starts with " + License.Prefix + ". Spaces and line breaks are fine. The key is checked on this PC; Macro Kit never sends it anywhere."),
+                Ui.Para("Paste the key from your purchase email. It starts with " + License.Prefix + ". Spaces and line breaks are fine."),
+                Ui.Para("The key is checked on this PC. Macro Kit never sends it anywhere."),
                 box,
                 problem,
                 buttons);

@@ -1457,6 +1457,24 @@ namespace MacroKit.App
                 }
                 finally { Edition.Set(licenseWas); }
             });
+            Step("the license key window opens, and a wrong key says why without unlocking", () =>
+            {
+                LicenseInfo licenseWas = Edition.License;
+                Edition.Set(null);
+                LicenseWindow w = null;
+                try
+                {
+                    w = new LicenseWindow(main, c);   // 1.13.5 and earlier threw here: the key box asked for a colour as its style
+                    w.Show();
+                    Settle(w);
+                    if (w.KeyBox.ActualHeight < 40 || w.UnlockButton.ActualWidth < 20) throw new Exception("the key box or the Unlock Pro button did not lay out");
+                    w.KeyBox.Text = "MK1-NOT-A-REAL-KEY";
+                    w.UnlockButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    if (w.Problem.Visibility != Visibility.Visible || string.IsNullOrWhiteSpace(w.Problem.Text)) throw new Exception("a wrong key showed no reason");
+                    if (Edition.IsPro) throw new Exception("a wrong key unlocked Pro");
+                }
+                finally { if (w != null) w.Close(); Edition.Set(licenseWas); }
+            });
             Step("every picture in the how-to guides is built in", () =>
             {
                 HowToWindow guide = HowToWindow.Show(main, "start");
@@ -1810,6 +1828,12 @@ namespace MacroKit.App
                 ProUpgradeWindow w = ProUpgradeWindow.Show(shell.Main, c);
                 try { RenderFloating(w, Path.Combine(folder, "8-upgrade-to-pro-" + suffix + ".png")); }
                 finally { w.Close(); Edition.Set(licenseWas); }
+            });
+            Step("render license key window (" + suffix + ")", () =>
+            {
+                var w = new LicenseWindow(shell.Main, c);
+                try { RenderFloating(w, Path.Combine(folder, "8-license-key-" + suffix + ".png")); if (suffix == "light") AuditPage(w, "the license key window"); }
+                finally { w.Close(); }
             });
             Step("render recorder bar (" + suffix + ")", () =>
             {

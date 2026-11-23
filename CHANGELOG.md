@@ -1,5 +1,11 @@
 # Macro Kit changelog
 
+## 1.13.6 - 2026-11-23
+
+Entering a license key works.
+
+- **Enter license key** opens the key window again. Since 1.3.0 every **Enter license key** button (in Settings → About, Upgrade to Pro, the macro library and the schedule options) stopped with *Something unexpected went wrong: '#FF15181E' is not a valid value for property 'Style'*, so a key could not be entered at all.
+
 ## 1.13.5 - 2026-11-23
 
 An Upgrade to Pro button that shows what Pro adds.
