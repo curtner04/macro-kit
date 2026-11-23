@@ -114,6 +114,8 @@ namespace MacroKit.App
         readonly TextBox ifWindow = new TextBox();
         readonly TextBox commandSearch = new TextBox();
         readonly List<CommandGroup> groups = new List<CommandGroup>();
+        // 1.13.1: each group's "How it works" link, by guide id (for the self test).
+        readonly Dictionary<string, Button> howToLinks = new Dictionary<string, Button>();
         FrameworkElement proCommands;
         Border proNote;
         TextBlock noMatches;
@@ -761,6 +763,8 @@ namespace MacroKit.App
         public void ToggleOptions(bool on, string section = "repeat") { c.Settings.MacroOptionsSection = on ? section : ""; c.MarkDirty(SaveParts.Settings); ShowOptionCard(); }
         public void ToggleAllCommands(bool on) { c.Settings.ShowAllCommands = on; c.MarkDirty(SaveParts.Settings); ApplyLayout(); }
         public int VisibleCommandGroups { get { return groups.Count(g => g.Root.Visibility == Visibility.Visible); } }
+        /// <summary>The "How it works" link of the group whose guide is <paramref name="topic"/>, or null.</summary>
+        public Button HowToLink(string topic) { Button b; return howToLinks.TryGetValue(topic, out b) ? b : null; }
         public string[] OpenCommandGroups { get { return groups.Where(g => g.Open && g.Root.Visibility == Visibility.Visible).Select(g => g.Id).ToArray(); } }
         /// <summary>Self test: opens every group for a screenshot without saving it; SearchCommands("") puts the saved layout back.</summary>
         public void OpenAllCommandGroups() { palette.Visibility = Visibility.Visible; foreach (CommandGroup g in groups) SetOpen(g, true, false); RefreshProCommands(); }

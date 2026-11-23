@@ -1,5 +1,12 @@
 # Macro Kit changelog
 
+## 1.13.1 - 2026-11-23
+
+How-to guides, and a fix for recordings that switch windows.
+
+- **How-to guides**: the commands that do more than one simple step now explain how they work. Each of these groups in the commands panel has a **How it works** link: holding a key down, repeating and taking turns, opening a program and waiting for it, switching windows and waiting for a colour, waiting for a picture or clicking it, variables and asking, conditions, choosing where a macro types, schedules and turning a recording into a macro. Every guide has examples to copy straight into a macro's steps. All of them are also under **⋯ › How-to guides**.
+- **Convert to macro keeps Alt held over several Tabs**: a recording that held Alt and pressed Tab a few times to reach a window (or Shift+Tab to go back) became separate Alt+Tab steps, which only ever switch to the last window. It now holds Alt, presses Tab as often as you did and lets go, so it lands on the same window. The Windows key held over other keys is kept the same way.
+
 ## 1.13.0 - 2026-11-23
 
 Macros that find a button or icon by how it looks.

@@ -64,9 +64,10 @@ namespace MacroKit.App
             readOnlyBadge.Visibility = Visibility.Collapsed;
             deckButton = Ui.IconButton(Ui.GlyphDeck, "Deck", () => c.ToggleDeck(), "Ghost", "Show or hide the Deck: a small always-on-top panel of macro buttons that never takes focus.");
             restartButton = Ui.IconButton(Ui.GlyphRefresh, "Restart", () => shell.Restart(), "Ghost", "Save and reopen Macro Kit. It waits while something is running and never runs an installer.");
-            moreButton = Ui.GlyphButton(Ui.GlyphMore, "More: export or import settings, changelog, data folder", null);
+            moreButton = Ui.GlyphButton(Ui.GlyphMore, "More: export or import settings, how-to guides, changelog, data folder", null);
             moreMenu = Ui.Menu(moreButton,
                 new System.Collections.Generic.KeyValuePair<string, Action>("Export / import configuration…", shell.ExportImport),
+                new System.Collections.Generic.KeyValuePair<string, Action>("How-to guides", shell.ShowHowTo),
                 new System.Collections.Generic.KeyValuePair<string, Action>("Changelog", shell.ShowChangelog),
                 new System.Collections.Generic.KeyValuePair<string, Action>("Open data folder", shell.OpenDataFolder),
                 new System.Collections.Generic.KeyValuePair<string, Action>("Exit Macro Kit", shell.Exit));

@@ -178,5 +178,36 @@ namespace MacroKit.Tests
             string s = Script(E(0, RecKind.KeyDown, 0x0D), E(9000000, RecKind.KeyDown, 0x0D));
             Assert.Equal("{{ENTER}}\n{{PAUSE:3600000}}\n{{PAUSE:3600000}}\n{{PAUSE:1800000}}\n{{ENTER}}", s);
         }
+
+        // MK-014: the key presses of a real recording made on Nov 23 (Alt+Tab, Alt held over three Tabs, Shift+Alt+Tab,
+        // the Win key and PrtSc), with the recorder's scan codes, timings kept.
+        [Test]
+        public static void SwitchingWindowsTheWinKeyAndPrtScBecomeSteps()
+        {
+            var events = new List<RecEvent>
+            {
+                E(2362, RecKind.KeyDown, 0xA4, 56), E(2495, RecKind.KeyDown, 0x09, 15), E(2600, RecKind.KeyUp, 0x09, 15), E(2673, RecKind.KeyUp, 0xA4, 56),
+                E(7326, RecKind.KeyDown, 0xA4, 56), E(7395, RecKind.KeyDown, 0x09, 15), E(7499, RecKind.KeyUp, 0x09, 15),
+                E(8148, RecKind.KeyDown, 0x09, 15), E(8234, RecKind.KeyUp, 0x09, 15), E(8313, RecKind.KeyDown, 0x09, 15), E(8401, RecKind.KeyUp, 0x09, 15),
+                E(9483, RecKind.KeyUp, 0xA4, 56),
+                E(12451, RecKind.KeyDown, 0xA4, 56), E(12532, RecKind.KeyDown, 0x09, 15), E(12626, RecKind.KeyUp, 0x09, 15),
+                E(14692, RecKind.KeyDown, 0xA0, 42), E(14748, RecKind.KeyDown, 0x09, 15), E(14840, RecKind.KeyUp, 0x09, 15), E(15131, RecKind.KeyUp, 0xA0, 42),
+                E(17890, RecKind.KeyUp, 0xA4, 56),
+                E(24567, RecKind.KeyDown, 0x5B, 0x1005B), E(24667, RecKind.KeyUp, 0x5B, 0x1005B),
+                E(27606, RecKind.KeyDown, 0x2C, 0x10037), E(27675, RecKind.KeyUp, 0x2C, 0x10037),
+            };
+            string script = RecordingToMacro.Script(events);
+            string expected = string.Join("\n", new[]
+            {
+                "{{ALT}{TAB}}",
+                "{{PAUSE:4900}}", "{{KEYDOWN:ALT}}", "{{TAB}}", "{{PAUSE:750}}", "{{TAB}}", "{{PAUSE:160}}", "{{TAB}}", "{{PAUSE:1170}}", "{{KEYUP:ALT}}",
+                "{{PAUSE:3050}}", "{{KEYDOWN:ALT}}", "{{TAB}}", "{{PAUSE:2220}}", "{{SHIFT}{TAB}}", "{{PAUSE:3140}}", "{{KEYUP:ALT}}",
+                "{{PAUSE:6780}}", "{{WIN}}",
+                "{{PAUSE:2940}}", "{{SNAPSHOT}}",
+            });
+            Assert.Equal(expected, script);
+            ParseResult r = MacroParser.Parse(script, false);
+            Assert.True(r.Ok, string.Join("; ", r.Errors.Select(x => x.Message)));
+        }
     }
 }

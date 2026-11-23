@@ -1841,6 +1841,16 @@ namespace MacroKit.Tests
             Assert.Equal(2, rig.Input.Log.Count(l => l == "combo LCONTROL+V"), "the paste into the third window never happened");
         }
 
+        // 1.13.1 (MK-014): Convert to macro writes Alt held over several Tabs this way; Alt stays down until the last Tab.
+        [Test]
+        public static void AltHeldOverSeveralTabsStaysDown()
+        {
+            var rig = new Rig();
+            RunResult result = rig.Run("{{KEYDOWN:ALT}}\n{{TAB}}\n{{TAB}}\n{{SHIFT}{TAB}}\n{{KEYUP:ALT}}", m => m.NewLineIsEnter = false);
+            Assert.True(result.Completed, result.Error);
+            Assert.Equal("down LALT|combo TAB|combo TAB|combo LSHIFT+TAB|up LALT", rig.Log);
+        }
+
         [Test]
         public static void ARealAltTabIntoMacroKitStillStops()
         {

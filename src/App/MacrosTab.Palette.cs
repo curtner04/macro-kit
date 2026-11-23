@@ -480,6 +480,17 @@ namespace MacroKit.App
 
         FrameworkElement Group(string id, string title, string hint, string words, FrameworkElement body, FrameworkElement badge = null)
         {
+            // 1.13.1: groups that do more than one simple step link to their how-to guide.
+            string topic;
+            if (HowToGuide.GroupTopics.TryGetValue(id, out topic))
+            {
+                var howTo = Ui.Button("How it works", () => HowToWindow.Show(owner, topic), "Link", "Open the how-to guide for " + title.ToLowerInvariant() + ": what each step does, with examples to copy.");
+                howTo.HorizontalAlignment = HorizontalAlignment.Left;
+                howTo.Margin = new Thickness(0, 8, 0, 0);
+                howToLinks[topic] = howTo;
+                System.Windows.Automation.AutomationProperties.SetName(howTo, "How it works: " + title);
+                body = Ui.Stack(0, body, howTo);
+            }
             var g = new CommandGroup { Id = id, Words = (title + " " + hint + " " + words).ToLowerInvariant(), Body = body };
             g.Chevron = Ui.Glyph(ChevronClosed, 10, "Muted");
             g.Chevron.Width = 16;

@@ -153,6 +153,11 @@ namespace MacroKit.App
             Main.Reveal(true);
         }
 
+        public void ShowHowTo()
+        {
+            HowToWindow.Show(Main, "start");
+        }
+
         public void ShowChangelog()
         {
             new ChangelogWindow(Main).ShowDialog();

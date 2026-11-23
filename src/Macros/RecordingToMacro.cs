@@ -58,13 +58,17 @@ namespace MacroKit.Macros
             int wheel = 0, hwheel = 0, wheelT = 0;
             var opened = new List<ushort>();    // modifiers written as {{KEYDOWN}} because the mouse was used while they were held
             var releaseAfterButton = new List<ushort>();   // opened modifiers let go while a button was down; the click or drag is written when it comes up
+            // 1.13.1: Alt or Win held over several keys (Alt held while Tab is pressed three times goes to the third window) is
+            // written as {{KEYDOWN}} ... {{KEYUP}}, with the keys between written without it; letting go in between would pick a
+            // different window.
+            var kept = new List<ushort>();
 
             // A click or scroll with Ctrl, Shift, Alt or Win held needs that key held in the macro too (Ctrl+click, Ctrl+wheel).
             Action<int> openHeld = t =>
             {
                 foreach (ushort mod in new ushort[] { 0x11, 0x10, 0x12, 0x5B })
                 {
-                    if (!held.Contains(mod) || opened.Contains(mod)) continue;
+                    if (!held.Contains(mod) || opened.Contains(mod) || kept.Contains(mod)) continue;
                     w.Step(t, MacroScript.KeyDown(mod), false);
                     opened.Add(mod);
                 }
@@ -151,11 +155,17 @@ namespace MacroKit.Macros
                         loneModifier = 0;
                         closeOpened(e.T);   // a key pressed now is written with its own modifiers, which would let go of the held ones
                         if (vk == 0x14) { caps = !caps; break; }   // Caps Lock changes the letters that follow
+                        foreach (ushort hold in new ushort[] { 0x12, 0x5B })
+                        {
+                            if (!held.Contains(hold) || kept.Contains(hold) || !AnotherKeyBeforeRelease(events, i, hold)) continue;
+                            w.Step(e.T, MacroScript.KeyDown(hold), false);
+                            kept.Add(hold);
+                        }
                         bool shift = held.Contains(0x10);
                         bool command = held.Contains(0x11) || held.Contains(0x12) || held.Contains(0x5B);
                         char ch;
                         if (!command && TryChar(vk, shift, caps, out ch) && ch != '{' && ch != '}') w.Text(e.T, ch);
-                        else w.Step(e.T, Combo(held, vk), false);
+                        else w.Step(e.T, Combo(held, kept, vk), false);
                         break;
                     }
                     case RecKind.KeyUp:
@@ -170,6 +180,7 @@ namespace MacroKit.Macros
                             loneModifier = 0;
                             break;
                         }
+                        if (kept.Remove(mod)) { w.Step(e.T, MacroScript.KeyUp(mod), false); loneModifier = 0; break; }
                         if (opened.Remove(mod)) { w.Step(e.T, MacroScript.KeyUp(mod), false); loneModifier = 0; break; }
                         // Win or Alt pressed and let go on its own (opens Start, or the menu bar).
                         if (loneModifier == mod) w.Step(e.T, "{{" + KeyNames.MacroToken(mod) + "}}", false);
@@ -181,7 +192,22 @@ namespace MacroKit.Macros
             if (wheel != 0) { openHeld(wheelT); w.Scroll(wheelT, wheel, false); }
             if (hwheel != 0) { openHeld(wheelT); w.Scroll(wheelT, hwheel, true); }
             if (opened.Count > 0 && events.Count > 0) closeOpened(events[events.Count - 1].T);
+            if (kept.Count > 0 && events.Count > 0) foreach (ushort mod in kept) w.Step(events[events.Count - 1].T, MacroScript.KeyUp(mod), false);
             return w.Finish();
+        }
+
+        // Whether another key (not a modifier) is pressed after event i before the modifier is let go.
+        static bool AnotherKeyBeforeRelease(IList<RecEvent> events, int i, ushort mod)
+        {
+            for (int j = i + 1; j < events.Count; j++)
+            {
+                RecEvent e = events[j];
+                if (e.Kind != RecKind.KeyDown && e.Kind != RecKind.KeyUp) continue;
+                ushort m = ModifierBase(KeyNames.BaseVk((ushort)e.A));
+                if (e.Kind == RecKind.KeyUp) { if (m == mod) return false; continue; }
+                if (m == 0) return true;
+            }
+            return false;
         }
 
         static string ButtonWord(MouseButton b) { return b == MouseButton.Right ? "RIGHT" : b == MouseButton.Middle ? "MIDDLE" : "LEFT"; }
@@ -198,11 +224,12 @@ namespace MacroKit.Macros
             }
         }
 
-        static string Combo(HashSet<ushort> held, ushort vk)
+        // The key with the modifiers held for it; the ones kept down with {{KEYDOWN}} are already pressed.
+        static string Combo(HashSet<ushort> held, List<ushort> kept, ushort vk)
         {
             var sb = new StringBuilder("{");
             foreach (ushort mod in new ushort[] { 0x11, 0x10, 0x12, 0x5B })
-                if (held.Contains(mod)) sb.Append('{').Append(KeyNames.MacroToken(mod)).Append('}');
+                if (held.Contains(mod) && !kept.Contains(mod)) sb.Append('{').Append(KeyNames.MacroToken(mod)).Append('}');
             sb.Append('{').Append(KeyNames.MacroToken(vk)).Append("}}");
             return sb.ToString();
         }

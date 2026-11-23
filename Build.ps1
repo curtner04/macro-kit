@@ -68,7 +68,8 @@ $stage = New-Stage
 $candidate = Join-Path $stage $exeName
 $sources = @(Get-ChildItem -LiteralPath $src -Filter '*.cs' -File -Recurse | ForEach-Object FullName)
 $sources += @(Get-SharedSource @('AppRestart.cs', 'SingleInstance.cs', 'ConfigurationTransfer.cs', 'ReleaseNotes.cs', 'ReleaseAttributes.cs', 'LauncherHandoff.cs'))
-$resources = @(('/resource:' + (Join-Path $PSScriptRoot 'CHANGELOG.md') + ',App.Changelog.md'), ('/resource:' + (Join-Path $src 'App\Styles.xaml') + ',App.Styles.xaml'))
+$howTo = '/resource:' + (Join-Path $src 'App\HowTo.md') + ',App.HowTo.md'
+$resources = @(('/resource:' + (Join-Path $PSScriptRoot 'CHANGELOG.md') + ',App.Changelog.md'), ('/resource:' + (Join-Path $src 'App\Styles.xaml') + ',App.Styles.xaml'), $howTo)
 $png = Join-Path $PSScriptRoot 'assets\MK.png'
 if (Test-Path -LiteralPath $png) { $resources += ('/resource:' + $png + ',App.Icon.png') }
 $icon = Join-Path $PSScriptRoot 'assets\MK.ico'
@@ -99,7 +100,8 @@ if ($Test) {
     # Every source folder except the WPF app shell is under test; new layers need no Build.ps1 change.
     $sources = @(Get-ChildItem -LiteralPath $src -Directory | Where-Object Name -ne 'App' | ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Filter '*.cs' -File -Recurse | ForEach-Object FullName })
     $sources += @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'tests') -Filter '*.cs' -File | ForEach-Object FullName)
-    Invoke-Roslyn 'Tests' (@('-target:exe', ('-win32manifest:' + (Join-Path $PSScriptRoot 'app.manifest')), ('-out:' + $candidate)) + $references + $sources)
+    # The how-to guides go in too, so the tests can check that every example in them is a working macro.
+    Invoke-Roslyn 'Tests' (@('-target:exe', ('-win32manifest:' + (Join-Path $PSScriptRoot 'app.manifest')), ('-out:' + $candidate), $howTo) + $references + $sources)
     $testTarget = if ($OutputDirectory -eq $PSScriptRoot) { Join-Path $PSScriptRoot 'build\MacroKit.Tests.exe' } else { Join-Path $OutputDirectory 'MacroKit.Tests.exe' }
     New-Item -ItemType Directory -Path (Split-Path -Parent $testTarget) -Force | Out-Null
     Install-Binary $candidate $testTarget $stage

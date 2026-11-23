@@ -72,7 +72,7 @@ namespace MacroKit.App
         // **bold**, *italic* and `code` become real formatting; a marker with no closing partner stays literal text.
         static readonly Regex Marks = new Regex(@"(\*\*[^*]+\*\*|`[^`]+`|\*[^*\s][^*]*\*)");
 
-        static void AddInlines(TextBlock t, string text)
+        internal static void AddInlines(TextBlock t, string text)
         {
             t.Text = "";
             int at = 0;

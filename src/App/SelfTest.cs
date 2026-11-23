@@ -1355,6 +1355,25 @@ namespace MacroKit.App
                 if (main.Macros.VisibleCommandGroups != 11) throw new Exception(main.Macros.VisibleCommandGroups + " groups after clearing the search");
                 if (string.Join(",", main.Macros.OpenCommandGroups) != string.Join(",", saved) || !c.Settings.OpenCommandGroups.SequenceEqual(saved)) throw new Exception("the saved open groups changed");
             });
+            Step("a group's How it works link opens its how-to guide, with examples to copy", () =>
+            {
+                foreach (string id in HowToGuide.GroupTopics.Values)
+                    if (main.Macros.HowToLink(id) == null) throw new Exception("no How it works link for " + id);
+                main.Macros.HowToLink("pictures").RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                HowToWindow guide = HowToWindow.Current;
+                if (guide == null) throw new Exception("the guides window did not open");
+                try
+                {
+                    if (guide.TopicId != "pictures") throw new Exception("it opened at " + guide.TopicId);
+                    if (guide.ExampleCount == 0 || guide.TopicCount < 8) throw new Exception(guide.ExampleCount + " examples, " + guide.TopicCount + " guides");
+                    HowToWindow.Show(main, "conditions");
+                    if (!ReferenceEquals(HowToWindow.Current, guide) || guide.TopicId != "conditions") throw new Exception("a second link opened another window");
+                    HowToWindow.Show(main, "nonsense");
+                    if (guide.TopicId != "start") throw new Exception("an unknown guide showed " + guide.TopicId);
+                }
+                finally { guide.Close(); }
+                if (HowToWindow.Current != null) throw new Exception("closing left the window behind");
+            });
             Step("the colour row adds {{WAITPIXEL}}, and copying it says only Macro Kit runs it", () =>
             {
                 main.Macros.SearchCommands("colour");
@@ -1648,6 +1667,12 @@ namespace MacroKit.App
             {
                 shell.Pill.Render(new ActivityInfo(), "Can't find the window to run in (Chrome.exe, title contains “Orders”). Open it and try again.", true);
                 RenderFloating(shell.Pill, Path.Combine(folder, "7-pill-error-" + suffix + ".png"));
+            });
+            Step("render how-to guide (" + suffix + ")", () =>
+            {
+                HowToWindow guide = HowToWindow.Show(shell.Main, "pictures");
+                try { RenderFloating(guide, Path.Combine(folder, "8-how-to-pictures-" + suffix + ".png")); }
+                finally { guide.Close(); }
             });
             Step("render recorder bar (" + suffix + ")", () =>
             {
